@@ -1,0 +1,64 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "gusnotebook"
+version = "0.1.0"
+description = "Notebooks with embedded Claude Code terminals, and a CLI that writes into the cell you're on."
+readme = "README.md"
+# 3.9 is the floor because os.waitstatus_to_exitcode (terminals._reap) landed
+# there. Nothing in the code needs match statements or 3.10 typing.
+requires-python = ">=3.9"
+license = { text = "MIT" }
+
+dependencies = [
+    "flask>=3.0",
+    "flask-sock>=0.7",
+    "jupyter_client>=8.0",
+    "ipykernel>=6.0",
+    "nbformat>=5.0",
+    "openai>=1.40",
+    "python-dotenv>=1.0",
+]
+
+[project.optional-dependencies]
+# The end-to-end suites drive a real browser against a running app. Not a
+# runtime dependency: `pip install gusnotebook` shouldn't pull Playwright.
+test = ["playwright>=1.40"]
+
+[dependency-groups]
+# Synced by default in a checkout, absent from the published wheel.
+#
+# The data stack is here because a fresh kernel runs on the app's own
+# interpreter, so in a checkout *this* venv is the notebook environment as well
+# as the server's. Without these, `uv sync` would faithfully uninstall pandas and
+# matplotlib and every notebook would stop working — a lockfile that breaks the
+# thing it's locking. Users who install the tool instead point each notebook at
+# their own venv with the env button, which is why these aren't real
+# dependencies.
+dev = [
+    "playwright>=1.40",
+    "pandas>=2.0",
+    "numpy>=1.24",
+    "matplotlib>=3.7",
+    "scikit-learn>=1.3",
+    "scipy>=1.10",
+]
+
+[project.scripts]
+gusnotebook = "gusnotebook.app:main"
+# The short name is what an agent types dozens of times in a session, and what
+# the cell-injection hook calls. Both are installed, so a terminal can reach the
+# CLI without the app knowing where it was installed.
+gusnb = "gusnotebook.cli:main"
+
+[tool.hatch.build.targets.wheel]
+# Everything under here ships, which is what makes `templates/index.html` and
+# `static/` (the stylesheet and the page's eight JS files) package data without
+# a MANIFEST or a force-include — a wheel that builds but serves a 404 for its
+# own stylesheet is the failure this arrangement avoids.
+# Starter skills are deliberately *not* package data: they're written into the
+# user's state directory on first run, because a skill the user has since edited
+# must not be overwritten by an upgrade.
+packages = ["src/gusnotebook"]

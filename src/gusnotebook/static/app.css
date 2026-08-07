@@ -1,0 +1,1354 @@
+/* GusNotebook's stylesheet. Extracted from templates/index.html, where it
+ * was 1300 lines of <style> ahead of the markup it applied to.
+ *
+ * Served from the package's own static/ directory, and linked with the same
+ * BASE_URL prefix every fetch() in the page uses — url_for would work too, but
+ * two ways of building a URL in one app is how a reverse-proxy deployment
+ * breaks in exactly one of them.
+ *
+ * The palette is :root below; the terminal's ANSI colours are the one thing
+ * that isn't here, because xterm.js takes them as a JS object (see
+ * js/terminals.js, attachTerm). */
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+:root {
+  --bg: #f5f6f8;
+  --panel: #ffffff;
+  --border: #e2e8f0;
+  --text: #1e293b;
+  --muted: #94a3b8;
+  --accent: #830051;
+  --code-bg: #fbfbfd;
+  --mono: 'JetBrains Mono', 'SF Mono', Menlo, Monaco, monospace;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Inter', sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  height: 100vh;
+  overflow: hidden;
+}
+
+.app {
+  display: grid;
+  grid-template-columns: 230px 1fr 6px 440px;
+  height: 100vh;
+  overflow: hidden;
+  /* Grid rows default to auto (content height); pin to the viewport so the
+     panes scroll internally instead of growing past the window. */
+  grid-template-rows: 100vh;
+}
+/* Collapsed to zero width rather than display:none — a hidden grid item stops
+   occupying its column, which would slide every later pane one column left. */
+.app.files-hidden { grid-template-columns: 0 1fr 6px 440px; }
+.app.files-hidden .files { visibility: hidden; }
+
+/* ---------- Far left: file browser ---------- */
+.files {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: #fafbfc;
+  border-right: 1px solid var(--border);
+}
+.files-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 40px;
+  flex: 0 0 40px;
+  padding: 0 8px 0 12px;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+  font-weight: 600;
+  color: #475569;
+}
+.files-head .grow { flex: 1; }
+
+/* The collapsible strips at the foot of the panel — Skills, then Sessions.
+   Shared shape, one name: both are occasional-use lists that would otherwise
+   steal room from the file tree, which is what you use constantly. Each is
+   capped when open, so a long list can't push the tree off the screen. */
+.strip {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--border);
+  background: #f6f7f9;
+}
+.strip-head {
+  display: flex; align-items: center; gap: 6px;
+  height: 34px; flex: 0 0 34px;
+  padding: 0 8px 0 12px;
+  font-size: 12px; font-weight: 600; color: #475569;
+  cursor: pointer; user-select: none;
+}
+.strip-head:hover { background: #eef2f7; }
+.strip-head .grow { flex: 0 0 auto; }
+/* Which session you're in, shown in the header while the list is shut —
+   otherwise collapsing it would hide the one thing you always need to know. */
+.strip-head .cur {
+  flex: 1 1 auto; min-width: 0; text-align: right;
+  font-size: 10px; font-weight: 500; color: var(--accent);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.strip:not(.collapsed) .cur { display: none; }
+.strip-head .caret {
+  flex: 0 0 auto; font-size: 8px; color: #94a3b8;
+  transition: transform .12s;
+}
+.strip.collapsed .caret { transform: rotate(-90deg); }
+/* flex: 0 0 auto — inside a flex column this would otherwise default to
+   shrinkable, and the file tree above (flex: 1) squeezes it to a clipped sliver
+   instead of giving up its own space. */
+.session-list {
+  flex: 0 0 auto;
+  max-height: 170px; overflow-y: auto; padding-bottom: 6px;
+}
+.strip.collapsed .session-list { display: none; }
+.session-row {
+  display: flex; align-items: center; gap: 7px;
+  padding: 4px 8px 4px 12px;
+  cursor: pointer; font-size: 12px; color: #334155;
+}
+.session-row:hover { background: #eef2f7; }
+.session-row.current { background: #fce4ef; color: var(--accent); font-weight: 600; }
+.session-row .ic { flex: 0 0 12px; text-align: center; font-size: 9px; }
+.session-row .nm {
+  flex: 1 1 auto; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+/* What you left running elsewhere — the reason switching tears nothing down. */
+.session-row .meta {
+  flex: 0 0 auto; font-family: var(--mono); font-size: 9px; color: #94a3b8;
+}
+.session-row.current .meta { color: #db2777; }
+.session-row .live { color: #16a34a; }
+.session-row .x {
+  flex: 0 0 auto; font-size: 11px; color: #cbd5e1; padding: 0 2px;
+  visibility: hidden;
+}
+.session-row:hover .x { visibility: visible; }
+.session-row .x:hover { color: #b91c1c; }
+/* Per-session instructions for Claude. Same hover-to-reveal as the ✕: a row
+   should read as a name and what's live in it, not a strip of icons. */
+.session-row .note {
+  flex: 0 0 auto; font-size: 10px; color: #cbd5e1; padding: 0 2px;
+  visibility: hidden;
+}
+.session-row:hover .note { visibility: visible; }
+.session-row .note:hover { color: var(--accent); }
+/* Set, so it stays visible unhovered — instructions you can't see are the ones
+   that surprise you when Claude follows them. */
+.session-row .note.set { visibility: visible; color: var(--accent); }
+
+/* Skills: the same collapsed-by-default strip as Sessions, above it. Reused
+   deliberately — two lists at the foot of the panel that behave differently
+   would be two things to learn. */
+.skill-list {
+  flex: 0 0 auto;
+  max-height: 190px; overflow-y: auto; padding-bottom: 6px;
+}
+.strip.collapsed .skill-list { display: none; }
+.skill-row {
+  display: flex; align-items: baseline; gap: 7px;
+  padding: 4px 8px 4px 12px;
+  cursor: pointer; font-size: 12px; color: #334155;
+}
+.skill-row:hover { background: #eef2f7; }
+.skill-row .ic { flex: 0 0 12px; text-align: center; font-size: 9px; color: var(--accent); }
+.skill-row .nm {
+  flex: 0 0 auto; font-family: var(--mono); font-size: 11px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  max-width: 96px;
+}
+/* The description is the useful half: it's what tells you whether this is the
+   snippet you want, so it gets the remaining room rather than being a tooltip. */
+.skill-row .ds {
+  flex: 1 1 auto; min-width: 0; font-size: 10px; color: #94a3b8;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.skill-row .ed {
+  flex: 0 0 auto; font-size: 10px; color: #cbd5e1; padding: 0 2px;
+  visibility: hidden;
+}
+.skill-row:hover .ed { visibility: visible; }
+.skill-row .ed:hover { color: var(--accent); }
+.skill-empty {
+  padding: 6px 12px 8px; font-size: 10px; color: var(--muted); line-height: 1.5;
+}
+.files-btn {
+  border: 1px solid var(--border);
+  background: #fff;
+  border-radius: 5px;
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 500;
+  color: #475569;
+  padding: 2px 6px;
+  line-height: 1.5;
+}
+.files-btn:hover { background: #f1f5f9; border-color: #cbd5e1; }
+.files-btn.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+/* Breadcrumb path — the deepest folders, which are the ones you're working in.
+   Ancestors above them collapse to a clickable "…" so the row never scrolls. */
+.crumbs {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  line-height: 1.6;
+}
+.crumb {
+  cursor: pointer;
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.crumb:last-child { color: #475569; font-weight: 600; flex-shrink: 0; }
+.crumb-sep, .crumbs .crumb:not(:last-child) { flex-shrink: 1; }
+.crumb:hover { color: var(--accent); text-decoration: underline; }
+.crumb-sep { color: #cbd5e1; margin: 0 1px; flex: 0 0 auto; }
+
+.file-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 4px 0 12px;
+}
+.file-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 3px 10px 3px 12px;
+  cursor: pointer;
+  font-size: 12px;
+  color: #334155;
+  white-space: nowrap;
+}
+.file-row:hover { background: #eef2f7; }
+.file-row.open { background: #fce4ef; color: var(--accent); font-weight: 600; }
+.file-row .ic { flex: 0 0 14px; text-align: center; font-size: 11px; opacity: .85; }
+.file-row .nm {
+  flex: 1 1 auto; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis;
+}
+.file-row.dim { color: #94a3b8; }
+.file-row .sz {
+  flex: 0 0 auto; font-family: var(--mono); font-size: 9.5px; color: #94a3b8;
+}
+.files-msg { padding: 10px 12px; font-size: 11px; color: var(--muted); }
+.files-msg.err { color: #b91c1c; }
+
+/* ---------- Left: notebook ---------- */
+.left {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;      /* lets the pane below shrink and own the scroll */
+  overflow: hidden;
+  position: relative;  /* the containing block for .hint — see its rule */
+  background: var(--panel);
+}
+
+.nb-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 14px;
+  height: 40px;
+  background: #fafbfc;
+  border-bottom: 1px solid var(--border);
+  flex: 0 0 40px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #475569;
+}
+.nb-title .path {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  font-weight: 400;
+  color: var(--muted);
+}
+.nb-title .grow { flex: 1; }
+
+/* ---------- Tab bar ---------- */
+.tabs {
+  display: flex;
+  align-items: stretch;
+  flex: 0 0 auto;
+  background: #f1f3f6;
+  border-bottom: 1px solid var(--border);
+  overflow-x: auto;
+  white-space: nowrap;
+  min-height: 33px;
+}
+.tabs::-webkit-scrollbar { height: 5px; }
+.tabs::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+.tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px 0 11px;
+  border-right: 1px solid var(--border);
+  cursor: pointer;
+  font-size: 11.5px;
+  color: #64748b;
+  background: #f1f3f6;
+  max-width: 220px;
+  flex: 0 0 auto;
+}
+.tab:hover { background: #e8ebf0; }
+.tab.active {
+  background: var(--panel);
+  color: #1e293b;
+  font-weight: 600;
+  box-shadow: inset 0 -2px 0 var(--accent);
+}
+.tab .ti { font-size: 10px; opacity: .8; }
+.tab .tn { overflow: hidden; text-overflow: ellipsis; }
+.tab .tx {
+  flex: 0 0 auto;
+  width: 15px; height: 15px;
+  line-height: 14px; text-align: center;
+  border-radius: 3px;
+  color: #94a3b8;
+  font-size: 12px;
+}
+.tab .tx:hover { background: #d5dae2; color: #334155; }
+.tab.dirty .tn::after { content: ' •'; color: var(--accent); font-weight: 700; }
+
+/* The + tab: always last, and never scrolls out of reach of the pointer. */
+.tab-new {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 30px;
+  border-right: 1px solid var(--border);
+  background: #f1f3f6;
+  cursor: pointer;
+  color: #64748b;
+  font-size: 15px;
+  line-height: 1;
+}
+.tab-new:hover { background: #e8ebf0; color: var(--accent); }
+.tab-new.on { background: var(--panel); color: var(--accent); }
+
+/* Fixed rather than absolute: the tab strip scrolls horizontally, so an
+   absolutely positioned child would be clipped by its overflow. */
+.new-menu {
+  display: none;
+  position: fixed;
+  min-width: 250px;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  box-shadow: 0 8px 26px rgba(15,23,42,.16);
+  z-index: 60;
+  padding: 4px;
+}
+.new-menu.on { display: block; }
+.new-item {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 6px 9px;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 11.5px;
+  color: #334155;
+}
+.new-item:hover { background: #f1f5f9; }
+.new-item .ni {
+  flex: 0 0 14px; text-align: center; font-size: 11px; color: var(--accent);
+}
+.new-item .nl { flex: 0 0 auto; font-weight: 600; }
+.new-item .nh {
+  flex: 1 1 auto; min-width: 0; text-align: right;
+  font-size: 9px; color: #94a3b8;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+/* ---------- Text-file editor tab ---------- */
+.textpane {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: none;
+  flex-direction: column;
+}
+.textpane.on { display: flex; }
+.textpane .thead {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--border);
+  font-size: 11px; color: var(--muted);
+}
+.textpane .thead .grow { flex: 1; }
+.textpane textarea {
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+  border: 0;
+  outline: none;
+  resize: none;
+  padding: 12px 14px;
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.55;
+  color: #1e293b;
+  tab-size: 4;
+}
+.imgpane {
+  flex: 1 1 auto; min-height: 0; display: none;
+  overflow: auto; padding: 16px; text-align: center;
+}
+.imgpane.on { display: block; }
+.imgpane img { max-width: 100%; }
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 7px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+  flex: 0 0 auto;
+  flex-wrap: nowrap;      /* never wrap onto a second row */
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.toolbar::-webkit-scrollbar { display: none; }
+
+button.tb {
+  font: inherit;
+  font-size: 11px;
+  padding: 5px 9px;
+  background: #fff;
+  color: #475569;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  cursor: pointer;
+  white-space: nowrap;    /* keep each label on one line */
+  flex: 0 0 auto;
+}
+/* icon-only buttons stay square-ish */
+button.tb.icon { padding: 5px 8px; }
+button.tb:hover { background: #f8fafc; border-color: #cbd5e1; }
+button.tb:active { background: #f1f5f9; }
+button.tb.primary { color: var(--accent); border-color: #e9d5e0; }
+button.tb.primary:hover { background: #fdf4f8; }
+
+.tb-sep { width: 1px; height: 18px; background: var(--border); margin: 0 3px; }
+
+/* The kernel badge doubles as the environment picker button. */
+.kernel-badge {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font: inherit;
+  font-size: 10px;
+  font-family: var(--mono);
+  color: var(--muted);
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 4px 7px;
+  cursor: pointer;
+  white-space: nowrap;
+  max-width: 260px;
+  min-width: 0;
+  overflow: hidden;
+}
+.kernel-badge:hover { background: #f8fafc; border-color: #cbd5e1; }
+.kernel-badge .venv-name {
+  color: #334155;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.kernel-badge .caret { color: #94a3b8; font-size: 8px; }
+#k-status { overflow: hidden; text-overflow: ellipsis; }
+
+/* Venv picker in the toolbar — pinned right, after the buttons. */
+.venv-pick {
+  position: relative;
+  margin-left: auto;
+  padding-left: 10px;
+  flex: 0 1 auto;
+  min-width: 0;
+}
+.venv-menu {
+  display: none;
+  /* Fixed, not absolute: the toolbar scrolls horizontally, and an absolutely
+     positioned child would be clipped by its overflow. Coordinates come from
+     the button's rect in openVenvMenu(). */
+  position: fixed;
+  min-width: 300px;
+  max-width: 460px;
+  max-height: 340px;
+  overflow-y: auto;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  box-shadow: 0 8px 26px rgba(15,23,42,.16);
+  z-index: 60;
+  padding: 4px;
+}
+.venv-menu.on { display: block; }
+.venv-item {
+  padding: 5px 9px;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 11.5px;
+  color: #334155;
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+}
+.venv-item:hover { background: #f1f5f9; }
+.venv-item.current { background: #fce4ef; color: var(--accent); font-weight: 600; }
+.venv-item.off { color: #94a3b8; }
+.venv-item .vl { flex: 0 0 auto; font-weight: 600; }
+.venv-item.off .vl { font-weight: 400; }
+.venv-item .vv { flex: 0 0 auto; font-family: var(--mono); font-size: 9.5px; color: #64748b; }
+.venv-item .vo {
+  flex: 1 1 auto; min-width: 0; text-align: right;
+  font-family: var(--mono); font-size: 9px; color: #94a3b8;
+  overflow: hidden; text-overflow: ellipsis;
+}
+.venv-sep { height: 1px; background: var(--border); margin: 4px 2px; }
+.venv-note { padding: 5px 9px; font-size: 10px; color: var(--muted); }
+.dot { width: 7px; height: 7px; border-radius: 50%; background: #cbd5e1; flex: 0 0 auto; }
+.dot.idle { background: #22c55e; }
+.dot.busy { background: #f59e0b; animation: pulse 1s ease-in-out infinite; }
+.dot.starting { background: #38bdf8; animation: pulse 1s ease-in-out infinite; }
+.dot.dead, .dot.stopped { background: #ef4444; }
+@keyframes pulse { 0%,100% { opacity: 1 } 50% { opacity: .35 } }
+
+.pane {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
+/* Scrollbar — visible but unobtrusive */
+.pane::-webkit-scrollbar { width: 11px; }
+.pane::-webkit-scrollbar-track { background: transparent; }
+.pane::-webkit-scrollbar-thumb {
+  background: #cfd8e3;
+  border-radius: 6px;
+  border: 3px solid var(--panel);
+}
+.pane::-webkit-scrollbar-thumb:hover { background: #aebac9; }
+
+.notebook { padding: 14px 16px 8px; }
+
+/* ---------- Cells ---------- */
+.cell {
+  display: grid;
+  grid-template-columns: 62px 1fr;
+  margin-bottom: 6px;
+}
+
+.gutter {
+  padding: 8px 8px 8px 0;
+  text-align: right;
+}
+.gutter-label {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.cell-body { min-width: 0; padding: 4px 0; }
+
+.editor {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  line-height: 1.55;
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 9px 11px;
+  background: var(--code-bg);
+  color: #0f172a;
+  resize: none;
+  overflow: hidden;
+  display: block;
+  tab-size: 4;
+  white-space: pre;
+  overflow-x: auto;
+}
+.editor:focus { outline: none; border-color: #c9b3c1; background: #fff; }
+.cell[data-type="markdown"] .editor,
+.cell[data-type="raw"] .editor {
+  font-family: -apple-system, BlinkMacSystemFont, 'Inter', sans-serif;
+  font-size: 13px;
+  background: #fffef9;
+  white-space: pre-wrap;
+}
+
+/* The wrapper cellHtml() emits: it holds the fallback textarea until
+   mountEditor() swaps a CodeMirror view in, and carries no styling of its own so
+   whichever editor is inside it looks the same either way. */
+.ed-host { display: block; min-width: 0; }
+
+/* CodeMirror, dressed to match the textarea above it so the two paths look the
+   same — the fallback is what a user sees when the CDN is unreachable, and a
+   visibly different editor would read as a broken page rather than a degraded
+   one. Everything here is the .editor rule restated in CM's own class names. */
+.cm-editor {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--code-bg);
+  font-family: var(--mono);
+  font-size: 12.5px;
+  tab-size: 4;
+}
+.cm-editor.cm-focused { outline: none; border-color: #c9b3c1; background: #fff; }
+.cm-editor .cm-scroller {
+  font-family: inherit;
+  line-height: 1.55;
+  /* CM's default is `overflow: auto` on a fixed height; the notebook wants the
+     editor as tall as its content, with the pane doing the scrolling — the same
+     thing autosize() does for the textarea. */
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+.cm-editor .cm-content { padding: 9px 0; color: #0f172a; }
+.cm-editor .cm-line { padding: 0 11px; }
+.cm-editor .cm-cursor { border-left-color: #0f172a; }
+/* CM paints selection itself (drawSelection), so the native ::selection is
+   invisible; without a colour here a drag looks like nothing happened. */
+.cm-editor .cm-selectionBackground,
+.cm-editor.cm-focused .cm-selectionBackground { background: #dbe4f0; }
+.cm-editor .cm-activeLine { background: #f2f4f8; }
+.cm-editor.cm-focused .cm-activeLine { background: #f4f6fa; }
+.cell[data-type="markdown"] .cm-editor,
+.cell[data-type="raw"] .cm-editor {
+  font-family: -apple-system, BlinkMacSystemFont, 'Inter', sans-serif;
+  font-size: 13px;
+  background: #fffef9;
+}
+.cell[data-type="markdown"] .cm-editor .cm-activeLine,
+.cell[data-type="raw"] .cm-editor .cm-activeLine { background: transparent; }
+.cell[data-type="ai"] .cm-editor { background: #fffafd; border-color: #eccfe1; }
+.cell[data-type="ai"] .cm-editor.cm-focused { background: #fffdfe; border-color: #d9a8c4; }
+
+/* A long code cell, clipped. The clip is on a wrapper rather than on .ed-host
+   itself, so the veil can sit over the editor without being faded by the same
+   gradient that fades the code — a mask applies to a subtree, and the "N more
+   lines" label is in that subtree. */
+.fold { position: relative; }
+/* The height comes from --fold-h, set inline off CODE_FOLD_LINES, so how many
+   lines "folded" means has one definition — in the script — rather than a number
+   here that drifts from it. Only the folded rule reads it, so unfolding is a
+   class toggle with no inline style to undo. */
+.fold.folded { overflow: hidden; max-height: var(--fold-h); }
+/* The transparency the fade is made of. Over the editor, not inside it: an
+   overlay also means a click lands here rather than placing a caret halfway
+   down code the user can't see the end of — opening it first is the only
+   sensible reading of a click on clipped code. */
+.fold-veil {
+  position: absolute;
+  inset: 0;
+  cursor: pointer;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding-bottom: 5px;
+  background: linear-gradient(to bottom,
+    rgba(255, 255, 255, 0) 55%, rgba(255, 255, 255, .55) 82%, var(--panel) 100%);
+}
+.fold-veil span {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--muted);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 1px 8px;
+}
+.fold-veil:hover span { color: var(--accent); border-color: #d9a8c4; }
+
+/* Output collapsed away. The note replaces it rather than leaving a gap, so
+   "this cell has output" survives hiding it — otherwise a collapsed cell is
+   indistinguishable from one that never ran. */
+.out-off { display: none; }
+.out-note {
+  font-size: 11px;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 3px 2px;
+  user-select: none;
+}
+.out-note:hover { color: var(--accent); }
+
+/* ▾/▸ for the output, under the [n] label. Always visible when a cell has
+   output — unlike the hover buttons below it, because it's also the indicator
+   that output is hidden, and an indicator you have to hover to see is none. */
+.gutter-out {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 5px;
+}
+.out-btn {
+  font-size: 10px;
+  line-height: 1;
+  padding: 2px 4px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+}
+.out-btn:hover { color: var(--accent); border-color: #d9a8c4; background: var(--panel); }
+.out-btn.off { color: var(--accent); }
+
+/* The per-cell typing history, under the [n] label. Hidden until CM reports
+   something to undo, so a cell you haven't touched carries no chrome. */
+.gutter-hist {
+  display: none;
+  justify-content: flex-end;
+  gap: 1px;
+  margin-top: 5px;
+}
+.gutter-hist.on { display: flex; }
+.hist-btn {
+  font-size: 11px;
+  line-height: 1;
+  padding: 2px 4px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--panel);
+  color: var(--muted);
+  cursor: pointer;
+}
+.hist-btn:hover:not(:disabled) { color: var(--accent); border-color: #d9a8c4; }
+.hist-btn:disabled { opacity: .3; cursor: default; }
+
+/* Delete, and add a code cell below. Faint until the row is hovered or current:
+   they sit beside every cell in the notebook, and at full strength a long
+   notebook reads as a column of buttons with some code next to it. */
+.gutter-acts {
+  display: flex;
+  justify-content: flex-end;
+  gap: 2px;
+  margin-top: 5px;
+  opacity: 0;
+  transition: opacity .12s;
+}
+.cell:hover .gutter-acts,
+.cell.is-current .gutter-acts { opacity: 1; }
+/* Keyboard users never hover, so the buttons must appear on focus too or they
+   are unreachable by tab. */
+.gutter-acts:focus-within { opacity: 1; }
+.act-btn {
+  font-size: 11px;
+  line-height: 1;
+  width: 17px;
+  height: 17px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--panel);
+  color: var(--muted);
+  cursor: pointer;
+}
+.act-btn:hover { color: var(--accent); border-color: #d9a8c4; }
+.act-btn.danger:hover { color: #b3261e; border-color: #e8b4b0; background: #fff6f5; }
+
+/* The cell you're on. A class rather than `.editor:focus`, so it survives focus
+   moving into a Claude terminal — which is exactly when you need to know which
+   cell Claude is about to act on. The accent bar is on the gutter edge so it
+   reads down a long notebook without tinting the code itself. */
+.cell.is-current .gutter {
+  box-shadow: inset -2px 0 0 var(--accent);
+}
+.cell.is-current .gutter-label { color: var(--accent); font-weight: 600; }
+.cell.is-current > .cell-body > .ed-host > .cm-editor,
+.cell.is-current > .cell-body > .editor { border-color: #d9a8c4; }
+
+/* Markdown rendered */
+.md-rendered {
+  padding: 3px 2px 8px;
+  font-size: 13.5px;
+  line-height: 1.65;
+  cursor: text;
+}
+.md-rendered:empty::after { content: 'Empty markdown cell — double-click to edit'; color: var(--muted); font-style: italic; }
+.md-rendered h1 { font-size: 22px; margin: 12px 0 8px; font-weight: 650; }
+.md-rendered h2 { font-size: 18px; margin: 12px 0 7px; font-weight: 650; }
+.md-rendered h3 { font-size: 15px; margin: 10px 0 6px; font-weight: 600; }
+.md-rendered p { margin: 6px 0; }
+.md-rendered ul, .md-rendered ol { margin: 6px 0 6px 22px; }
+.md-rendered li { margin: 2px 0; }
+.md-rendered code {
+  font-family: var(--mono); font-size: 12px;
+  background: #f1f5f9; padding: 1.5px 4px; border-radius: 3px;
+}
+.md-rendered pre {
+  background: #f8fafc; border: 1px solid var(--border);
+  padding: 9px 11px; border-radius: 6px; overflow-x: auto; margin: 8px 0;
+}
+.md-rendered pre code { background: none; padding: 0; }
+.md-rendered blockquote {
+  border-left: 3px solid var(--border); padding-left: 11px;
+  color: #64748b; margin: 8px 0;
+}
+.md-rendered table { border-collapse: collapse; margin: 8px 0; font-size: 12.5px; }
+.md-rendered th, .md-rendered td { border: 1px solid var(--border); padding: 5px 9px; text-align: left; }
+.md-rendered th { background: #f8fafc; color: #475569; font-weight: 600; }
+.md-rendered a { color: var(--accent); }
+.md-rendered hr { border: none; border-top: 1px solid var(--border); margin: 12px 0; }
+
+/* Outputs */
+.outputs { margin-top: 5px; }
+.output {
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.5;
+  padding: 5px 11px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-x: auto;
+}
+
+/* Long console output (pip installs, verbose logs) gets a capped, scrollable
+   terminal box instead of pushing the whole notebook down. */
+.output.stream {
+  max-height: 260px;
+  overflow-y: auto;
+  background: #1c1c2b;
+  color: #d6d9e0;
+  border-radius: 6px;
+  padding: 8px 11px;
+  margin: 3px 0;
+  font-size: 11.5px;
+  overscroll-behavior: contain;
+}
+.output.stream::-webkit-scrollbar { width: 9px; height: 9px; }
+.output.stream::-webkit-scrollbar-track { background: transparent; }
+.output.stream::-webkit-scrollbar-thumb {
+  background: #45455f; border-radius: 5px; border: 2px solid #1c1c2b;
+}
+.output.stream::-webkit-scrollbar-thumb:hover { background: #5a5a7a; }
+
+/* ANSI colours from console programs */
+.output.stream .a-red { color: #ff6b6b; }
+.output.stream .a-green { color: #7ee787; }
+.output.stream .a-yellow { color: #f0c674; }
+.output.stream .a-blue { color: #79c0ff; }
+.output.stream .a-magenta { color: #d2a8ff; }
+.output.stream .a-cyan { color: #76e3ea; }
+.output.stream .a-dim { color: #8b8ba7; }
+.output.stream .a-bold { font-weight: 600; }
+
+.output.stderr { background: #fff5f5; color: #b91c1c; border-left: 2px solid #fca5a5; }
+.output.stderr.stream { background: #1c1c2b; color: #ffb4b4; border-left: none; }
+.output.error {
+  background: #fff5f5; color: #991b1b;
+  border-left: 2px solid #ef4444; border-radius: 0 4px 4px 0;
+  max-height: 320px; overflow-y: auto;
+  position: relative;
+  padding-right: 62px;   /* room for the Help button */
+}
+.output.result { color: #0f172a; }
+.output img { max-width: 100%; height: auto; display: block; margin: 4px 0; }
+.output table { border-collapse: collapse; font-size: 11.5px; font-family: var(--mono); }
+.output table th, .output table td {
+  border: 1px solid var(--border); padding: 3px 8px; text-align: right;
+}
+.output table th { background: #f8fafc; color: #475569; font-weight: 600; }
+.output .dataframe tbody tr:hover { background: #f8fafc; }
+.output-html { padding: 5px 11px; font-size: 12.5px; overflow-x: auto; }
+
+/* pandas ships its own minimal markup — style it to match the app. */
+.output-html table {
+  border-collapse: collapse;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  margin: 2px 0;
+}
+.output-html th, .output-html td {
+  border: 1px solid var(--border);
+  padding: 4px 10px;
+  text-align: right;
+  white-space: nowrap;
+}
+.output-html thead th {
+  background: #f8fafc;
+  color: #475569;
+  font-weight: 600;
+  text-align: right;
+}
+.output-html tbody th {
+  background: #fcfcfd;
+  color: var(--muted);
+  font-weight: 500;
+}
+.output-html tbody tr:hover td { background: #f8fafc; }
+.output-html table[border] { border: none; }
+
+.spin { display: inline-block; color: var(--muted); font-size: 11px; padding: 4px 11px; font-family: var(--mono); }
+
+/* ---------- Error help ---------- */
+.help-btn {
+  position: absolute;
+  top: 5px;
+  right: 6px;
+  font: inherit;
+  font-family: -apple-system, BlinkMacSystemFont, 'Inter', sans-serif;
+  font-size: 10.5px;
+  font-weight: 600;
+  padding: 2px 9px;
+  color: #b91c1c;
+  background: #fff;
+  border: 1px solid #fca5a5;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.help-btn:hover { background: #fee2e2; border-color: #ef4444; }
+.help-btn:active { background: #fecaca; }
+
+.help-panel:empty { display: none; }
+.help-loading {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--muted);
+  padding: 6px 11px;
+}
+
+.help-box {
+  margin: 6px 0 4px;
+  border: 1px solid #dbe3ec;
+  border-left: 3px solid var(--accent);
+  border-radius: 6px;
+  background: #fcfdff;
+  overflow: hidden;
+}
+.help-box.error-box { border-left-color: #ef4444; }
+
+.help-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 9px;
+  background: #f6f8fb;
+  border-bottom: 1px solid #e8edf3;
+}
+.help-tag {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+.help-meta {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  color: var(--muted);
+}
+.help-close {
+  margin-left: auto;
+  border: none;
+  background: none;
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 11px;
+  padding: 1px 4px;
+  border-radius: 3px;
+}
+.help-close:hover { background: #e8edf3; color: var(--text); }
+
+.help-body {
+  padding: 8px 12px 10px;
+  font-size: 12.5px;
+  line-height: 1.6;
+  max-height: 420px;
+  overflow-y: auto;
+}
+.help-body > :first-child { margin-top: 0; }
+.help-body > :last-child { margin-bottom: 0; }
+.help-body p { margin: 5px 0; }
+.help-body strong { color: #0f172a; }
+.help-body ul, .help-body ol { margin: 5px 0 5px 20px; }
+.help-body li { margin: 2px 0; }
+.help-body code {
+  font-family: var(--mono); font-size: 11.5px;
+  background: #eef2f7; padding: 1.5px 4px; border-radius: 3px;
+}
+.help-body pre {
+  background: #1c1c2b;
+  color: #e6e6ef;
+  padding: 9px 11px;
+  border-radius: 6px;
+  overflow-x: auto;
+  margin: 7px 0;
+}
+.help-body pre code {
+  background: none; padding: 0; color: inherit; font-size: 11.5px;
+}
+
+.add-row {
+  display: flex;
+  gap: 6px;
+  /* Trailing room so the last cell clears the fixed hint bar and there's
+     somewhere to click below the notebook. */
+  padding: 4px 16px 90px 78px;
+  opacity: .45;
+  transition: opacity .12s;
+}
+.add-row:hover { opacity: 1; }
+.add-row button {
+  font: inherit; font-size: 10.5px; padding: 3px 9px;
+  color: #64748b; background: #fff;
+  border: 1px dashed #cbd5e1; border-radius: 4px; cursor: pointer;
+}
+.add-row button:hover { border-style: solid; color: var(--text); }
+
+/* ---------- Splitter ---------- */
+.splitter { background: var(--border); cursor: col-resize; }
+.splitter:hover, .splitter.dragging { background: var(--accent); }
+
+/* ---------- Right: Claude Code terminals ----------
+ * Light, on the same tokens as the notebook side. The two panes sit next to
+ * each other all day, so a dark terminal read as a different application
+ * bolted on rather than one window. Only the ANSI colours below are terminal-
+ * specific, and they're picked for contrast on white. */
+.right {
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+.right .bar {
+  display: flex; align-items: center; gap: 6px;
+  padding: 0 8px 0 12px; height: 40px;
+  background: #fafbfc; border-bottom: 1px solid var(--border);
+  flex: 0 0 40px;
+  overflow: hidden;
+}
+.right .bar .title {
+  font-size: 11px; font-weight: 600; color: #475569; letter-spacing: .03em;
+  flex: 0 0 auto;
+}
+.status { margin-left: auto; font-size: 10px; padding: 3px 8px; border-radius: 4px; flex: 0 0 auto; }
+.status.connected { background: #dcfce7; color: #15803d; }
+.status.disconnected { background: #fee2e2; color: #b91c1c; }
+
+.term-btn {
+  font: inherit; font-size: 11px;
+  padding: 3px 8px;
+  background: #fff; color: #475569;
+  border: 1px solid var(--border); border-radius: 5px;
+  cursor: pointer; flex: 0 0 auto;
+}
+.term-btn:hover { background: #f1f5f9; border-color: #cbd5e1; }
+
+/* One row of session tabs — several Claudes, each rooted somewhere. */
+.term-tabs {
+  display: flex; align-items: stretch;
+  flex: 0 0 auto;
+  background: #f5f6f8;
+  border-bottom: 1px solid var(--border);
+  overflow-x: auto;
+  white-space: nowrap;
+  min-height: 28px;
+}
+.term-tabs:empty { display: none; }
+.term-tabs::-webkit-scrollbar { height: 4px; }
+.term-tabs::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 2px; }
+.tterm {
+  display: flex; align-items: center; gap: 6px;
+  padding: 0 7px 0 10px;
+  border-right: 1px solid var(--border);
+  cursor: pointer;
+  font-size: 10.5px;
+  font-family: var(--mono);
+  color: #64748b;
+  flex: 0 0 auto;
+  max-width: 190px;
+}
+.tterm:hover { background: #eef2f7; color: #334155; }
+.tterm.active {
+  background: var(--panel); color: var(--accent); font-weight: 600;
+  box-shadow: inset 0 -2px 0 var(--accent);
+}
+.tterm.dead { text-decoration: line-through; opacity: .6; }
+.tterm .ti { flex: 0 0 auto; font-size: 9px; opacity: .8; }
+.tterm .tn { overflow: hidden; text-overflow: ellipsis; }
+.tterm .tx {
+  width: 14px; height: 14px; line-height: 13px; text-align: center;
+  border-radius: 3px; color: #94a3b8; font-size: 11px; flex: 0 0 auto;
+}
+.tterm .tx:hover { background: #e2e8f0; color: #b91c1c; }
+
+#terminal-stack { flex: 1 1 auto; min-height: 0; position: relative; }
+.term-host {
+  position: absolute; inset: 0;
+  padding: 8px;
+  overflow: hidden;
+  display: none;
+}
+.term-host.on { display: block; }
+
+/* Shown when no session is open — the default state. */
+.term-empty {
+  position: absolute; inset: 0;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 10px;
+  color: var(--muted); font-size: 11.5px; text-align: center; padding: 20px;
+}
+.term-empty.off { display: none; }
+.term-empty .big {
+  font-size: 12.5px; color: #475569; font-weight: 600;
+}
+.term-empty code {
+  font-family: var(--mono); font-size: 10.5px;
+  background: #f1f5f9; padding: 1px 5px; border-radius: 3px; color: #475569;
+}
+
+/* ---------- Modal (settings) ---------- */
+.modal-back {
+  position: fixed; inset: 0;
+  background: rgba(15, 23, 42, .42);
+  display: none;
+  align-items: center; justify-content: center;
+  z-index: 80;
+}
+.modal-back.on { display: flex; }
+.modal {
+  background: #fff;
+  border-radius: 10px;
+  box-shadow: 0 18px 50px rgba(15,23,42,.3);
+  width: 520px; max-width: 92vw; max-height: 88vh;
+  display: flex; flex-direction: column;
+  overflow: hidden;
+}
+.modal .mhead {
+  display: flex; align-items: center; gap: 8px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px; font-weight: 650;
+}
+.modal .mhead .grow { flex: 1; }
+.modal .mbody { padding: 14px 16px; overflow-y: auto; font-size: 12.5px; }
+.modal .mfoot {
+  display: flex; align-items: center; gap: 8px;
+  padding: 11px 16px;
+  border-top: 1px solid var(--border);
+  background: #fafbfc;
+}
+.modal .mfoot .grow { flex: 1; }
+/* Above the other modals, not level with them: askConfirm() is asked *from*
+   one — "delete this skill?" over the skill editor — and at the shared z-index
+   the editor won, leaving the confirm painted behind it and unclickable. */
+#ask-back { z-index: 90; }
+/* The name prompt: one field, so it's narrower than the settings modal. */
+.modal.ask { width: 420px; max-width: 92vw; }
+.modal.ask .mbody { padding: 14px 16px 12px; }
+.modal.ask input {
+  width: 100%;
+  font: inherit; font-size: 12.5px; font-family: var(--mono);
+  padding: 7px 9px;
+  border: 1px solid var(--border); border-radius: 6px;
+  background: #fff; color: var(--text);
+}
+.modal.ask input:focus { outline: none; border-color: #c9b3c1; }
+/* askConfirm() reuses this modal for a yes/no, where there's nothing to type. */
+.modal.ask input.off { display: none; }
+.modal.ask input.off + .ask-hint { margin-top: 0; white-space: normal; }
+.ask-hint {
+  margin-top: 6px; font-size: 10.5px; color: var(--muted);
+  font-family: var(--mono);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+.field { margin-bottom: 14px; }
+.field > label {
+  display: block; font-size: 11px; font-weight: 650;
+  color: #475569; margin-bottom: 4px;
+}
+.field .fhelp { font-size: 10.5px; color: var(--muted); margin-top: 4px; line-height: 1.5; }
+.field input[type="text"], .field input[type="number"],
+.field input[type="password"], .field select, .field textarea {
+  width: 100%;
+  font: inherit; font-size: 12px;
+  font-family: var(--mono);
+  padding: 6px 8px;
+  border: 1px solid var(--border); border-radius: 6px;
+  background: #fff; color: var(--text);
+}
+.field textarea { font-family: inherit; resize: vertical; min-height: 62px; }
+.field input:focus, .field select:focus, .field textarea:focus {
+  outline: none; border-color: #c9b3c1;
+}
+.field .row { display: flex; gap: 8px; }
+/* The restriction checkboxes. A row is label-wrapped so the whole line is the
+   hit target, and the rule count sits at the end because "what does this
+   actually block" is the question a preset name can't answer. */
+.rlist { display: flex; flex-direction: column; gap: 2px; }
+.rlist label {
+  display: flex; gap: 7px; align-items: flex-start;
+  font-size: 11px; line-height: 1.5; color: #475569;
+  padding: 5px 7px; border: 1px solid transparent; border-radius: 6px;
+  cursor: pointer;
+}
+.rlist label:hover { background: #f8fafc; border-color: var(--border); }
+.rlist input { margin: 2px 0 0; flex: none; }
+.rlist .rn { color: var(--muted); font-family: var(--mono); font-size: 10px; }
+.gw-note {
+  font-size: 10.5px; font-family: var(--mono); color: var(--muted);
+  background: #f8fafc; border: 1px solid var(--border);
+  border-radius: 6px; padding: 7px 9px; line-height: 1.6;
+}
+.gw-note .bad { color: #b91c1c; }
+.gw-note .good { color: #15803d; }
+.btn {
+  font: inherit; font-size: 11.5px; padding: 6px 12px;
+  border: 1px solid var(--border); border-radius: 6px;
+  background: #fff; color: #475569; cursor: pointer;
+}
+.btn:hover { background: #f8fafc; border-color: #cbd5e1; }
+.btn.primary {
+  background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600;
+}
+.btn.primary:hover { background: #9a0060; }
+
+/* ---------- AI cells (inline LLM) ---------- */
+.cell[data-type="ai"] .editor {
+  font-family: -apple-system, BlinkMacSystemFont, 'Inter', sans-serif;
+  font-size: 13px;
+  background: #fbf6fa;
+  border-color: #e9d5e0;
+  white-space: pre-wrap;
+}
+.cell[data-type="ai"] .editor:focus { background: #fffdfe; border-color: #d9a8c4; }
+.ai-bar {
+  display: flex; align-items: center; gap: 8px;
+  margin-top: 5px;
+}
+.ai-go {
+  font: inherit; font-size: 10.5px; font-weight: 600;
+  padding: 3px 10px;
+  color: #fff; background: var(--accent);
+  border: 1px solid var(--accent); border-radius: 5px; cursor: pointer;
+}
+.ai-go:hover { background: #9a0060; }
+.ai-go:disabled { background: #cbb2c1; border-color: #cbb2c1; cursor: default; }
+.ai-hint { font-size: 10px; color: var(--muted); font-family: var(--mono); }
+.ai-model { margin-left: auto; font-size: 9.5px; color: var(--muted); font-family: var(--mono); }
+
+/* The prompt that produced a generated cell, shown above its code. */
+.ai-prompt {
+  display: flex; align-items: baseline; gap: 7px;
+  font-size: 11px; color: #7a5068;
+  background: #fdf4f8;
+  border: 1px solid #f0dbe8;
+  border-radius: 5px 5px 0 0;
+  border-bottom: none;
+  padding: 4px 9px;
+  margin-bottom: -1px;
+}
+.ai-prompt .tag {
+  font-size: 8.5px; font-weight: 700; letter-spacing: .05em;
+  text-transform: uppercase; color: var(--accent); flex: 0 0 auto;
+}
+.ai-prompt .pt { flex: 1 1 auto; min-width: 0; }
+.ai-prompt .re {
+  flex: 0 0 auto; cursor: pointer; color: var(--accent);
+  font-size: 10px; padding: 0 3px; border-radius: 3px;
+}
+.ai-prompt .re:hover { background: #f6dfeb; }
+/* The same strip for a terminal's write. Blue rather than the inline LLM's pink,
+   because they answer different questions — "this code was generated from this
+   request, ask again" versus "Claude changed this, here's what you asked" — and
+   a cell can carry both at once, one above the other. */
+.ai-prompt.claude {
+  color: #40566f;
+  background: #f3f7fc;
+  border-color: #d8e5f2;
+}
+.ai-prompt.claude .tag {
+  color: #3f6ea8;
+  text-transform: none;
+  font-size: 10px;
+}
+
+/* Shown only while a cell has a replaced source to walk back. Deliberately not
+   the AI strip's pink: this is an "undo something that happened to your code"
+   affordance, and it shouldn't read as provenance. */
+.undo-bar {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 11px; color: #6b6250;
+  background: #fdfaf1;
+  border: 1px solid #efe5cd;
+  border-radius: 5px 5px 0 0;
+  border-bottom: none;
+  padding: 3px 8px;
+  margin-bottom: -1px;
+}
+.undo-go {
+  font: inherit; cursor: pointer; color: #6b6250;
+  background: #fff; border: 1px solid #e3d7ba;
+  border-radius: 4px; padding: 1px 7px;
+}
+.undo-go:hover { background: #f6edd8; }
+.undo-n { color: var(--muted); font-size: 10px; }
+
+/* Anchored to the notebook column, not the window: these are cell shortcuts, and
+   at the window's left edge it sat on top of the file panel — where it covered
+   the Sessions list at the foot of it. */
+.hint {
+  position: absolute; bottom: 0; left: 0;
+  font-size: 10px; color: var(--muted);
+  background: rgba(255,255,255,.94);
+  border-top: 1px solid var(--border); border-right: 1px solid var(--border);
+  padding: 4px 10px; border-radius: 0 6px 0 0;
+  font-family: var(--mono);
+  pointer-events: none;   /* never blocks a click on the cell beneath it */
+  z-index: 5;
+}
+
+/* Transient notice — used for open/save failures and env switches. */
+.flash {
+  position: fixed;
+  left: 50%;
+  bottom: 26px;
+  transform: translateX(-50%) translateY(12px);
+  max-width: 62vw;
+  padding: 8px 14px;
+  border-radius: 7px;
+  background: #1e293b;
+  color: #f8fafc;
+  font-size: 11.5px;
+  line-height: 1.45;
+  box-shadow: 0 6px 20px rgba(15, 23, 42, .28);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .16s, transform .16s;
+  z-index: 50;
+}
+.flash.on { opacity: 1; transform: translateX(-50%) translateY(0); }

@@ -1,0 +1,23 @@
+.venv/
+__pycache__/
+*.pyc
+*.egg-info/
+build/
+dist/
+.env
+.DS_Store
+
+# Runtime state used to live here, beside the code. It now lives in the user's
+# state directory (~/.config/gusnotebook — see src/gusnotebook/paths.py), which
+# is the whole reason this is installable. These stay listed so a stray file from
+# an older checkout can't be committed by accident.
+settings.json
+sessions.json
+skills/
+
+# The launch notebook: created in whatever directory you run `gusnotebook` in,
+# which in this repo is this one. It's a scratch document, not source.
+notebook.ipynb
+
+.claude
+CLAUDE.md

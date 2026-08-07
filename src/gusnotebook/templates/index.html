@@ -1,0 +1,528 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>GusNotebook</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='13' font-size='14'>&#128211;</text></svg>">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.min.css">
+
+<!-- CodeMirror 6, for syntax colouring and per-cell undo history.
+     Every specifier is pinned here, and every URL carries esm.sh's `*`
+     (external-all) prefix, because CM breaks in a way that is easy to miss if it
+     doesn't: two copies of @codemirror/state make its `instanceof` checks fail,
+     which throws "Unrecognized extension value in extension set" and renders an
+     editor with *zero* highlighted tokens — plain-looking text, no error the eye
+     would catch. With `*`, esm.sh resolves the shared deps through this map, so
+     there is exactly one copy of state, view and @lezer/highlight.
+     CM is ESM-only (no UMD build), so it loads as a module and hands itself to
+     the classic script below via window.CM. -->
+<script type="importmap">
+{ "imports": {
+  "@codemirror/state":        "https://esm.sh/*@codemirror/state@6.4.1?target=es2022",
+  "@codemirror/view":         "https://esm.sh/*@codemirror/view@6.26.3?target=es2022",
+  "@codemirror/language":     "https://esm.sh/*@codemirror/language@6.10.1?target=es2022",
+  "@codemirror/commands":     "https://esm.sh/*@codemirror/commands@6.6.0?target=es2022",
+  "@codemirror/lang-python":  "https://esm.sh/*@codemirror/lang-python@6.1.6?target=es2022",
+  "@codemirror/autocomplete": "https://esm.sh/*@codemirror/autocomplete@6.16.0?target=es2022",
+  "@lezer/common":            "https://esm.sh/*@lezer/common@1.2.1?target=es2022",
+  "@lezer/highlight":         "https://esm.sh/*@lezer/highlight@1.2.0?target=es2022",
+  "@lezer/lr":                "https://esm.sh/*@lezer/lr@1.4.0?target=es2022",
+  "@lezer/python":            "https://esm.sh/*@lezer/python@1.1.13?target=es2022",
+  "style-mod":                "https://esm.sh/*style-mod@4.1.2?target=es2022",
+  "w3c-keyname":              "https://esm.sh/*w3c-keyname@2.2.8?target=es2022",
+  "crelt":                    "https://esm.sh/*crelt@1.0.6?target=es2022"
+}}
+</script>
+<!-- The stylesheet moved out of this file: 1300 lines of <style> ahead of the
+     markup made the page hard to read and impossible to diff usefully. Linked
+     with the same {{ BASE_URL }} prefix every fetch() uses, so a reverse-proxy
+     deployment builds URLs one way throughout. -->
+<link rel="stylesheet" href="{{ BASE_URL }}/static/app.css">
+</head>
+<body>
+
+<div class="app" id="app">
+  <div class="files" id="files">
+    <div class="files-head">
+      <span class="grow">Files</span>
+      <!-- Creating things lives on the tab bar's + menu; what's left here is
+           navigation, which is what this panel is for. -->
+      <button class="files-btn" id="hidden-btn" onclick="toggleHidden()"
+              title="Show hidden files">.*</button>
+      <button class="files-btn" onclick="browseHome()" title="Home directory">⌂</button>
+      <button class="files-btn" onclick="browseUp()" title="Parent directory">↑</button>
+      <button class="files-btn" onclick="refreshFiles()" title="Refresh">↻</button>
+    </div>
+    <div class="crumbs" id="crumbs"></div>
+    <div class="file-list" id="file-list"></div>
+
+    <!-- Skills: snippets and practices, shut by default like Sessions below it.
+         Clicking one inserts its code as a cell; Claude reads the same files as
+         a plugin, so a skill is written once and serves both. -->
+    <div class="strip collapsed" id="skills">
+      <div class="strip-head" onclick="toggleSkills()">
+        <span class="caret">▼</span>
+        <span class="grow">Skills</span>
+        <span class="cur" id="skills-cur"></span>
+        <button class="files-btn" onclick="newSkill(event)"
+                title="New skill — a snippet and when to use it">+</button>
+      </div>
+      <div class="skill-list" id="skill-list"></div>
+    </div>
+
+    <!-- Sessions at the foot of the panel, collapsed to just its header until
+         you click it. Switching sessions is occasional; the file tree is what
+         you use constantly, so it gets the room by default. -->
+    <div class="strip collapsed" id="sessions">
+      <div class="strip-head" onclick="toggleSessions()">
+        <span class="caret">▼</span>
+        <span class="grow">Sessions</span>
+        <span class="cur" id="sessions-cur"></span>
+        <button class="files-btn" onclick="newSession(event)"
+                title="New session — its own tabs and kernels">+</button>
+      </div>
+      <div class="session-list" id="session-list"></div>
+    </div>
+  </div>
+
+  <div class="left">
+    <div class="nb-title">
+      <span id="nb-label">GusNotebook</span> <span class="path" id="nb-path"></span>
+      <!-- The one way into settings: here rather than the toolbar, which hides
+           on text and image tabs, and settings aren't notebook-specific. -->
+      <span class="grow"></span>
+      <button class="files-btn" onclick="openSettings()"
+              title="Settings — inline LLM model and gateway credentials">⚙</button>
+    </div>
+
+    <div class="tabs" id="tabs"></div>
+
+    <!-- The + tab's menu. Fixed-position, so the tab strip's horizontal scroll
+         can't clip it; coordinates come from the + tab's rect in openNewMenu(). -->
+    <div class="new-menu" id="new-menu">
+      <div class="new-item" onclick="newFromMenu('notebook')">
+        <span class="ni">◆</span>
+        <span class="nl">Notebook</span>
+        <span class="nh">.ipynb, with its own kernel</span>
+      </div>
+      <div class="new-item" onclick="newFromMenu('text')">
+        <span class="ni">≡</span>
+        <span class="nl">Text file</span>
+        <span class="nh">the extension decides how it opens</span>
+      </div>
+      <div class="new-item" onclick="newFromMenu('folder')">
+        <span class="ni">▸</span>
+        <span class="nl">Folder</span>
+        <span class="nh">in the browsed directory</span>
+      </div>
+      <div class="venv-sep"></div>
+      <div class="new-item" onclick="newFromMenu('claude')">
+        <span class="ni">✳</span>
+        <span class="nl">Claude Code</span>
+        <span class="nh">rooted in the browsed directory</span>
+      </div>
+      <div class="new-item" onclick="newFromMenu('terminal')">
+        <span class="ni">❯</span>
+        <span class="nl">Terminal</span>
+        <span class="nh">a plain shell there</span>
+      </div>
+    </div>
+
+    <!-- What a cell is, from the ⌥ in its gutter. One menu reused by every cell
+         — `typeMenuCell` says which one it's open for — rather than one per cell
+         in a notebook that might have hundreds. -->
+    <div class="new-menu" id="type-menu">
+      <div class="new-item" onclick="typeFromMenu('code')">
+        <span class="ni">[ ]</span>
+        <span class="nl">Code</span>
+        <span class="nh">runs on the kernel</span>
+      </div>
+      <div class="new-item" onclick="typeFromMenu('markdown')">
+        <span class="ni">▤</span>
+        <span class="nl">Markdown</span>
+        <span class="nh">prose; ⇧⏎ renders it</span>
+      </div>
+      <div class="new-item" onclick="typeFromMenu('raw')">
+        <span class="ni">≡</span>
+        <span class="nl">Raw</span>
+        <span class="nh">text, never run</span>
+      </div>
+    </div>
+
+    <div class="toolbar" id="toolbar">
+      <button class="tb" onclick="addCell('code')">+ Code</button>
+      <button class="tb" onclick="addCell('markdown')">+ Markdown</button>
+      <button class="tb" onclick="addCell('raw')">+ Raw</button>
+      <button class="tb primary" onclick="addCell('ai')"
+              title="Describe what you want; the inline LLM writes the Python">+ AI</button>
+      <div class="tb-sep"></div>
+      <!-- acts on the cell the caret is in, so cells themselves stay button-free -->
+      <button class="tb" onclick="deleteSelected()" title="Delete current cell">Delete</button>
+      <div class="tb-sep"></div>
+      <button class="tb" onclick="interruptKernel()">■ Stop</button>
+      <button class="tb" onclick="restartKernel()">↻ Restart</button>
+
+      <!-- The kernel badge IS the environment picker: status now, click to switch. -->
+      <div class="venv-pick">
+        <button class="kernel-badge" id="venv-btn" onclick="toggleVenvMenu(event)"
+                title="Python environment for this notebook">
+          <span class="dot" id="k-dot"></span>
+          <span id="k-status">…</span>
+          <span class="venv-name" id="venv-name"></span>
+          <span class="caret">▾</span>
+        </button>
+        <div class="venv-menu" id="venv-menu"></div>
+      </div>
+    </div>
+
+    <div class="pane" id="notebook-pane">
+      <div class="notebook" id="notebook"></div>
+      <div class="add-row">
+        <button onclick="addCell('code')">+ Code</button>
+        <button onclick="addCell('markdown')">+ Markdown</button>
+        <button onclick="addCell('raw')">+ Raw</button>
+        <button onclick="addCell('ai')">+ AI</button>
+      </div>
+    </div>
+
+    <!-- Non-notebook tabs render here instead of the notebook pane -->
+    <div class="textpane" id="textpane">
+      <div class="thead">
+        <span id="text-lang"></span>
+        <span class="grow"></span>
+        <span id="text-status"></span>
+        <button class="files-btn" onclick="saveText()">Save (⌘S)</button>
+      </div>
+      <textarea id="text-editor" spellcheck="false"
+                oninput="markTextDirty()"
+                onkeydown="return onTextKey(event)"></textarea>
+    </div>
+    <div class="imgpane" id="imgpane"><img id="imgview"></div>
+
+    <div class="hint">⇧⏎ run+next · ⌘/ comment · ⇧⌘M code⇄md · ⇧⌘↑↓ move cell · ⌘S save</div>
+  </div>
+
+  <div class="splitter" id="splitter"></div>
+
+  <div class="right">
+    <div class="bar">
+      <span class="title">Claude Code</span>
+      <button class="term-btn" onclick="openTerminal()"
+              title="New session in the active notebook's directory">+ Terminal</button>
+      <span class="status disconnected" id="ws-status">No session</span>
+    </div>
+    <div class="term-tabs" id="term-tabs"></div>
+    <div id="terminal-stack">
+      <div class="term-empty" id="term-empty">
+        <div class="big">No Claude Code session</div>
+        <div>Open one with <code>+ Terminal</code> — it starts in the active
+             notebook's directory, which becomes Claude's project root.</div>
+        <div>The <code>+</code> tab opens Claude or a plain terminal in the
+             browsed folder instead.</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ---------- Settings ---------- -->
+<!-- Name prompt for New notebook / file / folder. In-page rather than
+     window.prompt(), which a browser can suppress into a silent null. -->
+<div class="modal-back" id="ask-back" onclick="if (event.target === this) askDone(false)">
+  <div class="modal ask">
+    <div class="mhead"><span class="grow" id="ask-title">New</span></div>
+    <div class="mbody">
+      <input type="text" id="ask-input" onkeydown="askKey(event)"
+             spellcheck="false" autocomplete="off">
+      <div class="ask-hint" id="ask-hint"></div>
+    </div>
+    <div class="mfoot">
+      <span class="grow"></span>
+      <button class="tb" onclick="askDone(false)">Cancel</button>
+      <button class="tb primary" id="ask-ok" onclick="askDone(true)">Create</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-back" id="settings-back" onclick="if (event.target === this) closeSettings()">
+  <div class="modal">
+    <div class="mhead">
+      <span class="grow">Settings</span>
+      <button class="help-close" onclick="closeSettings()">✕</button>
+    </div>
+    <div class="mbody">
+      <div class="field">
+        <label for="set-model">Inline LLM model</label>
+        <div class="row">
+          <select id="set-model" onchange="pickModel(this.value)"></select>
+        </div>
+        <input type="text" id="set-model-custom" style="margin-top:6px"
+               placeholder="or type any deployment name the gateway exposes">
+        <div class="fhelp">
+          Used by <b>+ AI</b> cells to turn what you type into Python. Separate
+          from the <b>Help</b> button on errors, which has its own model
+          (<code>HELP_MODEL</code>).
+        </div>
+      </div>
+
+      <div class="field">
+        <label for="set-instructions">Standing instructions <span style="font-weight:400;color:#94a3b8">(optional)</span></label>
+        <textarea id="set-instructions"
+                  placeholder="e.g. use polars instead of pandas; always annotate plot axes"></textarea>
+        <div class="fhelp">Added to every + AI request, so you don't repeat yourself.</div>
+      </div>
+
+      <div class="field">
+        <label for="set-max-tokens">Max tokens per generation</label>
+        <input type="number" id="set-max-tokens" min="100" max="16000" step="100">
+      </div>
+
+      <!-- A separate field, not shared with the inline LLM's: different model,
+           different job. That one writes one cell; Claude has a shell and edits
+           files, so its guardrails read nothing like a code-style note. -->
+      <div class="field">
+        <label for="set-claude">Instructions for Claude Code
+          <span style="font-weight:400;color:#94a3b8">(optional)</span></label>
+        <textarea id="set-claude"
+                  placeholder="e.g. never run migrations; ask before touching anything in prod/; put new code in the notebook, not scratch files"></textarea>
+        <div class="fhelp">
+          Guardrails and house style for every Claude Code terminal, added to its
+          system prompt at launch — so <b>new</b> sessions pick this up, not ones
+          already running. A session can add its own on top (▤ on its row in
+          <b>Sessions</b>). Nothing is written into your project: no
+          <code>CLAUDE.md</code> is created or edited.
+        </div>
+      </div>
+
+      <!-- Not instructions: these are rules Claude Code enforces itself, so they
+           hold whether or not the model cooperates. Hence the separate field. -->
+      <div class="field">
+        <label>What Claude Code may <i>not</i> do
+          <span style="font-weight:400;color:#94a3b8">(nothing is blocked by default)</span></label>
+        <div class="rlist" id="set-restrict"></div>
+        <textarea id="set-restrict-extra" spellcheck="false"
+                  style="min-height:52px;margin-top:6px"
+                  placeholder="Extra deny rules, one per line — e.g. Bash(rm *) or Read(**/secrets/**)"></textarea>
+        <div class="fhelp">
+          Enforced by Claude Code itself, not asked for in the prompt — a blocked
+          call fails rather than relying on Claude to decline. Applies to
+          <b>new</b> terminals: the rules are fixed at launch. A session can add
+          more of its own (▤ on its row in <b>Sessions</b>); the two are combined,
+          so a session can only tighten this. Blocklists match on command
+          patterns and are leaky at the edges — an unusual spelling of a command
+          can slip past, so treat this as a guardrail, not a sandbox.
+        </div>
+      </div>
+
+      <div class="field">
+        <label for="set-gw-url">Gateway URL</label>
+        <input type="text" id="set-gw-url"
+               placeholder="https://your-ai-gateway.example.com">
+      </div>
+
+      <div class="field">
+        <label for="set-gw-key">Gateway API key</label>
+        <input type="password" id="set-gw-key" autocomplete="off"
+               spellcheck="false" placeholder="AI_GATEWAY_KEY">
+        <div class="row" style="margin-top:6px">
+          <select id="set-gw-store">
+            <option value="session">Keep for this session only</option>
+            <option value="disk">Save to settings.json</option>
+          </select>
+        </div>
+        <div class="fhelp">
+          <b>This session</b> holds the key in the app's memory — it survives page
+          reloads but is forgotten when the app stops, and never reaches disk.
+          <b>settings.json</b> keeps it across restarts (gitignored,
+          owner-read-only). Never shown back in the clear. Leave blank to keep
+          using the environment or <code>.env</code>.
+        </div>
+      </div>
+
+      <div class="field" style="margin-bottom:0">
+        <label>Status</label>
+        <div class="gw-note" id="set-gateway"></div>
+      </div>
+    </div>
+    <div class="mfoot">
+      <span class="grow"></span>
+      <button class="btn" onclick="closeSettings()">Cancel</button>
+      <button class="btn primary" onclick="saveSettings()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- ---------- Skill editor ----------
+     One markdown file, edited as three fields. The body holds both the note and
+     the code because that pairing is the point: a snippet without "when not to
+     use this" is what makes copy-paste scripting go wrong. -->
+<div class="modal-back" id="skill-back" onclick="if (event.target === this) closeSkill()">
+  <div class="modal">
+    <div class="mhead">
+      <span class="grow" id="skill-title">New skill</span>
+      <button class="help-close" onclick="closeSkill()">✕</button>
+    </div>
+    <div class="mbody">
+      <div class="field">
+        <label for="skill-name">Name</label>
+        <input type="text" id="skill-name" spellcheck="false" autocomplete="off"
+               placeholder="csv-peek" oninput="previewSkillId()">
+        <!-- The name *is* the /command, so spaces and capitals become dashes.
+             Shown as you type rather than silently rewritten on save. -->
+        <div class="fhelp">
+          Claude answers to <code id="skill-id-preview">/name</code>. Renaming
+          changes it, and moves the file.
+        </div>
+      </div>
+
+      <div class="field">
+        <label for="skill-desc">When to use it</label>
+        <input type="text" id="skill-desc" spellcheck="false"
+               placeholder="Load a messy CSV without dtype surprises.">
+        <div class="fhelp">
+          One line. This is how Claude decides whether the skill is relevant, so
+          say the situation it's for, not what the code does.
+        </div>
+      </div>
+
+      <div class="field" style="margin-bottom:0">
+        <label for="skill-body">Practice and code</label>
+        <textarea id="skill-body" spellcheck="false"
+                  style="min-height:230px;font-family:var(--mono);font-size:11.5px"
+                  placeholder="Use when …&#10;Not for … — do X instead.&#10;&#10;```python&#10;import pandas as pd&#10;df = pd.read_csv(path, dtype=str)&#10;```"></textarea>
+        <div class="fhelp">
+          Markdown. The <b>first</b> fenced block is what clicking the skill puts
+          in a cell — later blocks are for counter-examples, so keep the good
+          version first. Say when <i>not</i> to use it too; that's the part a
+          bare snippet can't carry. Keep it to a snippet: anything needing its
+          own install belongs in an importable module, not pasted into a cell.
+        </div>
+      </div>
+    </div>
+    <div class="mfoot">
+      <button class="btn" id="skill-del" onclick="deleteSkill()">Delete</button>
+      <span class="grow"></span>
+      <button class="btn" onclick="closeSkill()">Cancel</button>
+      <button class="btn primary" onclick="saveSkill()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- Per-session instructions for Claude, on top of the app-wide ones. -->
+<div class="modal-back" id="sinstr-back" onclick="if (event.target === this) closeSessionInstr()">
+  <div class="modal">
+    <div class="mhead">
+      <span class="grow" id="sinstr-title">Instructions</span>
+      <button class="help-close" onclick="closeSessionInstr()">✕</button>
+    </div>
+    <div class="mbody">
+      <div class="field">
+        <label for="sinstr-text">Instructions for Claude in this session</label>
+        <textarea id="sinstr-text" spellcheck="false"
+                  style="min-height:120px"
+                  placeholder="e.g. this project uses polars, not pandas; the API in api/ is public — never change its response shapes"></textarea>
+        <div class="fhelp">
+          Added to the app-wide instructions in <b>⚙ Settings</b>, for this
+          session only — a session is a project, and a project's rules aren't
+          every project's. Applies to <b>new</b> Claude terminals: a system
+          prompt is fixed when the session launches.
+        </div>
+      </div>
+
+      <div class="field" style="margin-bottom:0">
+        <label>What Claude may <i>not</i> do here</label>
+        <div class="rlist" id="sinstr-restrict"></div>
+        <textarea id="sinstr-restrict-extra" spellcheck="false"
+                  style="min-height:44px;margin-top:6px"
+                  placeholder="Extra deny rules, one per line"></textarea>
+        <div class="fhelp">
+          On top of whatever <b>⚙ Settings</b> blocks app-wide — the two are
+          combined, so unticking here can't re-allow something blocked there.
+          Fixed at launch, like the instructions above.
+        </div>
+      </div>
+    </div>
+    <div class="mfoot">
+      <span class="grow"></span>
+      <button class="btn" onclick="closeSessionInstr()">Cancel</button>
+      <button class="btn primary" onclick="saveSessionInstr()">Save</button>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10.0/lib/addon-fit.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@xterm/addon-web-links@0.11.0/lib/addon-web-links.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js"></script>
+
+<!-- CodeMirror, handed to the classic script below as window.CM.
+     A module runs deferred, so the main script and the first render() may well
+     go first — that's why mounting is driven by the `cm-ready` event as well as
+     checked inline: whichever happens second does the work.
+     If this block fails (offline, blocked CDN, an esm.sh outage) window.CM stays
+     null and every cell falls back to the plain textarea. That path is load-
+     bearing, not decorative: without it a CDN failure leaves a notebook that
+     cannot be typed in at all. -->
+<script type="module">
+try {
+  const [state, view, language, commands, langPython, highlight] = await Promise.all([
+    import("@codemirror/state"), import("@codemirror/view"),
+    import("@codemirror/language"), import("@codemirror/commands"),
+    import("@codemirror/lang-python"), import("@lezer/highlight"),
+  ]);
+  const t = highlight.tags;
+  // Our own palette rather than defaultHighlightStyle, whose colours assume a
+  // different background than this app's light theme.
+  const style = language.HighlightStyle.define([
+    {tag: [t.keyword, t.moduleKeyword, t.controlKeyword], color: "#7c3aed"},
+    {tag: [t.string, t.special(t.string)], color: "#0f7b3f"},
+    {tag: [t.comment, t.lineComment, t.blockComment], color: "#8b95a5", fontStyle: "italic"},
+    {tag: [t.number, t.bool, t.null], color: "#b45309"},
+    {tag: [t.function(t.variableName), t.function(t.propertyName)], color: "#1d4ed8"},
+    {tag: [t.className, t.typeName, t.definition(t.className)], color: "#0e7490"},
+    {tag: t.operator, color: "#475569"},
+    {tag: [t.self, t.atom], color: "#a21caf"},
+    {tag: t.definition(t.variableName), color: "#0f172a"},
+  ]);
+  window.CM = {
+    EditorState: state.EditorState, Prec: state.Prec,
+    EditorView: view.EditorView, keymap: view.keymap,
+    highlightActiveLine: view.highlightActiveLine,
+    drawSelection: view.drawSelection, placeholder: view.placeholder,
+    syntaxHighlighting: language.syntaxHighlighting,
+    indentUnit: language.indentUnit, style,
+    history: commands.history, undo: commands.undo, redo: commands.redo,
+    undoDepth: commands.undoDepth, redoDepth: commands.redoDepth,
+    indentMore: commands.indentMore, indentLess: commands.indentLess,
+    defaultKeymap: commands.defaultKeymap, historyKeymap: commands.historyKeymap,
+    python: langPython.python,
+  };
+} catch (e) {
+  window.CM = null;                      // the textarea fallback handles it
+  console.warn('CodeMirror unavailable — falling back to plain textareas', e);
+}
+window.CM_READY = true;
+window.dispatchEvent(new Event('cm-ready'));
+</script>
+
+<!-- The page's own script, in eight files rather than 2700 lines in one.
+     Classic scripts, not modules, and the order matters: they share one global
+     scope, which is what the 89 inline onclick= handlers in the markup above
+     need. A module's top-level bindings are module-scoped, so `onclick="load()"`
+     would find nothing.
+     Order is the dependency order: core first (every file reads BASE, tabs,
+     api), boot()-in-panels and bootTerminals()-in-terminals last, since both run
+     on parse and call into everything before them. No `defer` — that would make
+     them all wait on the document, and they already sit after it. -->
+<script>const BASE = "{{ BASE_URL }}";</script>
+<script src="{{ BASE_URL }}/static/js/core.js"></script>
+<script src="{{ BASE_URL }}/static/js/browser.js"></script>
+<script src="{{ BASE_URL }}/static/js/cells.js"></script>
+<script src="{{ BASE_URL }}/static/js/editor.js"></script>
+<script src="{{ BASE_URL }}/static/js/actions.js"></script>
+<script src="{{ BASE_URL }}/static/js/events.js"></script>
+<script src="{{ BASE_URL }}/static/js/panels.js"></script>
+<script src="{{ BASE_URL }}/static/js/terminals.js"></script>
+
+</body>
+</html>
