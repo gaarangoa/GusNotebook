@@ -300,6 +300,47 @@ def index():
     return render_template("index.html")
 
 
+# --- Path completions for the cell editor ---
+
+@app.route("/api/completions")
+def api_completions():
+    """List filesystem entries matching a partial path typed in a string literal.
+
+    ?path=   the partial path the user has typed so far (may be empty)
+    ?base=   the notebook's absolute path; completions are resolved relative to
+             its directory so `../../data/` works as it would in the notebook
+
+    Returns {completions: [{label, type}]} where type is "dir" or "file".
+    """
+    raw  = request.args.get("path", "")
+    base = request.args.get("base", "")
+    try:
+        base_dir = Path(base).parent if base else WORK_DIR
+        # Split into the directory prefix and the partial name being typed.
+        # "../../data/fi" -> search_dir="../../data/", prefix="fi"
+        if "/" in raw:
+            dir_part, prefix = raw.rsplit("/", 1)
+            search_dir = (base_dir / dir_part).resolve()
+        else:
+            dir_part, prefix = "", raw
+            search_dir = base_dir.resolve()
+        if not search_dir.is_dir():
+            return jsonify({"completions": []})
+        entries = []
+        for p in sorted(search_dir.iterdir()):
+            if p.name.startswith(".") and not prefix.startswith("."):
+                continue
+            if not p.name.startswith(prefix):
+                continue
+            label = (dir_part + "/" if dir_part else "") + p.name
+            if p.is_dir():
+                label += "/"
+            entries.append({"label": label, "type": "dir" if p.is_dir() else "file"})
+        return jsonify({"completions": entries[:60]})
+    except Exception:
+        return jsonify({"completions": []})
+
+
 # --- File browser ---
 
 @app.route("/api/files")
@@ -347,6 +388,46 @@ def api_new_file():
         return jsonify({"error": str(e)}), 400
     return jsonify({"path": str(target),
                     "kind": textfile.kind_of(target)})
+
+
+@app.route("/api/files/rename", methods=["POST"])
+def api_rename_file():
+    body = request.get_json(silent=True) or {}
+    src = body.get("path", "").strip()
+    name = body.get("name", "").strip()
+    if not src or not name:
+        return jsonify({"error": "path and name are required"}), 400
+    if "/" in name or "\\" in name or name in (".", ".."):
+        return jsonify({"error": "name must be a single path component"}), 400
+    src_path = Path(src)
+    dst_path = src_path.parent / name
+    if dst_path.exists():
+        return jsonify({"error": f"{name} already exists"}), 400
+    try:
+        src_path.rename(dst_path)
+    except OSError as e:
+        return jsonify({"error": str(e)}), 400
+    return jsonify({"path": str(dst_path)})
+
+
+@app.route("/api/files/delete", methods=["POST"])
+def api_delete_file():
+    import shutil
+    body = request.get_json(silent=True) or {}
+    path = body.get("path", "").strip()
+    if not path:
+        return jsonify({"error": "path is required"}), 400
+    p = Path(path)
+    if not p.exists():
+        return jsonify({"error": "not found"}), 404
+    try:
+        if p.is_dir():
+            shutil.rmtree(p)
+        else:
+            p.unlink()
+    except OSError as e:
+        return jsonify({"error": str(e)}), 400
+    return jsonify({"ok": True})
 
 
 # --- Sessions: named groups of tabs ---

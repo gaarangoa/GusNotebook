@@ -84,25 +84,99 @@ function renderCrumbs(path) {
 }
 
 function renderFileList(entries) {
+  const list = document.getElementById('file-list');
   if (!entries.length) {
-    document.getElementById('file-list').innerHTML =
-      '<div class="files-msg">empty directory</div>';
-    return;
+    list.innerHTML = '<div class="files-msg">empty directory</div>';
+  } else {
+    list.innerHTML = entries.map(e => {
+      const cls = ['file-row'];
+      if (tab(e.path)) cls.push('open');
+      if (e.kind === 'file') cls.push('dim');
+      const action = e.kind === 'dir'
+        ? `browse('${escapeAttr(e.path)}')`
+        : `openFile('${escapeAttr(e.path)}')`;
+      return `<div class="${cls.join(' ')}" onclick="${action}"
+        oncontextmenu="fileCtxEntry(event,'${escapeAttr(e.path)}','${e.kind}')"
+        title="${escapeAttr(e.path)}">
+        <span class="ic">${FILE_ICON[e.kind]}</span>
+        <span class="nm">${escapeHtml(e.name)}</span>
+        <span class="sz">${fmtSize(e.size)}</span>
+      </div>`;
+    }).join('');
   }
-  document.getElementById('file-list').innerHTML = entries.map(e => {
-    const cls = ['file-row'];
-    if (tab(e.path)) cls.push('open');
-    if (e.kind === 'file') cls.push('dim');
-    const action = e.kind === 'dir'
-      ? `browse('${escapeAttr(e.path)}')`
-      : `openFile('${escapeAttr(e.path)}')`;
-    return `<div class="${cls.join(' ')}" ${action ? `onclick="${action}"` : ''}
-      title="${escapeAttr(e.path)}">
-      <span class="ic">${FILE_ICON[e.kind]}</span>
-      <span class="nm">${escapeHtml(e.name)}</span>
-      <span class="sz">${fmtSize(e.size)}</span>
-    </div>`;
-  }).join('');
+  list.oncontextmenu = (e) => {
+    if (!e.target.closest('.file-row')) fileCtxDir(e);
+  };
+}
+
+// ---------- File context menu ----------
+
+let fileCtxTarget = null;
+
+function fileCtxDir(e) {
+  e.preventDefault();
+  fileCtxTarget = null;
+  showFileCtx(e.clientX, e.clientY, [
+    {label: '+ New file',   action: () => newFile()},
+    {label: '+ New folder', action: () => newFolder()},
+  ]);
+}
+
+function fileCtxEntry(e, path, kind) {
+  e.preventDefault();
+  e.stopPropagation();
+  fileCtxTarget = {path, kind};
+  showFileCtx(e.clientX, e.clientY, [
+    {label: 'Rename', action: () => renameEntry(path)},
+    {label: 'Delete', action: () => deleteEntry(path, kind), danger: true},
+  ]);
+}
+
+function showFileCtx(x, y, items) {
+  closeFileCtx();
+  const menu = document.createElement('div');
+  menu.className = 'file-ctx';
+  menu.id = 'file-ctx';
+  items.forEach(({label, action, danger}) => {
+    const item = document.createElement('div');
+    item.className = 'file-ctx-item' + (danger ? ' danger' : '');
+    item.textContent = label;
+    item.onclick = (e) => { e.stopPropagation(); closeFileCtx(); action(); };
+    menu.appendChild(item);
+  });
+  // Keep menu inside the viewport.
+  document.body.appendChild(menu);
+  const mw = menu.offsetWidth, mh = menu.offsetHeight;
+  menu.style.left = Math.min(x, window.innerWidth  - mw - 8) + 'px';
+  menu.style.top  = Math.min(y, window.innerHeight - mh - 8) + 'px';
+}
+
+function closeFileCtx() {
+  const m = document.getElementById('file-ctx');
+  if (m) m.remove();
+}
+
+async function renameEntry(path) {
+  const old = path.split('/').pop();
+  const name = await askName('Rename', old, path);
+  if (!name || name === old) return;
+  try {
+    await api('/api/files/rename', {method: 'POST',
+      body: JSON.stringify({path, name: name.trim()})});
+    browse(fileState.path);
+  } catch (err) { flash('Rename failed: ' + errText(err)); }
+}
+
+async function deleteEntry(path, kind) {
+  const name = path.split('/').pop();
+  const ok = await askConfirm(
+    `Delete ${kind === 'dir' ? 'folder' : 'file'} "${name}"?`,
+    kind === 'dir' ? 'This will delete the folder and all its contents.' : '');
+  if (!ok) return;
+  try {
+    await api('/api/files/delete', {method: 'POST', body: JSON.stringify({path})});
+    browse(fileState.path);
+  } catch (err) { flash('Delete failed: ' + errText(err)); }
 }
 
 function escapeAttr(s) {
@@ -305,7 +379,6 @@ function newFromMenu(what) {
 }
 
 document.addEventListener('click', (e) => {
-  if (!e.target.closest('#new-menu') && !e.target.closest('#tab-new')) {
-    closeNewMenu();
-  }
+  if (!e.target.closest('#new-menu') && !e.target.closest('#tab-new')) closeNewMenu();
+  if (!e.target.closest('#file-ctx')) closeFileCtx();
 });

@@ -19,7 +19,7 @@
   --text: #1e293b;
   --muted: #94a3b8;
   --accent: #830051;
-  --code-bg: #fbfbfd;
+  --code-bg: #ffffff;
   --mono: 'JetBrains Mono', 'SF Mono', Menlo, Monaco, monospace;
 }
 
@@ -383,6 +383,28 @@ body {
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 
+/* File browser context menu */
+.file-ctx {
+  position: fixed;
+  min-width: 150px;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  box-shadow: 0 8px 26px rgba(15,23,42,.16);
+  z-index: 200;
+  padding: 4px;
+}
+.file-ctx-item {
+  padding: 6px 12px;
+  border-radius: 5px;
+  font-size: 12px;
+  color: #334155;
+  cursor: pointer;
+}
+.file-ctx-item:hover { background: #f1f5f9; }
+.file-ctx-item.danger { color: #b3261e; }
+.file-ctx-item.danger:hover { background: #fff6f5; }
+
 /* ---------- Text-file editor tab ---------- */
 .textpane {
   flex: 1 1 auto;
@@ -637,10 +659,13 @@ button.tb.primary:hover { background: #fdf4f8; }
 .cm-editor .cm-content { padding: 9px 0; color: #0f172a; }
 .cm-editor .cm-line { padding: 0 11px; }
 .cm-editor .cm-cursor { border-left-color: #0f172a; }
-/* CM paints selection itself (drawSelection), so the native ::selection is
-   invisible; without a colour here a drag looks like nothing happened. */
-.cm-editor .cm-selectionBackground,
-.cm-editor.cm-focused .cm-selectionBackground { background: #dbe4f0; }
+/* CM draws selection itself via drawSelection; the theme override in editor.js
+   forces the colour with enough specificity to beat CM's own default. The
+   ::selection rule covers plain textareas (the CDN-offline fallback). */
+.cm-editor .cm-content ::selection { background: #3b6fd4; color: #fff; }
+.editor::selection, .editor *::selection { background: #3b6fd4; color: #fff; }
+.cm-editor .cm-gutters { background: #f8f8fa; border-right: 1px solid var(--border); border-radius: 6px 0 0 6px; }
+.cm-editor .cm-lineNumbers .cm-gutterElement { color: var(--muted); font-size: 10.5px; padding: 0 6px 0 8px; min-width: 24px; }
 .cm-editor .cm-activeLine { background: #f2f4f8; }
 .cm-editor.cm-focused .cm-activeLine { background: #f4f6fa; }
 .cell[data-type="markdown"] .cm-editor,
@@ -779,14 +804,11 @@ button.tb.primary:hover { background: #fdf4f8; }
 
 /* The cell you're on. A class rather than `.editor:focus`, so it survives focus
    moving into a Claude terminal — which is exactly when you need to know which
-   cell Claude is about to act on. The accent bar is on the gutter edge so it
-   reads down a long notebook without tinting the code itself. */
-.cell.is-current .gutter {
-  box-shadow: inset -2px 0 0 var(--accent);
-}
+   cell Claude is about to act on. */
+.cell.is-current { border-left: 2px solid transparent; margin-left: -2px; }
 .cell.is-current .gutter-label { color: var(--accent); font-weight: 600; }
 .cell.is-current > .cell-body > .ed-host > .cm-editor,
-.cell.is-current > .cell-body > .editor { border-color: #d9a8c4; }
+.cell.is-current > .cell-body > .editor { border-color: #c9b3c1; }
 
 /* Markdown rendered */
 .md-rendered {

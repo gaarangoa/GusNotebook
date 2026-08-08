@@ -307,9 +307,11 @@ cell=$({nb} here 2>/dev/null) || exit 0
 printf '%s\\n%s\\n' \
   'The cell the user is currently on in the notebook (their prompt probably \
 refers to it). To work on it: `{nb} here - --run` replaces it and runs it, \
-which the user can undo per-cell. Do not assume they want it changed unless \
-they say so. `{nb} --help` lists the rest; you do not need to explore the \
-notebook to find out what it can do.' \
+which the user can undo per-cell. If they ask you to write code and the cell \
+is empty, write it into the cell with `{nb} here - --run` — do not just show \
+it in the terminal. If the cell already has code, do not change it unless they \
+ask. `{nb} --help` lists the rest; you do not need to explore the notebook to \
+find out what it can do.' \
   "$cell"
 """
 

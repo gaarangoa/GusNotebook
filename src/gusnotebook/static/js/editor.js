@@ -78,6 +78,88 @@ function cellRedo(id) {
   queueSave(id);
 }
 
+/* ---------- Path completion ----------
+ * Triggered by Tab when the cursor is inside a string literal that looks like
+ * a path (contains / or starts with . or /). Falls through to indentMore when
+ * outside a string or when no completions come back, so ordinary Tab still
+ * indents. */
+
+/** True when `pos` is inside a string node in the CM syntax tree. */
+function insideString(state, pos) {
+  if (!window.CM || !CM.syntaxTree) return false;
+  // resolveInner finds the innermost node that covers pos — faster and more
+  // correct than iterating the whole tree, and works with lezer's lazy parsing.
+  const node = CM.syntaxTree(state).resolveInner(pos, -1);
+  // Walk up: the node itself or any ancestor named String means we're inside one.
+  let n = node;
+  while (n) {
+    if (n.name === 'String') return true;
+    n = n.parent;
+  }
+  return false;
+}
+
+/**
+ * The partial path the user has typed so far, or null if the cursor isn't
+ * in a path-looking string.  Returns {path, from, to} where from/to mark the
+ * slice of the document the accepted completion should replace.
+ */
+function pathContext(state) {
+  const cur = state.selection.main;
+  if (!insideString(state, cur.head)) return null;
+  const line = state.doc.lineAt(cur.head);
+  const txt  = line.text;
+  // Scan left from the cursor position to the nearest opening quote.
+  let start = cur.head - line.from;
+  while (start > 0 && txt[start - 1] !== '"' && txt[start - 1] !== "'") start--;
+  const typed = txt.slice(start, cur.head - line.from);
+  // Only activate when the text looks like a path.
+  if (!typed.includes('/') && !typed.startsWith('.') && !typed.startsWith('/')) return null;
+  return {path: typed, from: line.from + start, to: cur.head};
+}
+
+/**
+ * CM completion source — fetches matching filesystem entries from the server
+ * and returns them as CM completions.
+ */
+async function pathCompletionSource(context) {
+  const pc = pathContext(context.state);
+  if (!pc) return null;
+  const nb = active || '';
+  try {
+    const data = await api('/api/completions?' +
+      new URLSearchParams({path: pc.path, base: nb}));
+    if (!data.completions.length) return null;
+    return {
+      from: pc.from,
+      to:   pc.to,
+      options: data.completions.map(c => ({
+        label:  c.label,
+        type:   c.type === 'dir' ? 'namespace' : 'variable',
+        boost:  c.type === 'dir' ? 1 : 0,
+      })),
+      validFor: /^[^"']*$/,
+    };
+  } catch (_) { return null; }
+}
+
+/**
+ * A Tab command for a cell that triggers path completion when the cursor is
+ * inside a path string, and falls through to indentMore otherwise.
+ *
+ * `startCompletion` is synchronous — it kicks off the async source and opens
+ * the dropdown if results arrive. We check pathContext first so a Tab press
+ * outside a path string never triggers the UI.
+ */
+function pathCompleteOrIndent(id) {
+  return (view) => {
+    if (pathContext(view.state) && window.CM && CM.startCompletion) {
+      return CM.startCompletion(view);
+    }
+    return CM.indentMore(view);
+  };
+}
+
 /** Every keybinding onEditorKey() has, as CM commands. */
 function cmKeymap(id) {
   const stop = (fn) => (view) => { fn(view); return true; };
@@ -104,7 +186,10 @@ function cmKeymap(id) {
     // indentMore, not insertTab: insertTab inserts a literal \t when there's no
     // selection, and a tab character in Python source is exactly what nobody
     // wants. indentMore always uses the indentUnit set below — four spaces.
-    {key: 'Tab', run: CM.indentMore, shift: CM.indentLess},
+    // Exception: inside a string literal that looks like a path, Tab triggers
+    // path completion instead (pathCompleteOrIndent falls through to indentMore
+    // when no completions are available or the cursor isn't in a path string).
+    {key: 'Tab', run: pathCompleteOrIndent(id), shift: CM.indentLess},
   ];
 }
 
@@ -201,7 +286,6 @@ function mountEditor(id) {
 
   const ext = [
     CM.history(),
-    CM.drawSelection(),
     CM.highlightActiveLine(),
     CM.syntaxHighlighting(CM.style),
     CM.indentUnit.of('    '),
@@ -218,8 +302,24 @@ function mountEditor(id) {
   ];
   // Code scrolls sideways rather than wrapping, so indentation still reads;
   // prose wraps, as the textarea's `pre-wrap` did for markdown and raw cells.
-  if (isPython) ext.push(CM.python());
-  else ext.push(CM.EditorView.lineWrapping);
+  if (isPython) {
+    ext.push(CM.python());
+    ext.push(CM.lineNumbers());
+    // Path completion: Tab inside a string literal that looks like a path
+    // fetches filesystem entries from the server.  autocompletion() provides
+    // the dropdown UI; the source is activated only by the explicit Tab binding
+    // above (activateOnTyping: false), so normal typing is unaffected.
+    if (CM.autocompletion && CM.autocompletionConfig) {
+      ext.push(CM.autocompletion({
+        override: [pathCompletionSource],
+        activateOnTyping: false,
+        maxRenderedOptions: 30,
+        closeOnBlur: true,
+      }));
+    }
+  } else {
+    ext.push(CM.EditorView.lineWrapping);
+  }
   if (hint) ext.push(CM.placeholder(hint));
 
   const view = new CM.EditorView({doc: text, extensions: ext});

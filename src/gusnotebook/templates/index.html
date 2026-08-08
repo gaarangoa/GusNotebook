@@ -115,17 +115,6 @@
         <span class="nl">Folder</span>
         <span class="nh">in the browsed directory</span>
       </div>
-      <div class="venv-sep"></div>
-      <div class="new-item" onclick="newFromMenu('claude')">
-        <span class="ni">✳</span>
-        <span class="nl">Claude Code</span>
-        <span class="nh">rooted in the browsed directory</span>
-      </div>
-      <div class="new-item" onclick="newFromMenu('terminal')">
-        <span class="ni">❯</span>
-        <span class="nl">Terminal</span>
-        <span class="nh">a plain shell there</span>
-      </div>
     </div>
 
     <!-- What a cell is, from the ⌥ in its gutter. One menu reused by every cell
@@ -206,19 +195,18 @@
 
   <div class="right">
     <div class="bar">
-      <span class="title">Claude Code</span>
-      <button class="term-btn" onclick="openTerminal()"
-              title="New session in the active notebook's directory">+ Terminal</button>
+      <button class="term-btn" onclick="openTerminal(null,'claude')"
+              title="New Claude Code session in the active notebook's directory">+ Agent</button>
+      <button class="term-btn" onclick="openTerminal(null,'shell')"
+              title="New terminal in the active notebook's directory">+ Terminal</button>
       <span class="status disconnected" id="ws-status">No session</span>
     </div>
     <div class="term-tabs" id="term-tabs"></div>
     <div id="terminal-stack">
       <div class="term-empty" id="term-empty">
-        <div class="big">No Claude Code session</div>
-        <div>Open one with <code>+ Terminal</code> — it starts in the active
-             notebook's directory, which becomes Claude's project root.</div>
-        <div>The <code>+</code> tab opens Claude or a plain terminal in the
-             browsed folder instead.</div>
+        <div class="big">No session open</div>
+        <div>Use <code>+ Agent</code> for Claude Code or <code>+ Terminal</code>
+             for a plain shell — both start in the active notebook's directory.</div>
       </div>
     </div>
   </div>
@@ -465,10 +453,11 @@
      cannot be typed in at all. -->
 <script type="module">
 try {
-  const [state, view, language, commands, langPython, highlight] = await Promise.all([
+  const [state, view, language, commands, langPython, highlight, autocomplete] = await Promise.all([
     import("@codemirror/state"), import("@codemirror/view"),
     import("@codemirror/language"), import("@codemirror/commands"),
     import("@codemirror/lang-python"), import("@lezer/highlight"),
+    import("@codemirror/autocomplete"),
   ]);
   const t = highlight.tags;
   // Our own palette rather than defaultHighlightStyle, whose colours assume a
@@ -488,6 +477,7 @@ try {
     EditorState: state.EditorState, Prec: state.Prec,
     EditorView: view.EditorView, keymap: view.keymap,
     highlightActiveLine: view.highlightActiveLine,
+    lineNumbers: view.lineNumbers,
     drawSelection: view.drawSelection, placeholder: view.placeholder,
     syntaxHighlighting: language.syntaxHighlighting,
     indentUnit: language.indentUnit, style,
@@ -496,6 +486,10 @@ try {
     indentMore: commands.indentMore, indentLess: commands.indentLess,
     defaultKeymap: commands.defaultKeymap, historyKeymap: commands.historyKeymap,
     python: langPython.python,
+    syntaxTree: language.syntaxTree,
+    autocompletion: autocomplete.autocompletion,
+    startCompletion: autocomplete.startCompletion,
+    autocompletionConfig: true,
   };
 } catch (e) {
   window.CM = null;                      // the textarea fallback handles it
