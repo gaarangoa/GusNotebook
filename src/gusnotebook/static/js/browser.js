@@ -346,7 +346,7 @@ function renderTabs() {
     </div>`).join('') +
     // Always last, so "new" sits where the next tab would appear.
     `<div class="tab-new" id="tab-new" onclick="toggleNewMenu(event)"
-          title="New notebook, file, folder, Claude session or terminal">+</div>`;
+          title="New notebook, file, folder, agent or terminal">+</div>`;
 }
 
 // ---------- The + tab's menu ----------
@@ -376,6 +376,7 @@ function newFromMenu(what) {
   if (what === 'text') return newFile();
   if (what === 'folder') return newFolder();
   if (what === 'claude') return openTerminalHere('claude');
+  if (what === 'codex') return openTerminalHere('codex');
   if (what === 'terminal') return openTerminalHere('shell');
 }
 

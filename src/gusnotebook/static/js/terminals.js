@@ -1,15 +1,34 @@
-/* The Claude Code / shell terminals, the column layout, and the splitter.
+/* The Claude Code / Codex / shell terminals, the column layout, and splitter.
  *
  * Last, because bootTerminals() runs on parse like boot() does, and the
  * splitter's mousedown handler needs #splitter to already be in the document. */
 
-/* ---------- Claude Code terminals ----------
+/* ---------- Agent terminals ----------
  * Several sessions, each an xterm bound to a server-side PTY rooted in a
  * directory of its choosing. None opens by default. Sessions outlive the page:
  * the server keeps draining the PTY, so a reload reattaches to a running
  * Claude rather than starting a new one. */
 let terms = [];            // {id, cwd, label, alive, term, fit, ws, host}
 let activeTerm = null;
+
+const AGENT_KIND_KEY = 'gusnotebook-agent-kind';
+
+function rememberAgentKind() {
+  const kind = document.getElementById('agent-kind').value;
+  try { localStorage.setItem(AGENT_KIND_KEY, kind); } catch (e) {}
+}
+
+function restoreAgentKind() {
+  let kind = 'claude';
+  try { kind = localStorage.getItem(AGENT_KIND_KEY) || kind; } catch (e) {}
+  if (kind === 'claude' || kind === 'codex') {
+    document.getElementById('agent-kind').value = kind;
+  }
+}
+
+function openSelectedAgent() {
+  openTerminal(null, document.getElementById('agent-kind').value);
+}
 
 const statusEl = document.getElementById('ws-status');
 const wsProto = location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -32,7 +51,7 @@ function renderTermTabs() {
   document.getElementById('term-tabs').innerHTML = terms.map(t => `
     <div class="tterm ${t.id === activeTerm ? 'active' : ''} ${t.alive ? '' : 'dead'}"
          onclick="focusTerm('${t.id}')" title="${escapeAttr(t.cwd)}">
-      <span class="ti">${t.kind === 'shell' ? '❯' : '✳'}</span>
+      <span class="ti">${t.kind === 'shell' ? '❯' : (t.kind === 'codex' ? 'C' : '✳')}</span>
       <span class="tn">${escapeHtml(t.label)}</span>
       <span class="tx" onclick="closeTerminal('${t.id}', event)">✕</span>
     </div>`).join('');
@@ -41,7 +60,7 @@ function renderTermTabs() {
 }
 
 /** Open a session in the requested directory, or wherever Files is browsing.
- * `kind` is "shell" for a plain terminal, else Claude Code. */
+ * `kind` is "shell", "codex", or "claude". */
 async function openTerminal(cwd, kind) {
   const root = cwd || fileState.path;
   let data;
@@ -169,6 +188,7 @@ function fitTerm() {
   }
 }
 window.addEventListener('resize', fitTerm);
+restoreAgentKind();
 bootTerminals();
 
 // ---------- Layout (file column | notebook | splitter | terminal) ----------

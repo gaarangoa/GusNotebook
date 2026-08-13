@@ -115,6 +115,21 @@
         <span class="nl">Folder</span>
         <span class="nh">in the browsed directory</span>
       </div>
+      <div class="new-item" onclick="newFromMenu('claude')">
+        <span class="ni">✳</span>
+        <span class="nl">Claude Code</span>
+        <span class="nh">agent in the browsed directory</span>
+      </div>
+      <div class="new-item" onclick="newFromMenu('codex')">
+        <span class="ni">C</span>
+        <span class="nl">Codex</span>
+        <span class="nh">agent in the browsed directory</span>
+      </div>
+      <div class="new-item" onclick="newFromMenu('terminal')">
+        <span class="ni">❯</span>
+        <span class="nl">Terminal</span>
+        <span class="nh">shell in the browsed directory</span>
+      </div>
     </div>
 
     <!-- What a cell is, from the ⌥ in its gutter. One menu reused by every cell
@@ -195,8 +210,13 @@
 
   <div class="right">
     <div class="bar">
-      <button class="term-btn" onclick="openTerminal(null,'claude')"
-              title="New Claude Code session in the directory shown in Files">+ Agent</button>
+      <select class="agent-select" id="agent-kind" onchange="rememberAgentKind()"
+              title="Agent provider for the next session">
+        <option value="claude">Claude</option>
+        <option value="codex">Codex</option>
+      </select>
+      <button class="term-btn" onclick="openSelectedAgent()"
+              title="New agent session in the directory shown in Files">+ Agent</button>
       <button class="term-btn" onclick="openTerminal(null,'shell')"
               title="New terminal in the directory shown in Files">+ Terminal</button>
       <span class="status disconnected" id="ws-status">No session</span>
@@ -205,8 +225,9 @@
     <div id="terminal-stack">
       <div class="term-empty" id="term-empty">
         <div class="big">No session open</div>
-        <div>Use <code>+ Agent</code> for Claude Code or <code>+ Terminal</code>
-             for a plain shell — both start in the directory shown in Files.</div>
+        <div>Choose Claude or Codex, then use <code>+ Agent</code>; use
+             <code>+ Terminal</code> for a plain shell. All start in the
+             directory shown in Files.</div>
       </div>
     </div>
   </div>
@@ -287,20 +308,20 @@
         <input type="number" id="set-max-tokens" min="100" max="16000" step="100">
       </div>
 
-      <!-- A separate field, not shared with the inline LLM's: different model,
-           different job. That one writes one cell; Claude has a shell and edits
-           files, so its guardrails read nothing like a code-style note. -->
+      <!-- A separate field, not shared with the inline LLM's: different job.
+           That one writes one cell; an agent has tools and edits files, so its
+           guardrails read nothing like a code-style note. -->
       <div class="field">
-        <label for="set-claude">Instructions for Claude Code
+        <label for="set-claude">Instructions for agents (Claude and Codex)
           <span style="font-weight:400;color:#94a3b8">(optional)</span></label>
         <textarea id="set-claude"
                   placeholder="e.g. never run migrations; ask before touching anything in prod/; put new code in the notebook, not scratch files"></textarea>
         <div class="fhelp">
-          Guardrails and house style for every Claude Code terminal, added to its
-          system prompt at launch — so <b>new</b> sessions pick this up, not ones
-          already running. A session can add its own on top (▤ on its row in
-          <b>Sessions</b>). Nothing is written into your project: no
-          <code>CLAUDE.md</code> is created or edited.
+          Guardrails and house style for every agent terminal, added at launch —
+          so <b>new</b> sessions pick this up, not ones already running. A session
+          can add its own on top (▤ on its row in <b>Sessions</b>). Nothing is
+          written into your project: no <code>CLAUDE.md</code> or
+          <code>AGENTS.md</code> is created or edited.
         </div>
       </div>
 
@@ -314,7 +335,8 @@
                   style="min-height:52px;margin-top:6px"
                   placeholder="Extra deny rules, one per line — e.g. Bash(rm *) or Read(**/secrets/**)"></textarea>
         <div class="fhelp">
-          Enforced by Claude Code itself, not asked for in the prompt — a blocked
+          These rules apply to Claude sessions only and are enforced by Claude
+          Code itself, not asked for in the prompt — a blocked
           call fails rather than relying on Claude to decline. Applies to
           <b>new</b> terminals: the rules are fixed at launch. A session can add
           more of its own (▤ on its row in <b>Sessions</b>); the two are combined,
@@ -418,7 +440,7 @@
   </div>
 </div>
 
-<!-- Per-session instructions for Claude, on top of the app-wide ones. -->
+<!-- Per-session agent instructions, on top of the app-wide ones. -->
 <div class="modal-back" id="sinstr-back" onclick="if (event.target === this) closeSessionInstr()">
   <div class="modal">
     <div class="mhead">
@@ -427,15 +449,15 @@
     </div>
     <div class="mbody">
       <div class="field">
-        <label for="sinstr-text">Instructions for Claude in this session</label>
+        <label for="sinstr-text">Instructions for agents in this session</label>
         <textarea id="sinstr-text" spellcheck="false"
                   style="min-height:120px"
                   placeholder="e.g. this project uses polars, not pandas; the API in api/ is public — never change its response shapes"></textarea>
         <div class="fhelp">
           Added to the app-wide instructions in <b>⚙ Settings</b>, for this
           session only — a session is a project, and a project's rules aren't
-          every project's. Applies to <b>new</b> Claude terminals: a system
-          prompt is fixed when the session launches.
+          every project's. Applies to <b>new</b> Claude and Codex terminals: the
+          instructions are fixed when the session launches.
         </div>
       </div>
 
@@ -448,7 +470,8 @@
         <div class="fhelp">
           On top of whatever <b>⚙ Settings</b> blocks app-wide — the two are
           combined, so unticking here can't re-allow something blocked there.
-          Fixed at launch, like the instructions above.
+          Fixed at launch, like the instructions above. These native deny rules
+          apply to Claude sessions only.
         </div>
       </div>
     </div>

@@ -51,7 +51,7 @@ class Session:
         self.tabs = list(tabs or [])
         self.terminals = list(terminals or [])
         self.active = active
-        # Standing instructions for Claude in this session only, added to the
+        # Standing instructions for agents in this session only, added to the
         # app-wide ones from Settings. A session is a project, and a project's
         # guardrails don't belong to every other project on the machine.
         self.instructions = instructions or ""
@@ -180,10 +180,10 @@ class SessionStore:
             return s
 
     def set_instructions(self, sid, text):
-        """Standing instructions for Claude in this session.
+        """Standing instructions for agents in this session.
 
-        Read when a terminal starts, so this affects the next Claude you open,
-        not the ones already running — a system prompt is fixed at launch.
+        Read when a terminal starts, so this affects the next agent you open,
+        not the ones already running — its instructions are fixed at launch.
         """
         with self._lock:
             s = self._sessions.get(sid)

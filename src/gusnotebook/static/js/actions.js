@@ -446,7 +446,7 @@ async function openSettings() {
       : '<span class="bad">No API key</span> — add one above, or set ' +
         'AI_GATEWAY_KEY in .env') +
     '<br>Used by <b>+ AI</b> cells, the <b>Help</b> button, and Claude Code ' +
-    'terminals (new sessions).' +
+    'terminals (new sessions). Codex uses your existing Codex login.' +
     // Where everything on this modal is written. Otherwise unanswerable from the
     // UI once the app is installed as a tool rather than run from a checkout —
     // "settings.json" is no help if you can't find it.
@@ -495,7 +495,9 @@ async function saveSettings() {
     // guardrail is live on a terminal already running is the failure mode.
     flash(hasRestrictions(body.claude_restrictions)
       ? 'Saved — restrictions apply to new Claude terminals, not ones already open'
-      : 'Inline LLM → ' + body.inline_llm_model);
+      : body.claude_instructions.trim()
+        ? 'Saved — new Claude and Codex agents will use these instructions'
+        : 'Inline LLM → ' + body.inline_llm_model);
   } catch (err) {
     flash('Cannot save settings: ' + errText(err));
   }

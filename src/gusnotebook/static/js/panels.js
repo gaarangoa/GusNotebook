@@ -222,8 +222,8 @@ function renderSessions() {
       <span class="note ${s.instructions || hasRestrictions(s.restrictions) ? 'set' : ''}"
             onclick="openSessionInstr('${escapeAttr(s.id)}', event)"
             title="${s.instructions
-                     ? 'Instructions for Claude in this session:&#10;' + escapeAttr(s.instructions)
-                     : 'Instructions for Claude in this session'}${
+                     ? 'Instructions for agents in this session:&#10;' + escapeAttr(s.instructions)
+                     : 'Instructions for agents in this session'}${
                    hasRestrictions(s.restrictions)
                      ? '&#10;&#10;Restricted: ' + Object.keys(s.restrictions).length +
                        ' setting(s)' : ''}">▤</span>
@@ -317,7 +317,7 @@ async function deleteSession(sid, ev) {
   await reloadWorkspace();
 }
 
-/* Per-session instructions for Claude. Kept on the session rather than in
+/* Per-session instructions for agents. Kept on the session rather than in
  * Settings because a session is a project: "never touch prod/" is true of one
  * repository and meaningless in another. */
 let instrSession = null;
@@ -327,7 +327,7 @@ async function openSessionInstr(sid, ev) {
   const s = sessionList.find(x => x.id === sid);
   if (!s) return;
   instrSession = sid;
-  document.getElementById('sinstr-title').textContent = `Claude · ${s.name}`;
+  document.getElementById('sinstr-title').textContent = `Agents · ${s.name}`;
   document.getElementById('sinstr-text').value = s.instructions || '';
   document.getElementById('sinstr-back').classList.add('on');
   setTimeout(() => document.getElementById('sinstr-text').focus(), 30);
@@ -361,7 +361,7 @@ async function saveSessionInstr() {
   closeSessionInstr();
   await loadSessions();
   flash(text.trim() || hasRestrictions(restrict)
-    ? 'Saved — new Claude terminals in this session will follow it'
+    ? 'Saved — new agent terminals in this session will follow it'
     : 'Session instructions cleared');
 }
 

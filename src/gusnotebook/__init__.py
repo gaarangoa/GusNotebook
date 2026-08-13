@@ -1,4 +1,4 @@
-"""GusNotebook — notebooks with embedded Claude Code terminals.
+"""GusNotebook — notebooks with embedded Claude Code and Codex terminals.
 
 Importing this package is deliberately cheap: it starts no server, opens no
 notebook, and touches no disk. `app.py` does all of that, and it's imported by

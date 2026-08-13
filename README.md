@@ -1,9 +1,9 @@
 # GusNotebook
 
-A two-pane notebook: your notebooks on the left, embedded Claude Code terminals
-on the right. Files open in tabs, each open notebook gets its own IPython kernel,
-and Claude can read and rewrite **the cell you're parked on** without being told
-which one it is.
+A two-pane notebook: your notebooks on the left, embedded Claude Code or Codex
+agents on the right. Files open in tabs, each open notebook gets its own IPython
+kernel, and either agent can read and rewrite **the cell you're parked on**
+without being told which one it is.
 
 ## Install
 
@@ -18,6 +18,10 @@ From a checkout:
 uv sync                           # exact versions from uv.lock
 uv run gusnotebook
 ```
+
+Claude Code and Codex are optional external CLIs. Install and sign in to the
+provider you want to select; GusNotebook launches the existing `claude` or
+`codex` command rather than bundling either one.
 
 `gusnotebook` serves **the directory you run it in**, the way `jupyter lab`
 does. It opens on the first `.ipynb` it finds there, or creates
@@ -62,12 +66,12 @@ rest.
 
 ## The cell you're on
 
-Click a cell, then type a request into a Claude terminal — *"open the quarterly
-report and extract the site and n columns"*. The cell's source and output are
-injected as context **before** Claude reads the prompt (a `UserPromptSubmit`
-hook running `gusnb here`), so there's no `/command` to remember and no id to
-quote. Claude writes the cell with `gusnb here - --run`, reads the output, and
-iterates.
+Choose **Claude** or **Codex** beside **+ Agent**, click a cell, then type a
+request — *"open the quarterly report and extract the site and n columns"*.
+The cell's source and output are injected as context **before** the agent reads
+the prompt (a `UserPromptSubmit` hook running `gusnb here`), so there's no
+`/command` to remember and no id to quote. The agent writes the cell with
+`gusnb here - --run`, reads the output, and iterates.
 
 Replacing is destructive, so every replace pushes the old source onto that
 cell's own undo stack — a **↶** appears on the cell, one step per replace,
@@ -83,20 +87,25 @@ are kept **in memory only** by default; switch to `disk` to persist them to
 `settings.json` (mode 600). The key is never sent back to the browser.
 
 An `AWS_BEARER_TOKEN_BEDROCK` already in your environment is left alone, so your
-own Claude auth is unaffected. A plain shell terminal gets no credential at all.
+own Claude auth is unaffected. Codex uses the login and configuration from your
+installed `codex` CLI; GusNotebook does not copy the gateway key into it. A plain
+shell terminal gets no credential at all.
 
 ## What else is in here
 
 **Sessions** group tabs by project — each with its own root, its own standing
-instructions for Claude, and its own kernels, which keep running when you switch
+instructions for agents, and its own kernels, which keep running when you switch
 away. **Skills** are one-directory `SKILL.md` snippets: read by Claude as a
 plugin (`/csv-peek`) and by the notebook as a cell to insert. **Environments**
 are per notebook — the env button picks the Python, and the choice is recorded in
 the `.ipynb` so it survives a restart and still opens in Jupyter.
 
 No `CLAUDE.md` or `AGENTS.md` is ever written into your project. Standing
-instructions reach Claude through an app-owned temp file
-(`--append-system-prompt-file`), deleted when the terminal closes.
+instructions reach Claude through an app-owned temp file and Codex through a
+per-launch developer-instructions override. Codex may ask you to trust the
+GusNotebook current-cell hook on its first launch; the reviewed script has a
+stable path in the app state directory. Claude's temporary files are deleted
+when its terminal closes.
 
 ## Development
 

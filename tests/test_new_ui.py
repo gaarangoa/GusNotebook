@@ -334,6 +334,22 @@ def main():
         pg.evaluate("closeTerminal(terms[2].id)")
         pg.wait_for_function("terms.length === 2", timeout=20000)
 
+        check("agent provider picker offers both CLIs",
+              pg.locator("#agent-kind option").all_text_contents(),
+              ["Claude", "Codex"])
+        if shutil.which("codex"):
+            pg.select_option("#agent-kind", "codex")
+            pg.get_by_role("button", name="+ Agent", exact=True).click()
+            pg.wait_for_function("terms.length === 3", timeout=30000)
+            check("picker launches Codex", pg.evaluate("terms[2].kind"), "codex")
+            check("Codex follows the Files directory", pg.evaluate("terms[2].cwd"),
+                  str(DEEP.resolve()))
+            check("Codex runs inline in the embedded terminal",
+                  "--no-alt-screen" in argv_of(pg.evaluate("terms[2].pid")), True)
+            pg.evaluate("closeTerminal(terms[2].id)")
+            pg.wait_for_function("terms.length === 2", timeout=20000)
+            pg.select_option("#agent-kind", "claude")
+
         print("\n-- sessions survive a page reload")
         ids = pg.evaluate("terms.map(t => t.id)")
         pg.reload(wait_until="domcontentloaded")
@@ -584,9 +600,10 @@ def main():
                if t.strip().startswith("+")], [])
         pg.click("#tab-new")
         pg.wait_for_selector("#new-menu.on", timeout=10000)
-        check("five entries, each with an icon",
+        check("six entries, each with an icon",
               [t.strip() for t in pg.locator("#new-menu .nl").all_inner_texts()],
-              ["Notebook", "Text file", "Folder", "Claude Code", "Terminal"])
+              ["Notebook", "Text file", "Folder", "Claude Code", "Codex",
+               "Terminal"])
         check("icons present",
               all(t.strip() for t in pg.locator("#new-menu .ni").all_inner_texts()),
               True)
@@ -814,7 +831,7 @@ def main():
         check("deleted", any(s["id"] == "suite-renamed"
                              for s in get("/api/skills")["skills"]), False)
 
-        print("\n-- standing instructions reach Claude, but not a shell")
+        print("\n-- standing instructions reach both agents, but not a shell")
         pg.evaluate("setTimeout(() => openSettings(), 0)")
         pg.wait_for_selector("#settings-back.on", timeout=15000)
         # A separate field from the inline LLM's: different model, different job.
@@ -831,7 +848,7 @@ def main():
         pg.click("#sinstr-back .btn.primary")
         pg.wait_for_selector("#sinstr-back.on", state="hidden", timeout=15000)
         pg.wait_for_function("sessionList.some(s => s.instructions)", timeout=20000)
-        # Instructions you can't see are the ones that surprise you when Claude
+        # Instructions you can't see are the ones that surprise you when an agent
         # follows them, so a set note stays visible unhovered.
         check("the row shows it's set",
               pg.locator(".session-row.current .note.set").count(), 1)
@@ -851,6 +868,18 @@ def main():
         # One temp file per Claude session would otherwise pile up all run.
         check("the temp prompt file goes with the session",
               pathlib.Path(m.group(1)).exists() if m else None, False)
+
+        if shutil.which("codex"):
+            codex = post("/api/terminals", {"cwd": str(FIX), "kind": "codex"})
+            codex_argv = argv_of(codex["pid"])
+            check("Codex receives both instruction layers",
+                  ("developer_instructions=" in codex_argv,
+                   "SUITE_GLOBAL_RULE" in codex_argv,
+                   "SUITE_SESSION_RULE" in codex_argv),
+                  (True, True, True))
+            check("Codex receives the current-cell hook",
+                  "hooks.UserPromptSubmit=" in codex_argv, True)
+            delete(f"/api/terminals/{codex['id']}")
 
         # A shell gets none of it — and deliberately no gateway token either.
         shell = post("/api/terminals", {"cwd": str(FIX), "kind": "shell"})

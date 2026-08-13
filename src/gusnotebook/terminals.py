@@ -1,11 +1,11 @@
-"""Claude Code terminal sessions — several at once, each rooted somewhere.
+"""Agent and shell terminal sessions — several at once, each rooted somewhere.
 
-A session is a PTY running `claude` with a working directory of its own, which
-is what Claude Code treats as the project root. Sessions live here rather than
-inside a WebSocket handler so that:
+A session is a PTY running Claude Code, Codex, or a shell with a working
+directory of its own. Sessions live here rather than inside a WebSocket handler
+so that:
 
   * closing the browser tab (or reloading the page) doesn't kill a running
-    Claude — the reader thread keeps draining the PTY into a scrollback buffer
+    agent — the reader thread keeps draining the PTY into a scrollback buffer
     and the UI reattaches to it,
   * several browser views can watch the same session,
   * "open a terminal here" is just create(cwd=...).
@@ -13,13 +13,15 @@ inside a WebSocket handler so that:
 Nothing starts a session implicitly: the notebook opens with no terminal, and
 the user asks for one.
 
-What a Claude session is launched with is decided in one place, `command_for`:
-the gateway credential, the standing instructions, the skills plugin, the
-current-cell hook, and the user's **restrictions** — see RESTRICTION_RULES.
+What an agent session is launched with is decided in one place, `command_for`.
+Both agents receive the standing instructions and current-cell hook. Claude
+also receives the gateway credential, skills plugin, and the user's
+Claude-specific **restrictions** — see RESTRICTION_RULES.
 """
 
 import errno
 import fcntl
+import json
 import os
 import pathlib
 import pty
@@ -37,11 +39,19 @@ from collections import deque
 from . import bus
 
 # Scrollback kept per session so a reattaching client sees recent history.
-# Claude redraws its whole UI on resize, so this only has to cover a screen or
+# Agent TUIs redraw on resize, so this only has to cover a screen or
 # two of context — not an entire conversation.
 BUFFER_BYTES = 256 * 1024
 
-DEFAULT_COMMAND = ["claude", "--dangerously-skip-permissions"]
+CLAUDE_COMMAND = ["claude", "--dangerously-skip-permissions"]
+
+# Codex keeps the user's own model, login, approval, and sandbox settings. The
+# app only asks it to render inline (important inside an embedded xterm) and
+# supplies an app-owned, reviewable current-cell hook in codex_args().
+CODEX_COMMAND = ["codex", "--no-alt-screen"]
+
+# Backwards-compatible name for callers that construct a Session directly.
+DEFAULT_COMMAND = CLAUDE_COMMAND
 
 # A plain interactive shell, for when you want a terminal rather than Claude.
 # Login shell (-l) so it reads the user's profile and looks like their own.
@@ -238,36 +248,28 @@ def restriction_note(restrictions):
 
 
 def command_for(kind, instructions=None, restrictions=None):
-    """argv for a session kind: "shell" for a plain terminal, else Claude.
+    """argv for a session kind: shell, Claude, or Codex.
 
-    Claude also gets the workspace's standing instructions, the skills plugin,
-    and the user's restrictions. Assembled here, at the one place a session's
-    command is decided, so no route can open a Claude that quietly ignores the
-    user's guardrails.
+    Both agents get the workspace's standing instructions and current-cell
+    context. Claude also gets the skills plugin and its native deny rules.
+    Assembled here so every launch path behaves the same way.
     """
     if kind == "shell":
         return list(SHELL_COMMAND)
-    return list(DEFAULT_COMMAND) + claude_args(instructions, restrictions)
+    if kind == "codex":
+        if not shutil.which(CODEX_COMMAND[0]):
+            raise ValueError("Codex CLI is not installed or is not on PATH")
+        return list(CODEX_COMMAND) + codex_args(instructions)
+    return list(CLAUDE_COMMAND) + claude_args(instructions, restrictions)
 
 
-def system_prompt_file(extra=None, restrictions=None):
-    """Write the user's standing instructions for Claude, and return the path.
+def standing_instructions(extra=None, restrictions=None):
+    """The app-wide and per-session agent instructions as one prompt.
 
-    Injected with `--append-system-prompt-file` rather than by writing a
-    CLAUDE.md into the project: the session root is the user's own repository,
-    and a file the app dropped there could be committed by accident, collide
-    with a CLAUDE.md that already exists, or confuse a colleague who clones it.
-    An app-owned temp file has none of those failure modes, and is thrown away
-    with the process.
-
-    Two layers, global first: Settings holds what's always true, and `extra` is
-    the current session's own note — sessions exist to separate projects, so
-    per-project guardrails belong there. Returns None when nothing is set, so
-    the flag is omitted rather than pointing at an empty file.
-
-    `restrictions` are enforced by the deny rules in the settings file, not by
-    this text; it's here so Claude knows what it can't do before it tries, and
-    it's appended last so the user's own words come first.
+    The stored setting retains its original `claude_instructions` name for
+    compatibility, but the text is provider-neutral and is passed to Codex as
+    developer instructions too. Claude-only deny rules are described when
+    `restrictions` is supplied; Codex does not receive that native rule syntax.
     """
     from . import llm                       # deferred: llm doesn't import terminals
     parts = []
@@ -289,13 +291,38 @@ def system_prompt_file(extra=None, restrictions=None):
                 + "\n\n".join(parts) + "\n")
     if note:
         body += ("\n" if body else "") + note + "\n"
+    return body
+
+
+def system_prompt_file(extra=None, restrictions=None):
+    """Write the user's standing instructions for Claude, and return the path.
+
+    Injected with `--append-system-prompt-file` rather than by writing a
+    CLAUDE.md into the project: the session root is the user's own repository,
+    and a file the app dropped there could be committed by accident, collide
+    with a CLAUDE.md that already exists, or confuse a colleague who clones it.
+    An app-owned temp file has none of those failure modes, and is thrown away
+    with the process.
+
+    Two layers, global first: Settings holds what's always true, and `extra` is
+    the current session's own note — sessions exist to separate projects, so
+    per-project guardrails belong there. Returns None when nothing is set, so
+    the flag is omitted rather than pointing at an empty file.
+
+    `restrictions` are enforced by the deny rules in the settings file, not by
+    this text; it's here so Claude knows what it can't do before it tries, and
+    it's appended last so the user's own words come first.
+    """
+    body = standing_instructions(extra, restrictions)
+    if not body:
+        return None
     fd, path = tempfile.mkstemp(prefix="nb-claude-", suffix=".md")
     with os.fdopen(fd, "w", encoding="utf-8") as f:
         f.write(body)
     return path
 
 
-# The hook that puts the user's current cell in front of Claude before it reads
+# The hook that puts the user's current cell in front of an agent before it reads
 # the prompt. `UserPromptSubmit` output is added to the conversation as context,
 # so "extract columns x and y from this file" arrives already knowing which cell
 # the user is looking at, with no /command to remember.
@@ -305,8 +332,9 @@ def system_prompt_file(extra=None, restrictions=None):
 # focused, a prompt must still go through unchanged.
 FOCUS_HOOK = """#!/bin/sh
 # Written by GusNotebook. Injects the user's active notebook cell as context on
-# every prompt, and tells the app what was asked so a cell Claude rewrites can
-# show it. Deleted when the terminal closes.
+# every prompt, and tells the app what was asked so a cell an agent rewrites can
+# show it. Claude's copy is deleted when its terminal closes; Codex uses the
+# stable app-state copy described below.
 NB_URL={url}
 export NB_URL
 # The hook payload, which carries the prompt. Handed to the app as-is rather than
@@ -334,6 +362,46 @@ find out what it can do.' \
 """
 
 
+def focus_hook_file(stable=False):
+    """Write the provider-neutral current-cell hook and return its path.
+
+    Claude settings are temporary, so its hook is too. Codex hook trust is tied
+    to the command it is asked to run; a stable app-state path lets the user
+    review it once instead of being prompted for every randomly named temp file.
+    The stable file is still outside the project and is replaced on app updates.
+    """
+    body = FOCUS_HOOK.format(nb=nb_command(), url=shlex.quote(APP_URL))
+    if stable:
+        from . import paths
+        script = paths.state("codex-focus-hook.sh")
+        tmp = None
+        try:
+            if script.is_file() and script.read_text(encoding="utf-8") == body:
+                return str(script)
+            fd, tmp = tempfile.mkstemp(dir=str(script.parent), suffix=".tmp")
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                f.write(body)
+            os.chmod(tmp, 0o700)
+            os.replace(tmp, script)
+            return str(script)
+        except OSError:
+            if tmp:
+                try:
+                    os.unlink(tmp)
+                except OSError:
+                    pass
+            return None
+
+    try:
+        fd, script = tempfile.mkstemp(prefix="nb-focus-", suffix=".sh")
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(body)
+        os.chmod(script, 0o700)
+        return script
+    except OSError:
+        return None
+
+
 def session_settings_file(restrictions=None):
     """Write the cell-injection hook and the settings file that configures it.
 
@@ -353,13 +421,10 @@ def session_settings_file(restrictions=None):
     user's own ~/.claude/settings.json is theirs, and an app that edits it
     leaves hooks and permission rules behind after the app is gone.
     """
-    import json
+    script = focus_hook_file()
+    if not script:
+        return None, None
     try:
-        fd, script = tempfile.mkstemp(prefix="nb-focus-", suffix=".sh")
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            f.write(FOCUS_HOOK.format(nb=nb_command(),
-                                      url=shlex.quote(APP_URL)))
-        os.chmod(script, 0o700)
 
         spec = {"hooks": {"UserPromptSubmit": [
             {"hooks": [{"type": "command", "command": script}]}]}}
@@ -373,6 +438,10 @@ def session_settings_file(restrictions=None):
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             json.dump(spec, f)
     except OSError:
+        try:
+            os.unlink(script)
+        except OSError:
+            pass
         return None, None
     return settings, script
 
@@ -396,6 +465,36 @@ def claude_args(instructions=None, restrictions=None):
     settings, _ = session_settings_file(restrictions)
     if settings:
         args += ["--settings", settings]
+    return args
+
+
+def codex_args(instructions=None):
+    """The extra argv Codex gets: instructions and the current-cell hook.
+
+    Codex accepts per-launch developer instructions through `-c`, so there is
+    no need to create or edit AGENTS.md in the user's repository. Its
+    UserPromptSubmit hook has the same stdin/stdout contract this integration
+    already uses for Claude: the prompt is posted to the app and `gusnb here`
+    becomes developer context before the model sees the turn.
+
+    The hook uses a stable app-state path so Codex can ask the user to trust it
+    once. We deliberately do not bypass hook trust: that flag would also trust
+    unrelated project hooks. Codex's command approvals and sandbox remain the
+    user's own defaults.
+    """
+    args = []
+    body = standing_instructions(instructions)
+    if body:
+        # JSON strings are also valid TOML basic strings, which keeps newlines,
+        # quotes and non-ASCII text in one argv item without shell evaluation.
+        args += ["-c", "developer_instructions=" + json.dumps(body)]
+
+    script = focus_hook_file(stable=True)
+    if script:
+        command = json.dumps(shlex.quote(script))
+        hook = ("[{hooks=[{type=\"command\",command=" + command
+                + ",timeout=5,additionalContextLimit=2500}]}]")
+        args += ["--enable", "hooks", "-c", "hooks.UserPromptSubmit=" + hook]
     return args
 
 
@@ -431,6 +530,13 @@ class Session:
         self.id = sid
         self.cwd = str(cwd)
         self.command = list(command or DEFAULT_COMMAND)
+        executable = os.path.basename(self.command[0])
+        if self.command[0] == SHELL_COMMAND[0]:
+            self.kind = "shell"
+        elif executable == os.path.basename(CODEX_COMMAND[0]):
+            self.kind = "codex"
+        else:
+            self.kind = "claude"
         self.label = label or os.path.basename(self.cwd.rstrip("/")) or "/"
         self.python = python  # the notebook's selected interpreter, for venv activation
         self.pid = None
@@ -451,14 +557,14 @@ class Session:
         # I/O, and after pty.fork() the child is single-threaded — a lock held
         # by another thread at fork time would never be released.
         #
-        # NB_URL goes to both kinds: it's the port this app is listening on, not
-        # a secret, and `gusnb` is as useful from a plain shell as from Claude.
+        # NB_URL goes to every kind: it's the port this app is listening on, not
+        # a secret, and `gusnb` is as useful from a shell as from either agent.
         # The gateway token is the opposite — Claude only, because putting a
         # credential in an interactive shell's environment leaks it into every
         # child process and into `env` output.
         extra_env = {"NB_URL": APP_URL}
-        is_shell = self.command[0] == SHELL_COMMAND[0]
-        if not is_shell:
+        is_shell = self.kind == "shell"
+        if self.kind == "claude":
             extra_env.update(bedrock_env())
         venv_env, activate_script = _venv_env(self.python)
         extra_env.update(venv_env)
@@ -537,7 +643,6 @@ class Session:
         The settings file names the hook script, so that goes too: a stray
         executable in /tmp is worse litter than a stray JSON file.
         """
-        import json
         for flag in ("--append-system-prompt-file", "--settings"):
             try:
                 i = self.command.index(flag)
@@ -643,9 +748,9 @@ class Session:
             # The OS pid, so a session that has stopped responding can be
             # inspected from a shell rather than guessed at.
             "pid": self.pid,
-            # "shell" or "claude": the browser icons the tab by this, so a
+            # "shell", "claude", or "codex": the browser icons the tab by this, so a
             # session reattached after a reload still shows what it is.
-            "kind": "shell" if self.command[0] == SHELL_COMMAND[0] else "claude",
+            "kind": self.kind,
             "alive": self.alive,
             "note": self.exit_note,
         }

@@ -41,11 +41,11 @@ DEFAULTS = {
     "inline_llm_max_tokens": 1200,
     # Extra standing instructions from the user, prepended to every request.
     "inline_llm_instructions": "",
-    # Standing instructions for the Claude Code terminals — guardrails, house
+    # Standing instructions for agent terminals — guardrails, house
     # style, things to watch out for. Separate from inline_llm_instructions
-    # because they go to a different model doing a different job: one writes a
-    # single cell, the other has a shell and edits files. A session can add its
-    # own on top; see terminals.system_prompt_file.
+    # because they go to models doing a different job: one writes a single cell,
+    # the others have tools and edit files. The legacy key name is retained for
+    # settings compatibility. A session can add its own on top; see terminals.
     "claude_instructions": "",
     # What Claude Code may *not* do in a terminal: {"no_execute": true, ...},
     # keyed by terminals.RESTRICTION_RULES, plus a "deny_extra" free-text field.

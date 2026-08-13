@@ -1,8 +1,8 @@
-"""GusNotebook — notebooks plus embedded Claude Code terminals.
+"""GusNotebook — notebooks plus embedded Claude Code and Codex terminals.
 
 Left pane: tabs — notebooks (each with its own kernel and interpreter), text
-files, images. Right pane: Claude Code PTYs, opened on demand and rooted
-wherever you ask, so code Claude writes lands directly in the notebook.
+files, images. Right pane: Claude Code or Codex PTYs, opened on demand and rooted
+wherever you ask, so code an agent writes lands directly in the notebook.
 
 Run it with `gusnotebook` in the directory you want to work in. That directory
 is the file browser's root and the default session's root; the app's own state
@@ -184,7 +184,7 @@ def set_focus(key, cell_id):
             _focus.update(notebook=None, cell_id=None)
 
 
-# The last thing the user typed at a Claude terminal, so a cell Claude rewrites
+# The last thing the user typed at an agent terminal, so a cell it rewrites
 # can say what was asked for — the terminal's answer to the AI cell's prompt
 # strip. Recorded by the same `UserPromptSubmit` hook that injects the focused
 # cell, which already has the payload in hand.
@@ -779,7 +779,7 @@ def api_set_focus():
 
 @app.route("/api/prompt", methods=["POST"])
 def api_set_prompt():
-    """A Claude terminal reporting what the user just asked for.
+    """An agent terminal reporting what the user just asked for.
 
     Posted by the same `UserPromptSubmit` hook that injects the focused cell — it
     already reads the payload, and the `prompt` field is in it. Fire-and-forget
@@ -1066,7 +1066,7 @@ def events():
     })
 
 
-# --- Claude Code terminals (several, each rooted where you asked) ---
+# --- Agent terminals (several, each rooted where you asked) ---
 
 @app.route("/api/terminals")
 def api_terminals():
@@ -1081,16 +1081,14 @@ def api_terminals():
 
 @app.route("/api/terminals", methods=["POST"])
 def api_new_terminal():
-    """Open a session. Defaults to Claude in the file browser's folder.
+    """Open a session in the file browser's folder.
 
-    `kind` picks what runs: "shell" for a plain login shell, anything else (the
-    default) for Claude Code.
+    `kind` picks what runs: "shell", "codex", or Claude Code (the default).
     """
     body = request.get_json(silent=True) or {}
     # This session's own instructions and restrictions, on top of the app-wide
-    # ones. Both read at launch, so editing either affects the next Claude
-    # rather than this one — a system prompt and a settings file are fixed when
-    # the process starts.
+    # ones. Both agents receive the instructions at launch. Claude also receives
+    # its native deny rules, which are fixed when the process starts.
     cur = store.current()
     cwd = body.get("cwd") or (cur.root if cur else None) or str(Path(doc_key()).parent)
     try:
@@ -1300,7 +1298,7 @@ def main(argv=None):
 
     p = argparse.ArgumentParser(
         prog="gusnotebook",
-        description="Notebooks with embedded Claude Code terminals. "
+        description="Notebooks with embedded Claude Code and Codex terminals. "
                     "Serves the directory you run it in.")
     p.add_argument("-p", "--port", type=int,
                    default=int(os.environ.get("PORT", 8888)))

@@ -134,7 +134,7 @@ body {
 }
 .session-row:hover .x { visibility: visible; }
 .session-row .x:hover { color: #b91c1c; }
-/* Per-session instructions for Claude. Same hover-to-reveal as the ✕: a row
+/* Per-session instructions for agents. Same hover-to-reveal as the ✕: a row
    should read as a name and what's live in it, not a strip of icons. */
 .session-row .note {
   flex: 0 0 auto; font-size: 10px; color: #cbd5e1; padding: 0 2px;
@@ -1073,7 +1073,7 @@ button.tb.primary:hover { background: #fdf4f8; }
 .splitter { background: var(--border); cursor: col-resize; }
 .splitter:hover, .splitter.dragging { background: var(--accent); }
 
-/* ---------- Right: Claude Code terminals ----------
+/* ---------- Right: agent terminals ----------
  * Light, on the same tokens as the notebook side. The two panes sit next to
  * each other all day, so a dark terminal read as a different application
  * bolted on rather than one window. Only the ANSI colours below are terminal-
@@ -1110,7 +1110,16 @@ button.tb.primary:hover { background: #fdf4f8; }
 }
 .term-btn:hover { background: #f1f5f9; border-color: #cbd5e1; }
 
-/* One row of session tabs — several Claudes, each rooted somewhere. */
+.agent-select {
+  font: inherit; font-size: 11px;
+  padding: 3px 22px 3px 7px;
+  background: #fff; color: #475569;
+  border: 1px solid var(--border); border-radius: 5px;
+  cursor: pointer; flex: 0 0 auto;
+}
+.agent-select:hover { background: #f1f5f9; border-color: #cbd5e1; }
+
+/* One row of session tabs — several agents, each rooted somewhere. */
 .term-tabs {
   display: flex; align-items: stretch;
   flex: 0 0 auto;
