@@ -122,6 +122,24 @@ RESTRICTION_LABELS = {
     "no_network": "Reaching the network: WebFetch, WebSearch, curl, wget.",
 }
 
+def _venv_env(python=None):
+    """VIRTUAL_ENV and PATH for a venv, derived from `python` (or sys.executable).
+
+    `python` should be the notebook's selected interpreter — e.g. .venv/bin/python.
+    Falls back to sys.executable so a terminal opened without a notebook context
+    still activates the app's own venv.
+    """
+    bin_dir = pathlib.Path(python or sys.executable).parent  # no resolve() — symlink points outside venv
+    venv_dir = bin_dir.parent
+    if not (venv_dir / "pyvenv.cfg").exists():
+        return {}, None
+    path = os.environ.get("PATH", "")
+    if str(bin_dir) not in path.split(os.pathsep):
+        path = str(bin_dir) + os.pathsep + path
+    activate = venv_dir / "bin" / "activate"
+    return {"VIRTUAL_ENV": str(venv_dir), "PATH": path}, str(activate) if activate.exists() else None
+
+
 # The URL a terminal's `gusnb` should talk to. Set by the entry point, because
 # only it knows the port; the default matches cli.py's own so a directly-run
 # app.py still works.
@@ -409,11 +427,12 @@ def bedrock_env():
 class Session:
     """One PTY and the clients watching it."""
 
-    def __init__(self, sid, cwd, command=None, label=None):
+    def __init__(self, sid, cwd, command=None, label=None, python=None):
         self.id = sid
         self.cwd = str(cwd)
         self.command = list(command or DEFAULT_COMMAND)
         self.label = label or os.path.basename(self.cwd.rstrip("/")) or "/"
+        self.python = python  # the notebook's selected interpreter, for venv activation
         self.pid = None
         self.fd = None
         self.alive = False
@@ -438,8 +457,17 @@ class Session:
         # credential in an interactive shell's environment leaks it into every
         # child process and into `env` output.
         extra_env = {"NB_URL": APP_URL}
-        if self.command[0] != SHELL_COMMAND[0]:
+        is_shell = self.command[0] == SHELL_COMMAND[0]
+        if not is_shell:
             extra_env.update(bedrock_env())
+        venv_env, activate_script = _venv_env(self.python)
+        extra_env.update(venv_env)
+
+        command = self.command
+        if is_shell and activate_script:
+            shell = self.command[0]
+            command = [shell, "-l", "-c",
+                       f'source "{activate_script}" && exec "{shell}" -l -i']
 
         pid, fd = pty.fork()
         if pid == 0:
@@ -448,7 +476,7 @@ class Session:
                 os.chdir(self.cwd)
                 os.environ["TERM"] = "xterm-256color"
                 os.environ.update(extra_env)
-                os.execvp(self.command[0], self.command)
+                os.execvp(command[0], command)
             except Exception as e:                     # pragma: no cover - child
                 os.write(2, f"cannot start {self.command[0]}: {e}\r\n".encode())
             os._exit(1)
@@ -629,14 +657,14 @@ class SessionPool:
         self._next = 1
         self._lock = threading.RLock()
 
-    def create(self, cwd, command=None, label=None):
+    def create(self, cwd, command=None, label=None, python=None):
         cwd = str(cwd)
         if not os.path.isdir(cwd):
             raise ValueError(f"no such directory: {cwd}")
         with self._lock:
             sid = f"t{self._next}"
             self._next += 1
-            s = Session(sid, cwd, command=command, label=label)
+            s = Session(sid, cwd, command=command, label=label, python=python)
             self._sessions[sid] = s
         return s.start()
 

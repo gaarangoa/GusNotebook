@@ -199,6 +199,11 @@ async function runCell(id, advance = false) {
   if (outEl && source.trim()) {
     outEl.innerHTML = '<div class="spin">running…</div>';
     showRunning(id);       // the spinner is inside a hidden box on a collapsed cell
+  } else if (outEl && !source.trim()) {
+    // Empty cell — clear any stale output immediately, don't wait for SSE.
+    outEl.innerHTML = '';
+    c.outputs = [];
+    syncOutputView(id);
   }
 
   try {

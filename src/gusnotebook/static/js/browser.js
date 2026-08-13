@@ -329,6 +329,7 @@ function stashActive() {
     t.editing = editing;
     t.codeOpen = codeOpen;
     t.outsHidden = outsHidden;
+    t.headingsCollapsed = headingsCollapsed;
     t.scroll = document.getElementById('notebook-pane').scrollTop;
   } else if (t.kind === 'text') {
     t.text = document.getElementById('text-editor').value;

@@ -73,7 +73,21 @@ es.onmessage = (e) => {
   // A kernel started or died, here or in another session — the "2k live" counts
   // are the only place that's visible, so keep them honest.
   if (msg.type === 'kernel_status') refreshSessionCounts();
-  if (msg.notebook && msg.notebook !== active) return;
+
+  // For inactive tabs, keep the stashed cells[] up to date so switching back
+  // shows the correct output without needing a load(). DOM events are skipped.
+  if (msg.notebook && msg.notebook !== active) {
+    if (t && t.cells) {
+      if (msg.type === 'cell_output' || msg.type === 'cell_done') {
+        const c = t.cells.find(c => c.id === msg.cell_id);
+        if (c) {
+          c.outputs = msg.outputs;
+          if (msg.type === 'cell_done') c.execution_count = msg.execution_count;
+        }
+      }
+    }
+    return;
+  }
 
   if (msg.type === 'kernel_status') {
     setKernelStatus(msg.status);

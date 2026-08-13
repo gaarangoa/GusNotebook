@@ -390,6 +390,40 @@ def api_new_file():
                     "kind": textfile.kind_of(target)})
 
 
+@app.route("/api/dirlist")
+def api_dirlist():
+    """List subdirectories and venv-like entries for the directory picker.
+
+    Returns dirs plus any bin/python inside them so the picker can tell a
+    venv from a plain folder without extra round-trips.
+    ?path= the directory to list; defaults to the user's home directory.
+    """
+    raw = request.args.get("path", "").strip() or str(WORK_DIR)
+    try:
+        p = Path(raw).resolve()
+        if not p.is_dir():
+            return jsonify({"error": "not a directory"}), 400
+        try:
+            children = sorted(p.iterdir(), key=lambda x: x.name.lower())
+        except PermissionError:
+            # Try the parent so the user can navigate sideways rather than being stuck.
+            return jsonify({"error": f"Permission denied: {p}"}), 403
+        entries = []
+        for child in children:
+            if child.name.startswith(".") and child.name not in (".venv",):
+                continue
+            if not child.is_dir():
+                continue
+            is_venv = (child / "pyvenv.cfg").exists()
+            python = str(child / "bin" / "python") if is_venv and (child / "bin" / "python").exists() else None
+            entries.append({"name": child.name, "path": str(child),
+                            "is_venv": is_venv, "python": python})
+        parent = str(p.parent) if p.parent != p else None
+        return jsonify({"path": str(p), "parent": parent, "entries": entries})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 400
+
+
 @app.route("/api/files/rename", methods=["POST"])
 def api_rename_file():
     body = request.get_json(silent=True) or {}
@@ -1065,7 +1099,8 @@ def api_new_terminal():
                              body.get("kind"),
                              cur.instructions if cur else None,
                              restrictions_for(cur)),
-                         label=body.get("label"))
+                         label=body.get("label"),
+                         python=kernel_python(doc_key()))
     except (ValueError, OSError) as e:
         return jsonify({"error": str(e)}), 400
     store.add_terminal(s.id)

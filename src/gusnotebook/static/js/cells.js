@@ -107,6 +107,7 @@ async function openFile(path) {
   if (t.kind === 'notebook') {
     cells = t.cells; selected = null; editing = t.editing;
     codeOpen = t.codeOpen; outsHidden = t.outsHidden;
+    headingsCollapsed = t.headingsCollapsed || new Set();
   }
   renderTabs();
   showActive();
@@ -126,6 +127,7 @@ function switchTab(path) {
     editing = t.editing || new Set();
     codeOpen = t.codeOpen || new Set();
     outsHidden = t.outsHidden || new Set();
+    headingsCollapsed = t.headingsCollapsed || new Set();
   }
   closeVenvMenu();
   renderTabs();
@@ -160,9 +162,10 @@ async function closeTab(path, ev) {
       editing = next.editing || new Set();
       codeOpen = next.codeOpen || new Set();
       outsHidden = next.outsHidden || new Set();
+      headingsCollapsed = next.headingsCollapsed || new Set();
     } else {
       cells = []; selected = null; editing = new Set();
-      codeOpen = new Set(); outsHidden = new Set();
+      codeOpen = new Set(); outsHidden = new Set(); headingsCollapsed = new Set();
     }
     showActive();
     if (next && next.kind === 'notebook') load();
@@ -290,12 +293,116 @@ function renderVenvMenu(data) {
      </div>`;
 }
 
+// ---------- Directory picker for venv selection ----------
+let dirPickResolve = null;
+let dirPickSelected = null;
+
 async function browseVenv() {
-  // Same in-page dialog as New… — window.prompt() can be suppressed into a
-  // silent null, which would make "Browse…" look broken.
-  const p = await askName('Python environment', (activeTab() || {}).python || '',
-                          'a virtualenv directory, or a python binary', 'Use');
-  if (p && p.trim()) setVenv(p.trim());
+  const start = (activeTab() || {}).python
+    ? require_path_parent((activeTab() || {}).python)
+    : null;
+  // Fall back to the active notebook's directory, then the browsed directory —
+  // both are already accessible so we avoid triggering macOS TCC on a parent.
+  const fallback = active ? active.split('/').slice(0, -1).join('/') : fileState.path;
+  const chosen = await openDirPicker(start || fallback);
+  if (chosen) setVenv(chosen);
+}
+
+function require_path_parent(p) {
+  // Given a python binary path, return the grandparent (the venv root's parent)
+  // as a sensible starting point for browsing.
+  try { return p.split('/').slice(0, -3).join('/') || null; } catch (_) { return null; }
+}
+
+function openDirPicker(startPath) {
+  document.getElementById('dirpick-back').classList.add('on');
+  dirPickSelected = null;
+  document.getElementById('dirpick-ok').disabled = true;
+  document.getElementById('dirpick-sel').textContent = '';
+  dirPickNav(startPath || (fileState.home || '/'));
+  return new Promise(resolve => { dirPickResolve = resolve; });
+}
+
+async function dirPickNav(path) {
+  document.getElementById('dirpick-list').innerHTML =
+    '<div class="files-msg">Loading…</div>';
+  let data;
+  try {
+    // Reuse the existing file browser API — it already has the right OS permissions.
+    data = await api('/api/files?' + new URLSearchParams({path, hidden: '1'}));
+  } catch (err) {
+    document.getElementById('dirpick-list').innerHTML =
+      `<div class="files-msg err">${escapeHtml(String(err))}</div>`;
+    return;
+  }
+
+  // Crumbs
+  const parts = data.path.split('/').filter(Boolean);
+  const full = parts.map((p, i) => '/' + parts.slice(0, i + 1).join('/'));
+  let crumbs = `<span class="crumb" onclick="dirPickNav('/')">/</span>`;
+  parts.forEach((p, i) => {
+    crumbs += `<span class="crumb-sep">/</span>
+      <span class="crumb" onclick="dirPickNav('${escapeAttr(full[i])}')">${escapeHtml(p)}</span>`;
+  });
+  document.getElementById('dirpick-crumbs').innerHTML = crumbs;
+
+  // Only show dirs and .venv entries; detect venvs by pyvenv.cfg presence
+  const dirs = (data.entries || []).filter(e => e.kind === 'dir');
+
+  let html = '';
+  if (data.parent) {
+    html += `<div class="dpick-row" onclick="dirPickNav('${escapeAttr(data.parent)}')">
+      <span class="dp-ic">↑</span><span class="dp-nm">..</span></div>`;
+  }
+  if (!dirs.length && !data.parent) {
+    html += '<div class="files-msg">No subdirectories</div>';
+  }
+  dirs.forEach(e => {
+    const isVenv = e.name === '.venv' || e.name.endsWith('.venv');
+    const python = isVenv ? e.path + '/bin/python' : null;
+    html += `<div class="dpick-row${isVenv ? ' dp-venv' : ''}"
+      onclick="${isVenv
+        ? `dirPickSelect('${escapeAttr(python)}','${escapeAttr(e.path)}')`
+        : `dirPickNav('${escapeAttr(e.path)}')`}">
+      <span class="dp-ic">${isVenv ? '🐍' : '▸'}</span>
+      <span class="dp-nm">${escapeHtml(e.name)}${isVenv ? '' : '/'}</span>
+      ${isVenv ? '<span class="dp-tag">venv</span>' : ''}
+    </div>`;
+  });
+  document.getElementById('dirpick-list').innerHTML = html;
+}
+
+function dirPickSelect(python, label) {
+  dirPickSelected = python;
+  document.getElementById('dirpick-sel').textContent = 'Selected: ' + label;
+  document.getElementById('dirpick-ok').disabled = false;
+}
+
+function dirPickManual(val) {
+  const v = val.trim();
+  if (v) {
+    dirPickSelected = v;
+    document.getElementById('dirpick-sel').textContent = 'Selected: ' + v;
+    document.getElementById('dirpick-ok').disabled = false;
+  } else {
+    if (!document.querySelector('.dpick-row.dp-venv.active')) {
+      dirPickSelected = null;
+      document.getElementById('dirpick-ok').disabled = true;
+    }
+  }
+}
+
+function dirPickOk() {
+  document.getElementById('dirpick-back').classList.remove('on');
+  document.getElementById('dirpick-manual').value = '';
+  const r = dirPickResolve; dirPickResolve = null;
+  if (r) r(dirPickSelected);
+}
+
+function dirPickCancel() {
+  document.getElementById('dirpick-back').classList.remove('on');
+  const r = dirPickResolve; dirPickResolve = null;
+  if (r) r(null);
 }
 
 async function setVenv(python) {
@@ -533,7 +640,18 @@ function cellHtml(c) {
     : (isAi ? 'AI' : '');
 
   let bodyInner = '';
+  let hdBtn = '';
   if (isMd && !isEditing) {
+    const level = headingLevel(c);
+    const idx = cells.findIndex(x => x.id === c.id);
+    const hasSection = level > 0 && sectionCells(idx).length > 0;
+    const collapsed = headingsCollapsed.has(c.id);
+    if (hasSection) {
+      hdBtn = `<button class="hd-toggle" data-id="${c.id}"
+           onclick="event.stopPropagation();toggleHeading('${c.id}')"
+           title="${collapsed ? 'Expand section' : 'Collapse section'}"
+           >${collapsed ? '▸' : '▾'}</button>`;
+    }
     bodyInner = `<div class="md-rendered" ondblclick="editMarkdown('${c.id}')">${
       DOMPurify.sanitize(marked.parse(c.source || ''))}</div>`;
   } else {
@@ -605,18 +723,12 @@ function cellHtml(c) {
       <span class="undo-n">${c.undo_depth} step${c.undo_depth > 1 ? 's' : ''}</span>
     </div>` : '';
 
-  // ↶/↷ for this cell's own typing history, distinct from the ↶ Undo replace
-  // strip above: that one walks back what an agent or a snippet wrote and lives
-  // on the server; these are CodeMirror's, and are your keystrokes. Rendered
-  // hidden and switched on by refreshHist() once there's something to undo, so
-  // an untouched cell shows no chrome. Absent entirely without CM — the
-  // textarea fallback has only the browser's own undo.
+  // The hist div still exists (refreshHist writes into it) but is hidden —
+  // ⌘Z/⇧⌘Z work fine and the buttons add visual noise without adding value.
   const histBtns = (isMd && !isEditing) || !window.CM ? '' : `
-      <div class="gutter-hist" id="hist-${c.id}">
-        <button class="hist-btn" title="Undo your typing in this cell (⌘Z)"
-                onclick="event.stopPropagation();cellUndo('${c.id}')" disabled>↶</button>
-        <button class="hist-btn" title="Redo (⇧⌘Z)"
-                onclick="event.stopPropagation();cellRedo('${c.id}')" disabled>↷</button>
+      <div class="gutter-hist" id="hist-${c.id}" style="display:none">
+        <button class="hist-btn" onclick="event.stopPropagation();cellUndo('${c.id}')" disabled>↶</button>
+        <button class="hist-btn" onclick="event.stopPropagation();cellRedo('${c.id}')" disabled>↷</button>
       </div>`;
 
   const hasOuts = !!(c.outputs && c.outputs.length);
@@ -629,12 +741,22 @@ function cellHtml(c) {
   // note about code you're about to write, so code is what you want next.
   const cellBtns = `
       <div class="gutter-acts">
-        <button class="act-btn" title="Change this cell's type"
-                onclick="toggleTypeMenu(event, '${c.id}')">⌥</button>
-        <button class="act-btn" title="Add a code cell below"
-                onclick="event.stopPropagation();addCell('code', '${c.id}')">+</button>
-        <button class="act-btn danger" title="Delete this cell"
-                onclick="event.stopPropagation();deleteCell('${c.id}')">✕</button>
+        <div class="act-row">
+          <button class="act-btn" title="Move cell up (⌘⇧↑)"
+                  onclick="event.stopPropagation();moveCell('${c.id}',-1)">↑</button>
+          <button class="act-btn" title="Move cell down (⌘⇧↓)"
+                  onclick="event.stopPropagation();moveCell('${c.id}',1)">↓</button>
+        </div>
+        <div class="act-row">
+          <button class="act-btn" title="Change this cell's type"
+                  onclick="toggleTypeMenu(event, '${c.id}')">⌥</button>
+          <button class="act-btn" title="Add a code cell below"
+                  onclick="event.stopPropagation();addCell('code', '${c.id}')">+</button>
+        </div>
+        <div class="act-row">
+          <button class="act-btn danger" title="Delete this cell"
+                  onclick="event.stopPropagation();deleteCell('${c.id}')">✕</button>
+        </div>
       </div>`;
 
   // What replaces the output when it's collapsed — the count, so the cell still
@@ -646,7 +768,7 @@ function cellHtml(c) {
   <div class="cell" data-id="${c.id}" data-type="${c.cell_type}"
        onclick="selectCell('${c.id}')">
     <div class="gutter">
-      <span class="gutter-label">${escapeHtml(label)}</span>${viewBtns}${histBtns}${cellBtns}
+      ${hdBtn}<span class="gutter-label">${escapeHtml(label)}</span>${viewBtns}${histBtns}${cellBtns}
     </div>
     <div class="cell-body">
       ${promptStrip}${claudeStrip}${undoStrip}${bodyInner}${outNote}
@@ -657,6 +779,58 @@ function cellHtml(c) {
   </div>`;
 }
 
+// ---------- Heading collapse ----------
+
+/** The heading level of a markdown cell (1-6), or 0 if it's not a heading. */
+function headingLevel(c) {
+  if (c.cell_type !== 'markdown') return 0;
+  const m = /^(#{1,6})\s/.exec((c.source || '').trimStart());
+  return m ? m[1].length : 0;
+}
+
+/**
+ * All cell ids that belong to the section opened by the heading at `idx`.
+ * A section ends at the next cell with a heading of equal or higher level
+ * (lower number), or at the end of the notebook.
+ */
+function sectionCells(idx) {
+  const level = headingLevel(cells[idx]);
+  if (!level) return [];
+  const ids = [];
+  for (let i = idx + 1; i < cells.length; i++) {
+    const l = headingLevel(cells[i]);
+    if (l && l <= level) break;
+    ids.push(cells[i].id);
+  }
+  return ids;
+}
+
+function toggleHeading(id) {
+  const idx = cells.findIndex(c => c.id === id);
+  if (idx === -1) return;
+  const collapsed = headingsCollapsed.has(id);
+  if (collapsed) headingsCollapsed.delete(id); else headingsCollapsed.add(id);
+  applyHeadingCollapse();
+  // Update just this button without a full render.
+  const btn = document.querySelector(`.hd-toggle[data-id="${id}"]`);
+  if (btn) btn.textContent = collapsed ? '▾' : '▸';
+}
+
+/** Show/hide cells according to headingsCollapsed, without re-rendering. */
+function applyHeadingCollapse() {
+  // Start with everything visible, then hide what collapsed sections cover.
+  const hidden = new Set();
+  cells.forEach((c, i) => {
+    if (headingsCollapsed.has(c.id)) {
+      sectionCells(i).forEach(id => hidden.add(id));
+    }
+  });
+  cells.forEach(c => {
+    const el = document.querySelector(`.cell[data-id="${c.id}"]`);
+    if (el) el.style.display = hidden.has(c.id) ? 'none' : '';
+  });
+}
+
 function render() {
   const scroll = document.getElementById('notebook-pane').scrollTop;
   document.getElementById('notebook').innerHTML = cells.map(cellHtml).join('');
@@ -664,6 +838,7 @@ function render() {
   paintSelection();      // innerHTML was replaced, so the class went with it
   document.querySelectorAll('.editor').forEach(autosize);
   pinStreams(document.getElementById('notebook'));
+  applyHeadingCollapse();
   document.getElementById('notebook-pane').scrollTop = scroll;
 }
 

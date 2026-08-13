@@ -582,6 +582,9 @@ button.tb.primary:hover { background: #fdf4f8; }
 .pane::-webkit-scrollbar-thumb:hover { background: #aebac9; }
 
 .notebook { padding: 14px 16px 8px; }
+/* Extra space at the bottom so the last cell can be scrolled up to the top
+   of the viewport, same as Jupyter. 60vh is generous enough for any screen. */
+.notebook::after { content: ''; display: block; height: 60vh; }
 
 /* ---------- Cells ---------- */
 .cell {
@@ -776,11 +779,16 @@ button.tb.primary:hover { background: #fdf4f8; }
    notebook reads as a column of buttons with some code next to it. */
 .gutter-acts {
   display: flex;
-  justify-content: flex-end;
+  flex-direction: column;
+  align-items: flex-end;
   gap: 2px;
   margin-top: 5px;
   opacity: 0;
   transition: opacity .12s;
+}
+.act-row {
+  display: flex;
+  gap: 2px;
 }
 .cell:hover .gutter-acts,
 .cell.is-current .gutter-acts { opacity: 1; }
@@ -816,6 +824,19 @@ button.tb.primary:hover { background: #fdf4f8; }
   font-size: 13.5px;
   line-height: 1.65;
   cursor: text;
+}
+.hd-toggle {
+  display: block;
+  background: none;
+  border: none;
+  padding: 0;
+  width: 100%;
+  font-size: 11px;
+  color: var(--muted);
+  cursor: pointer;
+  text-align: right;
+  line-height: 1;
+  margin-bottom: 3px;
 }
 .md-rendered:empty::after { content: 'Empty markdown cell — double-click to edit'; color: var(--muted); font-style: italic; }
 .md-rendered h1 { font-size: 22px; margin: 12px 0 8px; font-weight: 650; }
@@ -1206,6 +1227,59 @@ button.tb.primary:hover { background: #fdf4f8; }
   margin-top: 6px; font-size: 10.5px; color: var(--muted);
   font-family: var(--mono);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+/* Directory picker modal */
+.modal.dirpick { width: 520px; max-width: 94vw; }
+#dirpick-manual {
+  flex: 1; font: inherit; font-size: 11.5px; font-family: var(--mono);
+  padding: 5px 8px; border: 1px solid var(--border); border-radius: 5px;
+  background: #fff; color: var(--text); min-width: 0;
+}
+#dirpick-manual:focus { outline: none; border-color: #c9b3c1; }
+.modal.dirpick .mbody { padding: 0; display: flex; flex-direction: column; height: 420px; }
+.dirpick-crumbs {
+  padding: 8px 14px;
+  font-size: 11px;
+  font-family: var(--mono);
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: none;
+}
+.dirpick-list {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 4px 0;
+}
+.dirpick-sel {
+  flex: none;
+  padding: 6px 14px;
+  font-size: 11px;
+  font-family: var(--mono);
+  color: var(--accent);
+  border-top: 1px solid var(--border);
+  min-height: 28px;
+}
+.dpick-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 14px;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+.dpick-row:hover { background: #f1f5f9; }
+.dpick-row.dp-venv { color: var(--accent); }
+.dpick-row.dp-venv:hover { background: #fce4ef; }
+.dp-ic { font-size: 11px; color: var(--muted); flex: none; width: 16px; text-align: center; }
+.dpick-row.dp-venv .dp-ic { color: var(--accent); }
+.dp-nm { flex: 1; font-family: var(--mono); }
+.dp-tag {
+  font-size: 9px; font-weight: 600; text-transform: uppercase;
+  background: #fce4ef; color: var(--accent);
+  padding: 1px 5px; border-radius: 3px;
 }
 
 .field { margin-bottom: 14px; }

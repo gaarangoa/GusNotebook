@@ -212,6 +212,29 @@
   </div>
 </div>
 
+<!-- ---------- Directory picker (for venv Browse…) ---------- -->
+<div class="modal-back" id="dirpick-back" onclick="if (event.target === this) dirPickCancel()">
+  <div class="modal dirpick">
+    <div class="mhead">
+      <span class="grow" id="dirpick-title">Select environment</span>
+      <button class="help-close" onclick="dirPickCancel()">✕</button>
+    </div>
+    <div class="mbody">
+      <div class="dirpick-crumbs" id="dirpick-crumbs"></div>
+      <div class="dirpick-list" id="dirpick-list"></div>
+      <div class="dirpick-sel" id="dirpick-sel"></div>
+    </div>
+    <div class="mfoot">
+      <input type="text" id="dirpick-manual" placeholder="or paste a path directly, e.g. /path/to/.venv"
+             spellcheck="false" autocomplete="off"
+             oninput="dirPickManual(this.value)"
+             onkeydown="if(event.key==='Enter' && !document.getElementById('dirpick-ok').disabled) dirPickOk()">
+      <button class="tb" onclick="dirPickCancel()">Cancel</button>
+      <button class="tb primary" id="dirpick-ok" onclick="dirPickOk()" disabled>Select</button>
+    </div>
+  </div>
+</div>
+
 <!-- ---------- Settings ---------- -->
 <!-- Name prompt for New notebook / file / folder. In-page rather than
      window.prompt(), which a browser can suppress into a silent null. -->

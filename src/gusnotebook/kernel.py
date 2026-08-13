@@ -11,6 +11,7 @@ import queue
 import sys
 import threading
 import time
+from pathlib import Path
 
 from jupyter_client.manager import KernelManager
 
@@ -68,6 +69,43 @@ class Kernel:
         spec.argv = argv
         return spec
 
+    def _venv_env(self):
+        """Isolated environment for the kernel's venv.
+
+        When self.python is inside a venv, strip out everything that would let
+        a shell command escape to the system Python: remove PYTHONPATH and
+        PYTHONHOME (which can redirect imports outside the venv), and rebuild
+        PATH with only the venv's bin/ plus non-Python system dirs — so `pip`,
+        `python` etc. always resolve to the venv and nothing else.
+        """
+        bin_dir = Path(self.python).parent
+        venv_dir = bin_dir.parent
+        if not (venv_dir / "pyvenv.cfg").exists():
+            return {}
+
+        # Rebuild PATH: venv bin first, then every entry that isn't another
+        # Python bin dir (site-packages parent, /usr/bin with a python, etc.).
+        # We keep non-Python system dirs so tools like git, curl, etc. still work.
+        clean_path_entries = [str(bin_dir)]
+        for entry in os.environ.get("PATH", "").split(os.pathsep):
+            if not entry or entry == str(bin_dir):
+                continue
+            p = Path(entry)
+            # Drop any bin that contains a `python` or `python3` executable —
+            # those are other Python installations that would shadow the venv.
+            if (p / "python").exists() or (p / "python3").exists():
+                continue
+            clean_path_entries.append(entry)
+
+        env = {
+            "PATH": os.pathsep.join(clean_path_entries),
+            "VIRTUAL_ENV": str(venv_dir),
+        }
+        # These would let imports escape the venv entirely.
+        env["PYTHONPATH"] = ""
+        env["PYTHONHOME"] = ""
+        return env
+
     def start(self):
         with self._lock:
             if self._km is not None:
@@ -75,7 +113,10 @@ class Kernel:
             self._set_status("starting")
             km = KernelManager(kernel_name="python3")
             km._kernel_spec = self._spec_for(km)
-            km.start_kernel(cwd=self.cwd)
+            # Pass the full env with the venv's bin/ at the front of PATH so
+            # !pip, !python etc. in cells resolve to the kernel's own venv.
+            env = {**os.environ, **self._venv_env()}
+            km.start_kernel(cwd=self.cwd, env=env)
             kc = km.client()
             kc.start_channels()
             try:

@@ -35,8 +35,9 @@ let editing = new Set();     // markdown cells currently in edit mode
  * Per tab, like `editing`: cell ids are unique within a notebook, not across
  * them, so one set for every tab would eventually fold a cell in a notebook
  * nobody touched. */
-let codeOpen = new Set();        // long cells you've expanded
-let outsHidden = new Set();      // cells whose output you've collapsed
+let codeOpen = new Set();           // long cells you've expanded
+let outsHidden = new Set();         // cells whose output you've collapsed
+let headingsCollapsed = new Set();  // heading cell ids whose section is collapsed
 
 // Where a code cell starts being long enough to fold. About a screenful in this
 // layout: below it, folding hides nothing worth a click to get back.
