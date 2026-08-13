@@ -40,13 +40,15 @@ function renderTermTabs() {
   setTermStatus();
 }
 
-/** Open a session. `kind` is "shell" for a plain terminal, else Claude Code. */
+/** Open a session in the requested directory, or wherever Files is browsing.
+ * `kind` is "shell" for a plain terminal, else Claude Code. */
 async function openTerminal(cwd, kind) {
+  const root = cwd || fileState.path;
   let data;
   try {
     data = await api('/api/terminals', {
       method: 'POST',
-      body: JSON.stringify({...(cwd ? {cwd} : {notebook: active}), kind}),
+      body: JSON.stringify({...(root ? {cwd: root} : {}), kind}),
     });
   } catch (err) {
     flash('Cannot open a terminal: ' + errText(err));

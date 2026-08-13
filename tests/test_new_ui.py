@@ -315,14 +315,22 @@ def main():
         pg.evaluate(f"focusTerm('{first}')")
         check("switching sessions works", pg.evaluate("activeTerm"), first)
 
-        # "+ Terminal" with no argument roots at the active notebook's folder,
-        # which is the default the user asked for.
+        # The header buttons follow Files, even when the active notebook lives
+        # elsewhere. That is the directory currently in view and therefore the
+        # place where a newly launched agent or shell should start.
         pg.evaluate("switchTab(tabs.find(t => t.name === 'analysis.ipynb').path)")
         pg.wait_for_function("activeTab().name === 'analysis.ipynb'")
-        pg.click("button[onclick='openTerminal()']")
+        go_to(pg, DEEP)
+        pg.get_by_role("button", name="+ Agent", exact=True).click()
         pg.wait_for_function("terms.length === 3", timeout=30000)
-        check("defaults to the notebook's directory", pg.evaluate("terms[2].cwd"),
-              str(FIX.resolve()))
+        check("new agent follows the Files directory", pg.evaluate("terms[2].cwd"),
+              str(DEEP.resolve()))
+        pg.get_by_role("button", name="+ Terminal", exact=True).click()
+        pg.wait_for_function("terms.length === 4", timeout=30000)
+        check("new terminal follows the Files directory", pg.evaluate("terms[3].cwd"),
+              str(DEEP.resolve()))
+        pg.evaluate("closeTerminal(terms[3].id)")
+        pg.wait_for_function("terms.length === 3", timeout=20000)
         pg.evaluate("closeTerminal(terms[2].id)")
         pg.wait_for_function("terms.length === 2", timeout=20000)
 

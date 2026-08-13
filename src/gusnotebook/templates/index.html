@@ -196,9 +196,9 @@
   <div class="right">
     <div class="bar">
       <button class="term-btn" onclick="openTerminal(null,'claude')"
-              title="New Claude Code session in the active notebook's directory">+ Agent</button>
+              title="New Claude Code session in the directory shown in Files">+ Agent</button>
       <button class="term-btn" onclick="openTerminal(null,'shell')"
-              title="New terminal in the active notebook's directory">+ Terminal</button>
+              title="New terminal in the directory shown in Files">+ Terminal</button>
       <span class="status disconnected" id="ws-status">No session</span>
     </div>
     <div class="term-tabs" id="term-tabs"></div>
@@ -206,7 +206,7 @@
       <div class="term-empty" id="term-empty">
         <div class="big">No session open</div>
         <div>Use <code>+ Agent</code> for Claude Code or <code>+ Terminal</code>
-             for a plain shell — both start in the active notebook's directory.</div>
+             for a plain shell — both start in the directory shown in Files.</div>
       </div>
     </div>
   </div>

@@ -1081,18 +1081,18 @@ def api_terminals():
 
 @app.route("/api/terminals", methods=["POST"])
 def api_new_terminal():
-    """Open a session. Defaults to Claude in the active notebook's folder.
+    """Open a session. Defaults to Claude in the file browser's folder.
 
     `kind` picks what runs: "shell" for a plain login shell, anything else (the
     default) for Claude Code.
     """
     body = request.get_json(silent=True) or {}
-    cwd = body.get("cwd") or str(Path(doc_key()).parent)
     # This session's own instructions and restrictions, on top of the app-wide
     # ones. Both read at launch, so editing either affects the next Claude
     # rather than this one — a system prompt and a settings file are fixed when
     # the process starts.
     cur = store.current()
+    cwd = body.get("cwd") or (cur.root if cur else None) or str(Path(doc_key()).parent)
     try:
         s = terms.create(str(files.normalize(cwd)),
                          command=terminals.command_for(
