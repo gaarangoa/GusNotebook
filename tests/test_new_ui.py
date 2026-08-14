@@ -143,6 +143,19 @@ def make_fixtures():
     shutil.rmtree(FIX, ignore_errors=True)
     DEEP.mkdir(parents=True)
     (FIX / "seed.py").write_text("x = 1\n")
+    (FIX / "preview.css").write_text("#preview-title { color: rgb(7, 89, 133); }\n")
+    (FIX / "preview.html").write_text(
+        "<!doctype html><html><head>"
+        "<link rel='stylesheet' href='preview.css'></head>"
+        "<body><h1 id='preview-title'>First render</h1>"
+        "<script>document.body.dataset.scriptRan='yes';"
+        "try{parent.document.body.dataset.previewEscaped='yes'}catch(e){}"
+        "</script></body></html>")
+    (FIX / "diagram.svg").write_text(
+        "<?xml version=\"1.0\"?><svg xmlns=\"http://www.w3.org/2000/svg\" "
+        "width=\"360\" height=\"120\"><rect width=\"360\" height=\"120\" "
+        "fill=\"#f8fafc\"/><text id=\"diagram-title\" x=\"20\" y=\"68\" "
+        "font-size=\"28\">Diagram title</text></svg>")
 
 
 def go_to(pg, directory):
@@ -236,6 +249,135 @@ def main():
         check("text tab, not notebook",
               pg.evaluate("tab(tabs.find(t=>t.name==='notes.md').path).kind"), "text")
         check("editor is showing", pg.locator("#textpane").is_visible(), True)
+
+        print("\n-- HTML and SVG edit visually inside a sandboxed canvas")
+        go_to(pg, FIX)
+        pg.evaluate("path => openFile(path)", str(FIX / "preview.html"))
+        pg.wait_for_function("activeTab().name === 'preview.html'", timeout=20000)
+        preview = pg.frame_locator("#html-preview-frame")
+        preview.locator("#preview-title").wait_for(timeout=20000)
+        check("only the visual editor is visible",
+              (pg.locator("#text-editor").is_visible(),
+               pg.locator("#html-preview-frame").is_visible()), (False, True))
+        check("renders the HTML",
+              preview.locator("#preview-title").inner_text(), "First render")
+        check("relative CSS resolves beside the HTML file",
+              preview.locator("#preview-title").evaluate(
+                  "el => getComputedStyle(el).color"), "rgb(7, 89, 133)")
+        check("scripts run inside the sandbox",
+              preview.locator("body").get_attribute("data-script-ran"), "yes")
+        check("the sandbox cannot reach GusNotebook",
+              pg.locator("body").get_attribute("data-preview-escaped"), None)
+
+        preview.locator("#preview-title").evaluate("""el => {
+          const range = el.ownerDocument.createRange();
+          range.selectNodeContents(el);
+          const selection = el.ownerDocument.getSelection();
+          selection.removeAllRanges(); selection.addRange(range);
+          el.ownerDocument.defaultView.focus();
+        }""")
+        pg.keyboard.insert_text("Edited on the page")
+        pg.wait_for_function("activeTab().dirty", timeout=15000)
+        check("HTML text edits directly in the page",
+              preview.locator("#preview-title").inner_text(), "Edited on the page")
+        check("editing marks the HTML tab dirty", pg.evaluate("activeTab().dirty"), True)
+        pg.locator("#text-save").click()
+        pg.wait_for_function("!activeTab().dirty", timeout=15000)
+        saved_html = (FIX / "preview.html").read_text()
+        check("visual HTML edit saves to disk", "Edited on the page" in saved_html, True)
+        check("editor bridge is not written into HTML",
+              "data-gusnotebook-runtime" in saved_html, False)
+
+        preview.locator("#preview-title").evaluate("""el => {
+          const range = el.ownerDocument.createRange();
+          range.selectNodeContents(el);
+          const selection = el.ownerDocument.getSelection();
+          selection.removeAllRanges(); selection.addRange(range);
+          el.dispatchEvent(new MouseEvent('mouseup', {bubbles: true}));
+        }""")
+        pg.wait_for_timeout(350)
+        visual_here = get("/api/here")
+        check("the visual selection becomes the agent target",
+              (visual_here.get("kind"), visual_here.get("selected_text")),
+              ("markup", "Edited on the page"))
+        check("the agent receives surrounding document context",
+              "preview.css" in visual_here.get("document", ""), True)
+        replacement = '<em id="agent-revision">Agent revision</em>'
+        patch("/api/markup-selection", {
+            "selection_id": visual_here["selection_id"], "replacement": replacement})
+        preview.locator("#agent-revision").wait_for(timeout=20000)
+        check("the agent replacement appears in the live canvas",
+              preview.locator("#agent-revision").inner_text(), "Agent revision")
+        agent_saved = (FIX / "preview.html").read_text()
+        check("only the selected bytes were replaced", agent_saved,
+              saved_html.replace("Edited on the page", replacement, 1))
+
+        preview.locator("#agent-revision").evaluate("""el => {
+          const range = el.ownerDocument.createRange();
+          range.selectNodeContents(el);
+          const selection = el.ownerDocument.getSelection();
+          selection.removeAllRanges(); selection.addRange(range);
+          el.dispatchEvent(new MouseEvent('mouseup', {bubbles: true}));
+        }""")
+        pg.wait_for_timeout(350)
+        externally_changed = agent_saved.replace(
+            "Agent revision", "Agent disk revision", 1).replace(
+            "</body>", '<p id="external-note">External reference edit</p></body>')
+        (FIX / "preview.html").write_text(externally_changed)
+        preview.locator("#external-note").wait_for(timeout=20000)
+        preview.locator("#agent-revision", has_text="Agent disk revision").wait_for(
+            timeout=20000)
+        check("an agent disk save reloads the clean visual canvas",
+              (preview.locator("#agent-revision").inner_text(),
+               preview.locator("#external-note").inner_text()),
+              ("Agent disk revision", "External reference edit"))
+        check("the reload reflects exactly what was saved on disk",
+              (FIX / "preview.html").read_text(), externally_changed)
+
+        preview.locator("#external-note").evaluate("""el => {
+          const range = el.ownerDocument.createRange();
+          range.selectNodeContents(el);
+          const selection = el.ownerDocument.getSelection();
+          selection.removeAllRanges(); selection.addRange(range);
+          el.ownerDocument.defaultView.focus();
+        }""")
+        pg.keyboard.insert_text("Unsaved browser edit")
+        pg.wait_for_function("activeTab().dirty", timeout=15000)
+        disk_wins = externally_changed.replace(
+            "</body>", '<p id="disk-wins">Newer disk edit</p></body>')
+        (FIX / "preview.html").write_text(disk_wins)
+        pg.wait_for_function("activeTab().externalConflict", timeout=15000)
+        check("a disk save does not overwrite an unsaved visual edit",
+              pg.locator("#text-status").inner_text(), "changed on disk · reload")
+        pg.locator("#text-save").click()
+        pg.locator("#ask-back.on").wait_for(timeout=15000)
+        check("saving a stale dirty buffer asks before discarding",
+              "changed on disk" in pg.locator("#ask-title").inner_text(), True)
+        pg.locator("#ask-ok").click()
+        preview.locator("#disk-wins").wait_for(timeout=20000)
+        check("reload keeps the newer disk content",
+              (FIX / "preview.html").read_text(), disk_wins)
+        check("reload discards rather than overwrites the stale buffer",
+              "Unsaved browser edit" in (FIX / "preview.html").read_text(), False)
+
+        pg.evaluate("path => openFile(path)", str(FIX / "diagram.svg"))
+        pg.wait_for_function("activeTab().language === 'svg'", timeout=20000)
+        preview.locator("#diagram-title").wait_for(timeout=20000)
+        check("SVG opens in the visual editor", pg.evaluate("activeTab().kind"), "text")
+        preview.locator("#diagram-title").dblclick()
+        svg_input = preview.locator("[data-gusnotebook-runtime='svg-editor']")
+        svg_input.wait_for(timeout=10000)
+        svg_input.fill("Edited diagram")
+        svg_input.press("Enter")
+        pg.wait_for_function("activeTab().dirty", timeout=15000)
+        check("SVG text edits in place",
+              preview.locator("#diagram-title").text_content(), "Edited diagram")
+        pg.keyboard.press(("Meta" if sys.platform == "darwin" else "Control") + "+s")
+        pg.wait_for_function("!activeTab().dirty", timeout=15000)
+        saved_svg = (FIX / "diagram.svg").read_text()
+        check("visual SVG edit saves to disk", "Edited diagram" in saved_svg, True)
+        check("SVG remains a standalone SVG", "<html" in saved_svg.lower(), False)
+        check("SVG prefix is preserved", saved_svg.startswith("<?xml version=\"1.0\"?>"), True)
 
         # A typed .ipynb name goes to the notebook path even via New file.
         pg.evaluate("setTimeout(newFile, 0)")

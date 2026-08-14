@@ -5,6 +5,19 @@ agents on the right. Files open in tabs, each open notebook gets its own IPython
 kernel, and either agent can read and rewrite **the cell you're parked on**
 without being told which one it is.
 
+HTML and SVG files open as a visual editor rather than as source. Edit HTML text
+directly on the rendered page, or double-click SVG text to change it in place.
+Relative CSS, images, scripts, and links resolve from the file's directory;
+visual changes save back to the original file through **Save** or ⌘S.
+
+Select a rendered region before moving to a Claude or Codex terminal and that
+exact range, its surrounding markup, and the document path are injected with
+your next prompt. The agent edits that file directly on disk, changing only the
+selected region while using the surrounding document as context. GusNotebook
+watches the open file and reloads a clean visual canvas automatically after the
+agent saves. If the canvas has an unsaved edit, it shows a conflict and asks
+before discarding the browser version.
+
 ## Install
 
 ```bash
@@ -54,8 +67,8 @@ import pandas as pd
 pd.DataFrame({"site": ["A", "B"], "n": [12, 7]})
 PY
 
-gusnb here                        # the cell the user is parked on
-gusnb here - --run                # replace that cell and run it
+gusnb here                        # current cell or selected HTML/SVG region
+gusnb here - --run                # replace a notebook cell and run it
 gusnb undo <cell_id>              # put back what a replace overwrote
 gusnb list                        # every cell, with outputs
 gusnb tabs                        # what's open, and on which interpreter
@@ -64,14 +77,16 @@ gusnb tabs                        # what's open, and on which interpreter
 With several notebooks open, `-n analysis.ipynb` targets one. `--help` has the
 rest.
 
-## The cell you're on
+## The cell or document region you're on
 
 Choose **Claude** or **Codex** beside **+ Agent**, click a cell, then type a
 request — *"open the quarterly report and extract the site and n columns"*.
-The cell's source and output are injected as context **before** the agent reads
-the prompt (a `UserPromptSubmit` hook running `gusnb here`), so there's no
-`/command` to remember and no id to quote. The agent writes the cell with
-`gusnb here - --run`, reads the output, and iterates.
+The cell's source/output—or the selected HTML/SVG region and its surrounding
+document context—is injected **before** the agent reads the prompt (a
+`UserPromptSubmit` hook running `gusnb here`), so there's no `/command` to
+remember and no id to quote. The agent writes a cell with `gusnb here - --run`,
+or edits the selected HTML/SVG file directly and saves it on disk. The visual
+canvas notices the save and reloads automatically.
 
 Replacing is destructive, so every replace pushes the old source onto that
 cell's own undo stack — a **↶** appears on the cell, one step per replace,
@@ -103,7 +118,7 @@ the `.ipynb` so it survives a restart and still opens in Jupyter.
 No `CLAUDE.md` or `AGENTS.md` is ever written into your project. Standing
 instructions reach Claude through an app-owned temp file and Codex through a
 per-launch developer-instructions override. Codex may ask you to trust the
-GusNotebook current-cell hook on its first launch; the reviewed script has a
+GusNotebook current-target hook on its first launch; the reviewed script has a
 stable path in the app state directory. Claude's temporary files are deleted
 when its terminal closes.
 

@@ -312,11 +312,20 @@ function toggleFiles() {
 }
 
 // ---------- Tab bar ----------
-const TAB_ICON = {notebook: '◆', text: '≡', image: '▣'};
+const TAB_ICON = {notebook: '◆', text: '≡', markup: '◇', image: '▣'};
+
+function tabIcon(t) {
+  return TAB_ICON[isMarkupTab(t) ? 'markup' : t.kind] || '·';
+}
 
 function errText(err) {
   const s = String(err && err.message ? err.message : err);
   try { return JSON.parse(s).error || s; } catch (e) { return s.slice(0, 300); }
+}
+
+function errCode(err) {
+  const s = String(err && err.message ? err.message : err);
+  try { return JSON.parse(s).code || null; } catch (e) { return null; }
 }
 
 /** Park the on-screen state back into the tab it belongs to. */
@@ -340,7 +349,7 @@ function renderTabs() {
   document.getElementById('tabs').innerHTML = tabs.map(t => `
     <div class="tab ${t.path === active ? 'active' : ''} ${t.dirty ? 'dirty' : ''}"
          onclick="switchTab('${escapeAttr(t.path)}')" title="${escapeAttr(t.path)}">
-      <span class="ti">${TAB_ICON[t.kind] || '·'}</span>
+      <span class="ti">${tabIcon(t)}</span>
       <span class="tn">${escapeHtml(t.name)}</span>
       <span class="tx" onclick="closeTab('${escapeAttr(t.path)}', event)">✕</span>
     </div>`).join('') +

@@ -14,7 +14,7 @@ Nothing starts a session implicitly: the notebook opens with no terminal, and
 the user asks for one.
 
 What an agent session is launched with is decided in one place, `command_for`.
-Both agents receive the standing instructions and current-cell hook. Claude
+Both agents receive the standing instructions and current-target hook. Claude
 also receives the gateway credential, skills plugin, and the user's
 Claude-specific **restrictions** — see RESTRICTION_RULES.
 """
@@ -47,7 +47,7 @@ CLAUDE_COMMAND = ["claude", "--dangerously-skip-permissions"]
 
 # Codex keeps the user's own model, login, approval, and sandbox settings. The
 # app only asks it to render inline (important inside an embedded xterm) and
-# supplies an app-owned, reviewable current-cell hook in codex_args().
+# supplies an app-owned, reviewable current-target hook in codex_args().
 CODEX_COMMAND = ["codex", "--no-alt-screen"]
 
 # Backwards-compatible name for callers that construct a Session directly.
@@ -250,7 +250,7 @@ def restriction_note(restrictions):
 def command_for(kind, instructions=None, restrictions=None):
     """argv for a session kind: shell, Claude, or Codex.
 
-    Both agents get the workspace's standing instructions and current-cell
+    Both agents get the workspace's standing instructions and current-target
     context. Claude also gets the skills plugin and its native deny rules.
     Assembled here so every launch path behaves the same way.
     """
@@ -322,19 +322,19 @@ def system_prompt_file(extra=None, restrictions=None):
     return path
 
 
-# The hook that puts the user's current cell in front of an agent before it reads
-# the prompt. `UserPromptSubmit` output is added to the conversation as context,
-# so "extract columns x and y from this file" arrives already knowing which cell
-# the user is looking at, with no /command to remember.
+# The hook that puts the user's current cell or visually selected HTML/SVG range
+# in front of an agent before it reads the prompt. `UserPromptSubmit` output is
+# added to the conversation as context, so "rewrite this paragraph" arrives
+# already knowing the exact protected range, with no /command to remember.
 #
 # A shell script rather than a Python one so it costs no interpreter startup on
 # every prompt, and it stays silent on failure: if the app is down or nothing is
 # focused, a prompt must still go through unchanged.
 FOCUS_HOOK = """#!/bin/sh
-# Written by GusNotebook. Injects the user's active notebook cell as context on
-# every prompt, and tells the app what was asked so a cell an agent rewrites can
-# show it. Claude's copy is deleted when its terminal closes; Codex uses the
-# stable app-state copy described below.
+# Written by GusNotebook. Injects the user's active notebook cell or visual
+# HTML/SVG selection as context on every prompt, and tells the app what was asked
+# so a cell an agent rewrites can show it. Claude's copy is deleted when its
+# terminal closes; Codex uses the stable app-state copy described below.
 NB_URL={url}
 export NB_URL
 # The hook payload, which carries the prompt. Handed to the app as-is rather than
@@ -351,19 +351,21 @@ fi
 cell=$({nb} here 2>/dev/null) || exit 0
 [ -n "$cell" ] || exit 0
 printf '%s\\n%s\\n' \
-  'The cell the user is currently on in the notebook (their prompt probably \
-refers to it). To work on it: `{nb} here - --run` replaces it and runs it, \
-which the user can undo per-cell. If they ask you to write code and the cell \
-is empty, write it into the cell with `{nb} here - --run` — do not just show \
-it in the terminal. If the cell already has code, do not change it unless they \
-ask. `{nb} --help` lists the rest; you do not need to explore the notebook to \
-find out what it can do.' \
+  'The current user target follows: either a notebook cell or an exact visual \
+selection in an HTML/SVG document. For a visual selection, use the document path \
+and surrounding context below, then edit that file directly with normal file \
+tools. Change only the marked region, preserve the rest of the file, and save it \
+on disk; GusNotebook watches the file and reloads the visual editor. Do not use \
+`{nb} here -` for a visual document. For a notebook cell, `{nb} here - --run` replaces \
+and runs it, with per-cell undo. If an empty cell is asking for code, write it \
+into the cell instead of only showing it in the terminal. `{nb} --help` lists \
+the rest.' \
   "$cell"
 """
 
 
 def focus_hook_file(stable=False):
-    """Write the provider-neutral current-cell hook and return its path.
+    """Write the provider-neutral current-target hook and return its path.
 
     Claude settings are temporary, so its hook is too. Codex hook trust is tied
     to the command it is asked to run; a stable app-state path lets the user
@@ -403,7 +405,7 @@ def focus_hook_file(stable=False):
 
 
 def session_settings_file(restrictions=None):
-    """Write the cell-injection hook and the settings file that configures it.
+    """Write the target-injection hook and the settings file that configures it.
 
     One file carries both things a Claude session needs from a settings JSON:
     the `UserPromptSubmit` hook, and the user's `permissions.deny` rules. They
@@ -469,7 +471,7 @@ def claude_args(instructions=None, restrictions=None):
 
 
 def codex_args(instructions=None):
-    """The extra argv Codex gets: instructions and the current-cell hook.
+    """The extra argv Codex gets: instructions and the current-target hook.
 
     Codex accepts per-launch developer instructions through `-c`, so there is
     no need to create or edit AGENTS.md in the user's repository. Its
@@ -493,7 +495,7 @@ def codex_args(instructions=None):
     if script:
         command = json.dumps(shlex.quote(script))
         hook = ("[{hooks=[{type=\"command\",command=" + command
-                + ",timeout=5,additionalContextLimit=2500}]}]")
+                + ",timeout=5,additionalContextLimit=12000}]}]")
         args += ["--enable", "hooks", "-c", "hooks.UserPromptSubmit=" + hook]
     return args
 

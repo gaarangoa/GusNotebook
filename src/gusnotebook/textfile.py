@@ -4,6 +4,7 @@ Text tabs are a simple read/save editor — no kernel involved. Files that aren'
 decodable text, or are very large, are reported as such instead of being loaded.
 """
 
+import base64
 import os
 import tempfile
 import threading
@@ -12,16 +13,32 @@ from pathlib import Path
 MAX_BYTES = 2 * 1024 * 1024      # refuse to open more than 2 MB in a textarea
 
 # Only these open as editable text; anything else is described, not loaded.
+MARKUP_SUFFIXES = {".html", ".htm", ".svg"}
+
 TEXT_SUFFIXES = {
     ".py", ".txt", ".md", ".csv", ".tsv", ".json", ".yaml", ".yml", ".toml",
-    ".cfg", ".ini", ".sh", ".bash", ".zsh", ".sql", ".html", ".css", ".js",
+    ".cfg", ".ini", ".sh", ".bash", ".zsh", ".sql", ".css", ".js",
     ".ts", ".jsx", ".tsx", ".xml", ".log", ".env", ".gitignore", ".r", ".R",
     ".rst", ".tex", ".c", ".h", ".cpp", ".java", ".go", ".rs", ".rb", ".pl",
-}
+} | MARKUP_SUFFIXES
 
-IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".bmp"}
+IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"}
 
 _lock = threading.RLock()
+_NO_EXPECTATION = object()
+
+
+class ExternalChangeError(OSError):
+    """The file no longer matches the disk revision the editor loaded."""
+
+
+def disk_version(path):
+    """Cheap identity for conflict detection, including atomic replacements."""
+    try:
+        stat = Path(path).stat()
+        return f"{stat.st_mtime_ns}:{stat.st_size}:{stat.st_ino}"
+    except OSError:
+        return None
 
 
 def kind_of(path):
@@ -36,25 +53,50 @@ def kind_of(path):
     return "unknown"
 
 
+def html_preview_base(path):
+    """URL prefix from which an HTML preview resolves its relative assets.
+
+    The directory is encoded into one URL-safe path component so the browser
+    can request `styles/site.css` normally beneath it. The serving route decodes
+    and confines every request to this directory; nothing is copied or written
+    into the user's project.
+    """
+    root = str(Path(path).parent.resolve()).encode("utf-8")
+    token = base64.urlsafe_b64encode(root).decode("ascii").rstrip("=")
+    return f"/api/html-assets/{token}/"
+
+
+def html_asset(token, relative):
+    """Resolve a preview asset, refusing `..` and symlink escapes."""
+    try:
+        raw = base64.b64decode(token + "=" * (-len(token) % 4),
+                              altchars=b"-_", validate=True)
+        root = Path(raw.decode("utf-8")).resolve()
+        target = (root / relative).resolve()
+        target.relative_to(root)
+    except (ValueError, UnicodeDecodeError, OSError):
+        raise ValueError("invalid HTML preview path")
+    if not target.is_file():
+        raise ValueError("no such preview asset")
+    return target
+
+
 class TextFile:
     """One text document. Mirrors Notebook's mtime-based external-edit check."""
 
     def __init__(self, path):
         self.path = Path(path)
         self._text = None
-        self._mtime = 0
+        self._version = None
 
-    def _disk_mtime(self):
-        try:
-            return self.path.stat().st_mtime
-        except OSError:
-            return 0
+    def disk_version(self):
+        return disk_version(self.path)
 
     def load(self):
         with _lock:
             if not self.path.exists():
                 self._text = ""
-                self._mtime = 0
+                self._version = None
                 return self._text
             # Check binary-ness before size: "this is binary" is a more useful
             # message than "too large" for a 3 MB .bin.
@@ -70,24 +112,32 @@ class TextFile:
                 self._text = self.path.read_text(encoding="utf-8")
             except UnicodeDecodeError:
                 raise ValueError(f"{self.path.name} is not UTF-8 text")
-            self._mtime = self._disk_mtime()
+            self._version = self.disk_version()
             return self._text
 
     def to_json(self):
         with _lock:
-            if self._text is None or self._disk_mtime() > self._mtime:
+            if self._text is None or self.disk_version() != self._version:
                 self.load()
-            return {
+            data = {
                 "path": str(self.path),
                 "kind": "text",
                 "text": self._text,
                 "language": self.path.suffix.lstrip(".").lower(),
                 "readonly": False,
+                "disk_version": self._version,
             }
+            if self.path.suffix.lower() in MARKUP_SUFFIXES:
+                data["preview_base"] = html_preview_base(self.path)
+            return data
 
-    def save(self, text):
+    def save(self, text, expected_version=_NO_EXPECTATION):
         """Atomic write, matching Notebook._save."""
         with _lock:
+            actual = self.disk_version()
+            if expected_version is not _NO_EXPECTATION and actual != expected_version:
+                raise ExternalChangeError(
+                    f"{self.path.name} changed on disk; reload it before saving")
             self.path.parent.mkdir(parents=True, exist_ok=True)
             fd, tmp = tempfile.mkstemp(dir=str(self.path.parent), suffix=".tmp")
             try:
@@ -98,8 +148,9 @@ class TextFile:
                 if os.path.exists(tmp):
                     os.unlink(tmp)
             self._text = text
-            self._mtime = self._disk_mtime()
-            return {"path": str(self.path), "saved": True}
+            self._version = self.disk_version()
+            return {"path": str(self.path), "saved": True,
+                    "disk_version": self._version}
 
 
 class TextRegistry:

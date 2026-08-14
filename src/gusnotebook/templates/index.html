@@ -193,13 +193,27 @@
     <div class="textpane" id="textpane">
       <div class="thead">
         <span id="text-lang"></span>
+        <span class="html-live" id="html-live">edit directly · double-click SVG text</span>
         <span class="grow"></span>
         <span id="text-status"></span>
-        <button class="files-btn" onclick="saveText()">Save (⌘S)</button>
+        <button class="files-btn" id="text-reload" onclick="reloadTextFromDisk()"
+                title="Reload this file from disk">Reload</button>
+        <button class="files-btn" id="text-save" onclick="saveText()">Save (⌘S)</button>
       </div>
-      <textarea id="text-editor" spellcheck="false"
-                oninput="markTextDirty()"
-                onkeydown="return onTextKey(event)"></textarea>
+      <div class="text-workspace">
+        <textarea id="text-editor" spellcheck="false"
+                  aria-label="File source"
+                  oninput="markTextDirty()"
+                  onkeydown="return onTextKey(event)"></textarea>
+        <div class="html-preview" id="html-preview">
+          <!-- No allow-same-origin: scripts can animate and update their own
+               document, but edited HTML cannot reach into GusNotebook. Visual
+               edits return through a narrow postMessage bridge instead. -->
+          <iframe id="html-preview-frame" title="Visual document editor"
+                  sandbox="allow-scripts allow-forms allow-modals"
+                  referrerpolicy="no-referrer"></iframe>
+        </div>
+      </div>
     </div>
     <div class="imgpane" id="imgpane"><img id="imgview"></div>
 

@@ -11,8 +11,8 @@ browser immediately.
     gusnb run <cell_id>                    # re-run a cell
     gusnb run-all
     gusnb set <cell_id> "new source"       # replace a cell's source
-    gusnb here                             # the cell the user is parked on
-    gusnb here - --run                     # replace that cell and run it
+    gusnb here                             # current cell or visual selection
+    gusnb here - --run                     # replace a cell and run it
     gusnb undo <cell_id>                   # put back what a replace overwrote
     gusnb delete <cell_id>
     gusnb clear
@@ -64,7 +64,7 @@ def target_path(value):
     return str(pathlib.Path(value).expanduser().resolve())
 
 
-def call(path, method="GET", body=None):
+def call(path, method="GET", body=None, timeout=600):
     if TARGET:
         sep = "&" if "?" in path else "?"
         path += sep + urllib.parse.urlencode({"notebook": TARGET})
@@ -74,7 +74,7 @@ def call(path, method="GET", body=None):
         headers={"Content-Type": "application/json"},
     )
     try:
-        with urllib.request.urlopen(req, timeout=600) as r:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
             raw = r.read().decode()
             return json.loads(raw) if raw else {}
     except urllib.error.HTTPError as e:
@@ -147,6 +147,11 @@ def show_cell(c, index=None):
 
 def read_source(value):
     if value == "-":
+        if sys.stdin.isatty():
+            sys.exit(
+                "`gusnb here -` reads a replacement from stdin until EOF. "
+                "Pipe it in or use a heredoc; interactive stdin is refused so "
+                "the command cannot hang.")
         return sys.stdin.read()
     return value
 
@@ -208,13 +213,43 @@ def cmd_set(args):
 
 
 def cmd_here(args):
-    """The cell the user is parked on — read it, or replace and run it.
+    """The cell or visual document range the user is on — read or replace it.
 
     This is the "work on what I'm looking at" entry point: no id to be told, and
     the id it prints is worth pinning for the rest of a fix-and-rerun loop, since
     the user may click elsewhere while you work.
     """
-    info = call("/api/here")
+    info = call("/api/here", timeout=10)
+    if info.get("kind") == "markup":
+        if args.source is not None:
+            result = call("/api/markup-selection", "PATCH", {
+                "selection_id": info["selection_id"],
+                "replacement": read_source(args.source),
+            }, timeout=30)
+            print(f"replaced visual selection {result['selection_id']} in {result['path']}")
+            return
+
+        print(f"{BOLD}Visual selection{RESET} {DIM}{info['path']}{RESET}")
+        if info.get("selected_text"):
+            print(f"\n{BOLD}Selected text{RESET}\n{info['selected_text']}")
+        print(f"\n{BOLD}Selected markup — the only range you may replace{RESET}")
+        print(info.get("selected_html") or "(empty)")
+        print(f"\n{BOLD}Surrounding document context{RESET}")
+        print((info.get("context_before") or "") +
+              "\n<<< SELECTED REGION >>>\n" +
+              (info.get("selected_html") or "") +
+              "\n<<< END SELECTED REGION >>>\n" +
+              (info.get("context_after") or ""))
+        if args.full:
+            print(f"\n{BOLD}Full current document{RESET}\n{info.get('document') or ''}")
+        else:
+            print("\nTo inspect every byte of the current visual document, run "
+                  "`gusnb here --full`.")
+        print("Edit the file above directly with your normal file tools. Change "
+              "only the selected region, preserve the rest of the document, and "
+              "save it on disk; GusNotebook will reload the visual editor.")
+        return
+
     cell = info.get("cell")
     if not cell:
         sys.exit(info.get("note") or "no cell is focused")
@@ -367,11 +402,14 @@ def main():
     s.add_argument("--run", action="store_true")
     s.set_defaults(fn=cmd_set)
 
-    h = sub.add_parser("here", help="the cell the user is on: read, or replace and run")
+    h = sub.add_parser(
+        "here", help="the current cell or selected HTML/SVG region: read or replace")
     h.add_argument("source", nargs="?",
-                   help='replace the cell with this, or "-" for stdin')
+                   help='replace the current target with this, or "-" for stdin')
     h.add_argument("--run", action="store_true",
-                   help="run it (implied when source is given)")
+                   help="run a notebook cell (ignored for visual document selections)")
+    h.add_argument("--full", action="store_true",
+                   help="include the full current visual document as context")
     h.set_defaults(fn=cmd_here)
 
     u = sub.add_parser("undo", help="put back the source a replace overwrote")

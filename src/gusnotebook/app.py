@@ -9,6 +9,7 @@ is the file browser's root and the default session's root; the app's own state
 lives elsewhere (see `paths.py`), so nothing is written into your project.
 """
 
+import difflib
 import json
 import os
 import queue
@@ -174,14 +175,97 @@ _exec_locks_guard = threading.Lock()
 # parked anywhere until they click.
 _focus = {"notebook": None, "cell_id": None}
 _focus_guard = threading.Lock()
+_markup_focus = None
+_markup_focus_serial = 0
 
 
 def set_focus(key, cell_id):
+    global _markup_focus
     with _focus_guard:
         if cell_id:
             _focus.update(notebook=str(key), cell_id=cell_id)
+            _markup_focus = None
         elif _focus["notebook"] == str(key):
             _focus.update(notebook=None, cell_id=None)
+
+
+def _source_selection(rendered, source, start, end):
+    """Map DOM-serialized range boundaries back to source-preserving offsets."""
+    if rendered == source:
+        return start, end
+
+    fragment = rendered[start:end]
+    exact = source.find(fragment)
+    if fragment and exact >= 0 and source.find(fragment, exact + 1) < 0:
+        return exact, exact + len(fragment)
+
+    matcher = difflib.SequenceMatcher(None, rendered, source, autojunk=False)
+
+    def boundary(pos):
+        for tag, left, right, source_left, _source_right in matcher.get_opcodes():
+            if tag == "equal" and left <= pos <= right:
+                return source_left + (pos - left)
+        return None
+
+    source_start, source_end = boundary(start), boundary(end)
+    if source_start is None or source_end is None or source_start >= source_end:
+        raise ValueError("could not map that visual range to source; select its text again")
+    return source_start, source_end
+
+
+def set_markup_focus(path, selection, source=None, expected_version=None):
+    """Remember the exact serialized range selected in a visual document."""
+    global _markup_focus, _markup_focus_serial
+    path = str(path)
+    with _focus_guard:
+        if not selection:
+            if _markup_focus and _markup_focus["path"] == path:
+                _markup_focus = None
+            return None
+
+        actual_version = textfile.disk_version(path)
+        if expected_version is not None and actual_version != expected_version:
+            _markup_focus = None
+            raise textfile.ExternalChangeError(
+                f"{Path(path).name} changed on disk; reload it before selecting")
+
+        rendered = selection["document"]
+        start, end = int(selection["start"]), int(selection["end"])
+        if not 0 <= start < end <= len(rendered):
+            raise ValueError("invalid visual selection range")
+        document = source if isinstance(source, str) else rendered
+        if (len(rendered.encode("utf-8")) > textfile.MAX_BYTES or
+                len(document.encode("utf-8")) > textfile.MAX_BYTES):
+            raise ValueError("visual document is too large")
+        start, end = _source_selection(rendered, document, start, end)
+
+        _markup_focus_serial += 1
+        _markup_focus = {
+            "id": _markup_focus_serial,
+            "path": path,
+            "document": document,
+            "start": start,
+            "end": end,
+            "html": document[start:end],
+            "text": str(selection.get("text") or ""),
+            "disk_version": actual_version,
+        }
+        _focus.update(notebook=None, cell_id=None)
+        return dict(_markup_focus)
+
+
+def get_markup_focus():
+    global _markup_focus
+    with _focus_guard:
+        focus = dict(_markup_focus) if _markup_focus else None
+    if not focus or not Path(focus["path"]).is_file():
+        return None, None
+    if textfile.disk_version(focus["path"]) != focus["disk_version"]:
+        with _focus_guard:
+            if _markup_focus and _markup_focus["id"] == focus["id"]:
+                _markup_focus = None
+        return None, focus["path"]
+    return focus, None
 
 
 # The last thing the user typed at an agent terminal, so a cell it rewrites
@@ -678,9 +762,26 @@ def api_save_text():
     if "text" not in body:
         return jsonify({"error": "text is required"}), 400
     try:
-        return jsonify(texts.get(path).save(body["text"]))
+        doc = texts.get(path)
+        saved = (doc.save(body["text"], body["disk_version"])
+                 if "disk_version" in body else doc.save(body["text"]))
+        return jsonify(saved)
+    except textfile.ExternalChangeError as e:
+        bus.publish("text_external_changed", path=str(path),
+                    disk_version=textfile.disk_version(path))
+        return jsonify({"error": str(e), "code": "external_change"}), 409
     except OSError as e:
         return jsonify({"error": str(e)}), 400
+
+
+@app.route("/api/text-version")
+def api_text_version():
+    """Cheap poll target so visual files follow agent writes on disk."""
+    path = files.normalize(request.args.get("path", ""))
+    if textfile.kind_of(path) != "text" or not path.is_file():
+        return jsonify({"error": "no such text file"}), 404
+    return jsonify({"path": str(path),
+                    "disk_version": textfile.disk_version(path)})
 
 
 @app.route("/api/raw")
@@ -690,6 +791,23 @@ def api_raw():
     if not path.is_file():
         return jsonify({"error": "no such file"}), 404
     return send_file(str(path))
+
+
+@app.route("/api/html-assets/<token>/<path:asset>")
+def api_html_asset(token, asset):
+    """Serve a relative asset to a sandboxed live HTML preview.
+
+    The token identifies only the HTML file's directory. `html_asset` confines
+    the requested path to it, including after symlinks are resolved, so a
+    relative `../` cannot turn the preview into a second arbitrary-file API.
+    """
+    try:
+        path = textfile.html_asset(token, asset)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 404
+    response = send_file(str(path), max_age=0)
+    response.headers["Cache-Control"] = "no-cache"
+    return response
 
 
 # --- Notebook document API (all routes take ?notebook=/abs/path) ---
@@ -777,6 +895,77 @@ def api_set_focus():
     return jsonify({"status": "ok"})
 
 
+@app.route("/api/markup-focus", methods=["POST"])
+def api_set_markup_focus():
+    """The visual editor reporting an exact HTML/SVG range for the agent."""
+    body = request.get_json(silent=True) or {}
+    path = files.normalize(body.get("path", ""))
+    if path.suffix.lower() not in textfile.MARKUP_SUFFIXES or not path.is_file():
+        return jsonify({"error": "visual selection is not in an open HTML/SVG file"}), 400
+    try:
+        focus = set_markup_focus(path, body.get("selection"), body.get("source"),
+                                 body.get("disk_version"))
+    except textfile.ExternalChangeError as e:
+        bus.publish("text_external_changed", path=str(path),
+                    disk_version=textfile.disk_version(path))
+        return jsonify({"error": str(e), "code": "external_change"}), 409
+    except (KeyError, TypeError, ValueError) as e:
+        return jsonify({"error": str(e)}), 400
+    return jsonify({"status": "ok", "selection_id": focus and focus["id"]})
+
+
+@app.route("/api/markup-selection", methods=["PATCH"])
+def api_replace_markup_selection():
+    """Replace only the visual range the user selected, then notify the page."""
+    global _markup_focus
+    body = request.get_json(silent=True) or {}
+    replacement = body.get("replacement")
+    if not isinstance(replacement, str):
+        return jsonify({"error": "replacement is required"}), 400
+    try:
+        wanted = int(body.get("selection_id"))
+    except (TypeError, ValueError):
+        return jsonify({"error": "selection_id is required"}), 400
+
+    with _focus_guard:
+        focus = _markup_focus
+        if not focus or focus["id"] != wanted:
+            return jsonify({"error": "the visual selection changed; select the region again"}), 409
+        path = Path(focus["path"])
+        start, end = focus["start"], focus["end"]
+        document = focus["document"]
+        updated = document[:start] + replacement + document[end:]
+        if len(updated.encode("utf-8")) > textfile.MAX_BYTES:
+            return jsonify({"error": "replacement makes the visual document too large"}), 400
+        try:
+            saved = texts.get(path).save(updated, focus["disk_version"])
+        except textfile.ExternalChangeError as e:
+            _markup_focus = None
+            bus.publish("text_external_changed", path=str(path),
+                        disk_version=textfile.disk_version(path))
+            return jsonify({"error": str(e), "code": "external_change"}), 409
+        except OSError as e:
+            return jsonify({"error": str(e)}), 400
+        _markup_focus = {
+            **focus,
+            "document": updated,
+            "end": start + len(replacement),
+            "html": replacement,
+            "text": "",
+            "disk_version": saved["disk_version"],
+        }
+        selection_id = focus["id"]
+
+    bus.publish("markup_changed", path=str(path), text=updated,
+                disk_version=saved["disk_version"],
+                selection_start=start, selection_end=start + len(replacement),
+                selection_id=selection_id)
+    return jsonify({"status": "ok", "path": str(path),
+                    "selection_id": selection_id,
+                    "selection_start": start,
+                    "selection_end": start + len(replacement)})
+
+
 @app.route("/api/prompt", methods=["POST"])
 def api_set_prompt():
     """An agent terminal reporting what the user just asked for.
@@ -792,21 +981,47 @@ def api_set_prompt():
 
 @app.route("/api/here")
 def api_here():
-    """The cell the user is parked on, with its source and output.
+    """The notebook cell or visual markup range the user is parked on.
 
-    The point of entry for "work on this cell": an agent reads it, writes a new
-    source, and PATCHes the same id. `cell_id` is returned so the caller can pin
-    it — the user may click elsewhere mid-loop, and re-asking "which cell now?"
-    part-way through would move the target under it.
+    The point of entry for "work on this": a visual range returns source-mapped
+    boundaries and document context; a notebook cell returns source and output.
+    Both return a pinned id so a replacement can reject a target that moved.
     """
     # The focused notebook wins when the caller didn't name one: "here" means
     # the tab on screen, and doc_key()'s fallback is the session's first
     # notebook, which is a different thing whenever the user has switched tabs.
     named = request.args.get("notebook")
+    visual, stale_path = (None, None) if named else get_markup_focus()
+    if stale_path:
+        bus.publish("text_external_changed", path=stale_path,
+                    disk_version=textfile.disk_version(stale_path))
+        return jsonify({
+            "cell": None,
+            "note": (f"{Path(stale_path).name} changed on disk after the visual "
+                     "selection; reload it in GusNotebook and select the region again"),
+            "code": "external_change",
+            "path": stale_path,
+        })
+    if visual:
+        before = visual["document"][max(0, visual["start"] - 2000):visual["start"]]
+        after = visual["document"][visual["end"]:visual["end"] + 2000]
+        return jsonify({
+            "kind": "markup",
+            "path": visual["path"],
+            "selection_id": visual["id"],
+            "selected_html": visual["html"],
+            "selected_text": visual["text"],
+            "context_before": before,
+            "context_after": after,
+            "document": visual["document"],
+            "note": ("edit this file directly; change only the selected range "
+                     "and preserve the rest of the document"),
+        })
+
     key, cell_id = get_focus(named and doc_key())
     if not cell_id:
         return jsonify({"cell": None, "notebook": named and doc_key(),
-                        "note": "no cell is focused — click one in the browser"})
+                        "note": "no cell or visual region is selected in the browser"})
     nb = get_nb(key)
     cell = nb.cell_json(cell_id)
     return jsonify({

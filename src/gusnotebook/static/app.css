@@ -420,6 +420,15 @@ body {
   font-size: 11px; color: var(--muted);
 }
 .textpane .thead .grow { flex: 1; }
+.textpane .html-live {
+  display: none; padding: 2px 6px; border-radius: 999px;
+  background: #dcfce7; color: #15803d; font-size: 9px;
+}
+.textpane.markup .html-live { display: inline-block; }
+.text-workspace {
+  flex: 1 1 auto; min-height: 0; min-width: 0;
+  display: flex;
+}
 .textpane textarea {
   flex: 1 1 auto;
   min-height: 0;
@@ -433,6 +442,16 @@ body {
   line-height: 1.55;
   color: #1e293b;
   tab-size: 4;
+}
+.html-preview {
+  display: none; min-width: 0; min-height: 0;
+  flex-direction: column; background: #fff;
+}
+.textpane.markup textarea { display: none; }
+.textpane.markup .html-preview { display: flex; flex: 1 1 auto; }
+.html-preview iframe {
+  flex: 1 1 auto; min-width: 0; min-height: 0;
+  width: 100%; border: 0; background: #fff;
 }
 .imgpane {
   flex: 1 1 auto; min-height: 0; display: none;

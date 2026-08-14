@@ -63,6 +63,29 @@ es.onmessage = (e) => {
   // A skill can be added by editing the markdown outside the app, so the list
   // follows the server rather than only what this page did.
   if (msg.type === 'skills_changed') { loadSkills(); return; }
+  if (msg.type === 'text_external_changed') {
+    const changed = tab(msg.path);
+    if (changed && changed.kind === 'text') markTextExternalConflict(changed);
+    return;
+  }
+  // An agent replaced the exact HTML/SVG range selected in the visual editor.
+  // The server already saved it; repaint from that authoritative text without
+  // marking the tab dirty or exposing the iframe's DOM to the parent page.
+  if (msg.type === 'markup_changed') {
+    const visual = tab(msg.path);
+    if (!visual || !isMarkupTab(visual)) return;
+    visual.text = msg.text;
+    visual.diskVersion = msg.disk_version;
+    visual.editRevision = (visual.editRevision || 0) + 1;
+    visual.dirty = false;
+    if (msg.path === active) {
+      document.getElementById('text-editor').value = msg.text;
+      document.getElementById('text-status').textContent = 'saved by agent';
+      renderMarkupEditor();
+    }
+    renderTabs();
+    return;
+  }
 
   const t = msg.notebook ? tab(msg.notebook) : null;
   if (t && msg.type === 'kernel_status') {

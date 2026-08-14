@@ -39,6 +39,415 @@ document.addEventListener('click', (e) => {
   if (!e.target.closest('#type-menu')) closeTypeMenu();
 });
 
+// ---------- Visual HTML / SVG editor ----------
+
+const MARKUP_EDITOR_CHANNEL = 'gusnotebook-markup-editor';
+let markupPreviewSerial = 0;
+let markupFocusTimer = null;
+let reportedMarkupPath = null;
+let markupDiskPollBusy = false;
+
+function isMarkupTab(t) {
+  return !!t && t.kind === 'text' &&
+    (t.language === 'html' || t.language === 'htm' || t.language === 'svg');
+}
+
+function markTextExternalConflict(t) {
+  if (!t || t.kind !== 'text') return;
+  if (!t.dirty) {
+    reloadTextFromDisk(t, true).then(ok => {
+      if (ok) flash(`${t.name} reloaded after an external change`);
+    });
+    return;
+  }
+  t.externalConflict = true;
+  clearTimeout(markupFocusTimer);
+  reportedMarkupPath = null;
+  if (active === t.path) {
+    setMarkupSelectionBadge(false);
+    document.getElementById('text-status').textContent = 'changed on disk · reload';
+  }
+  flash(`${t.name} changed on disk — reload before editing or saving`);
+}
+
+function setMarkupSelectionBadge(selected) {
+  const badge = document.getElementById('html-live');
+  badge.textContent = selected
+    ? 'selection ready for agent'
+    : 'edit directly · select a region for the agent';
+}
+
+function publishMarkupFocus(t, selection) {
+  clearTimeout(markupFocusTimer);
+  reportedMarkupPath = selection ? t.path : null;
+  setMarkupSelectionBadge(!!selection);
+  markupFocusTimer = setTimeout(() => {
+    api('/api/markup-focus', {method: 'POST',
+      body: JSON.stringify({path: t.path, source: t.text || '',
+                            disk_version: t.diskVersion,
+                            selection: selection})}).catch(err => {
+      if (errCode(err) === 'external_change') markTextExternalConflict(t);
+    });
+  }, 80);
+}
+
+function clearMarkupFocus() {
+  clearTimeout(markupFocusTimer);
+  const path = reportedMarkupPath;
+  reportedMarkupPath = null;
+  setMarkupSelectionBadge(false);
+  if (!path) return;
+  api('/api/markup-focus', {method: 'POST',
+    body: JSON.stringify({path: path, selection: null})}).catch(() => {});
+}
+
+/** This function is stringified into the sandboxed iframe. It deliberately
+ * communicates only serialized markup and save requests through postMessage;
+ * the iframe keeps its opaque origin and cannot inspect the notebook UI. */
+function markupEditorBootstrap(config) {
+  'use strict';
+  var runtimeAttr = 'data-gusnotebook-runtime';
+  var svgEditor = null;
+  var changed = false;
+
+  function cleanClone(node) {
+    var clone = node.cloneNode(true);
+    clone.querySelectorAll('[' + runtimeAttr + ']').forEach(function (el) {
+      el.remove();
+    });
+    clone.querySelectorAll('[data-gusnotebook-edit-root]').forEach(function (el) {
+      el.removeAttribute('data-gusnotebook-edit-root');
+      el.removeAttribute('contenteditable');
+      el.removeAttribute('spellcheck');
+    });
+    return clone;
+  }
+
+  function serialize() {
+    if (config.mode === 'svg') {
+      var svg = document.querySelector('body > svg') || document.querySelector('svg');
+      return svg ? config.svgPrefix + cleanClone(svg).outerHTML + config.svgSuffix : '';
+    }
+    var root = cleanClone(document.documentElement);
+    var doctype = document.doctype
+      ? new XMLSerializer().serializeToString(document.doctype) + '\n'
+      : '';
+    return doctype + root.outerHTML;
+  }
+
+  function selectedRange() {
+    var selection = document.getSelection();
+    if (!selection || !selection.rangeCount || selection.isCollapsed || svgEditor) return null;
+    var plainText = selection.toString();
+    var range = selection.getRangeAt(0).cloneRange();
+    if (!document.body || !document.body.contains(range.commonAncestorContainer)) return null;
+
+    var key = config.nonce.replace(/[^a-zA-Z0-9_-]/g, '');
+    var startToken = '<!--GUSNB_SELECTION_START_' + key + '-->';
+    var endToken = '<!--GUSNB_SELECTION_END_' + key + '-->';
+    var startMarker = document.createComment('GUSNB_SELECTION_START_' + key);
+    var endMarker = document.createComment('GUSNB_SELECTION_END_' + key);
+    var endRange = range.cloneRange();
+    endRange.collapse(false);
+    endRange.insertNode(endMarker);
+    var startRange = range.cloneRange();
+    startRange.collapse(true);
+    startRange.insertNode(startMarker);
+
+    var liveRange = document.createRange();
+    liveRange.setStartAfter(startMarker);
+    liveRange.setEndBefore(endMarker);
+    var marked = serialize();
+    var start = marked.indexOf(startToken);
+    var markerEnd = marked.indexOf(endToken, start + startToken.length);
+    startMarker.remove();
+    endMarker.remove();
+    selection.removeAllRanges();
+    selection.addRange(liveRange);
+    if (start < 0 || markerEnd < 0) return null;
+
+    var documentText = marked.slice(0, start) +
+      marked.slice(start + startToken.length, markerEnd) +
+      marked.slice(markerEnd + endToken.length);
+    return {document: documentText, start: start,
+            end: markerEnd - startToken.length,
+            text: plainText};
+  }
+
+  function reportSelection() {
+    parent.postMessage({channel: config.channel, nonce: config.nonce,
+                        kind: 'selection', selection: selectedRange()}, '*');
+  }
+
+  function send(kind, forceText) {
+    parent.postMessage({channel: config.channel, nonce: config.nonce, kind: kind,
+                        text: (changed || forceText) ? serialize() : null}, '*');
+  }
+
+  function svgTextTarget(node) {
+    while (node && node !== document) {
+      if (node.namespaceURI === 'http://www.w3.org/2000/svg' &&
+          (node.localName === 'text' || node.localName === 'tspan')) return node;
+      node = node.parentNode;
+    }
+    return null;
+  }
+
+  function closeSvgEditor(cancel) {
+    if (!svgEditor) return;
+    var edit = svgEditor;
+    svgEditor = null;
+    if (cancel) edit.target.textContent = edit.original;
+    else edit.target.textContent = edit.input.value;
+    edit.input.remove();
+    changed = true;
+    send('change', true);
+  }
+
+  function openSvgEditor(target) {
+    closeSvgEditor(false);
+    var rect = target.getBoundingClientRect();
+    var input = document.createElement('input');
+    var style = getComputedStyle(target);
+    input.setAttribute(runtimeAttr, 'svg-editor');
+    input.setAttribute('aria-label', 'Edit SVG text');
+    input.value = target.textContent || '';
+    Object.assign(input.style, {
+      position: 'fixed', zIndex: '2147483647',
+      left: Math.max(4, rect.left) + 'px', top: Math.max(4, rect.top) + 'px',
+      width: Math.max(100, rect.width + 36) + 'px',
+      height: Math.max(28, rect.height + 10) + 'px',
+      padding: '3px 6px', border: '2px solid #830051', borderRadius: '4px',
+      background: '#fff', color: style.fill === 'none' ? style.color : style.fill,
+      font: style.font, boxShadow: '0 3px 14px rgba(15,23,42,.24)'
+    });
+    document.body.appendChild(input);
+    svgEditor = {input: input, target: target, original: target.textContent || ''};
+    input.addEventListener('input', function () {
+      target.textContent = input.value;
+      changed = true;
+      send('change', true);
+    });
+    input.addEventListener('blur', function () { closeSvgEditor(false); });
+    input.addEventListener('keydown', function (event) {
+      if (event.key === 'Enter') { event.preventDefault(); closeSvgEditor(false); }
+      if (event.key === 'Escape') { event.preventDefault(); closeSvgEditor(true); }
+    });
+    input.focus();
+    input.select();
+  }
+
+  document.addEventListener('dblclick', function (event) {
+    var target = svgTextTarget(event.target);
+    if (!target) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    openSvgEditor(target);
+  }, true);
+
+  document.addEventListener('mouseup', function () {
+    setTimeout(reportSelection, 0);
+  });
+  document.addEventListener('keyup', function (event) {
+    if (event.key === 'Meta' || event.key === 'Control') return;
+    setTimeout(reportSelection, 0);
+  });
+
+  document.addEventListener('input', function (event) {
+    if (svgEditor && event.target === svgEditor.input) return;
+    changed = true;
+    send('change', true);
+  }, true);
+
+  document.addEventListener('keydown', function (event) {
+    if (event.key.toLowerCase() !== 's' || (!event.metaKey && !event.ctrlKey)) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    if (svgEditor) closeSvgEditor(false);
+    send('save', false);
+  }, true);
+
+  document.addEventListener('submit', function (event) { event.preventDefault(); }, true);
+  document.addEventListener('click', function (event) {
+    if (event.target.closest && event.target.closest('a')) event.preventDefault();
+  }, true);
+  window.addEventListener('message', function (event) {
+    var data = event.data || {};
+    if (event.source !== parent || data.channel !== config.channel ||
+        data.nonce !== config.nonce) return;
+    if (data.command === 'save') {
+      if (svgEditor) closeSvgEditor(false);
+      send('save', false);
+    } else if (data.command === 'saved') {
+      changed = false;
+    }
+  });
+
+  function enableEditing() {
+    document.designMode = 'on';
+    if (document.body) {
+      document.body.contentEditable = 'true';
+      document.body.spellcheck = true;
+      document.body.setAttribute('data-gusnotebook-edit-root', '');
+    }
+  }
+  if (document.readyState === 'loading')
+    document.addEventListener('DOMContentLoaded', enableEditing, {once: true});
+  else enableEditing();
+}
+
+function svgEnvelope(source) {
+  const start = source.search(/<svg\b/i);
+  if (start < 0) return {prefix: '', body: source, suffix: ''};
+  const close = source.toLowerCase().lastIndexOf('</svg>');
+  const end = close < start ? source.length : close + 6;
+  return {prefix: source.slice(0, start), body: source.slice(start, end),
+          suffix: source.slice(end)};
+}
+
+function markupRuntimeTag(t, svgParts) {
+  const config = {
+    channel: MARKUP_EDITOR_CHANNEL,
+    nonce: t.previewNonce,
+    mode: t.language === 'svg' ? 'svg' : 'html',
+    svgPrefix: svgParts ? svgParts.prefix : '',
+    svgSuffix: svgParts ? svgParts.suffix : '',
+  };
+  // Escaping '<' prevents source text captured around an SVG from closing the
+  // injected script tag. The function itself contains no user-controlled text.
+  const json = JSON.stringify(config).replace(/</g, '\\u003c');
+  return `<script data-gusnotebook-runtime="bridge">` +
+    `(${markupEditorBootstrap.toString()})(${json});<\/script>`;
+}
+
+/** Add the asset base and editor bridge without persisting either one. */
+function markupEditorDocument(t, source, base) {
+  if (t.language === 'svg') {
+    const parts = svgEnvelope(source);
+    const runtime = markupRuntimeTag(t, parts);
+    return '<!doctype html><html><head>' +
+      `<base data-gusnotebook-runtime="base" href="${escapeAttr(base)}">` + runtime +
+      '<style data-gusnotebook-runtime="style">html,body{margin:0;min-height:100%;}' +
+      'svg{display:block;max-width:100%;}</style></head><body>' + parts.body +
+      '</body></html>';
+  }
+
+  const additions = `<base data-gusnotebook-runtime="base" href="${escapeAttr(base)}">` +
+    markupRuntimeTag(t, null);
+  if (/<head(?:\s[^>]*)?>/i.test(source)) {
+    return source.replace(/<head(?:\s[^>]*)?>/i, match => match + additions);
+  }
+  if (/<html(?:\s[^>]*)?>/i.test(source)) {
+    return source.replace(/<html(?:\s[^>]*)?>/i,
+                          match => match + '<head>' + additions + '</head>');
+  }
+  if (/<!doctype[^>]*>/i.test(source)) {
+    return source.replace(/<!doctype[^>]*>/i, match => match + additions);
+  }
+  return additions + source;
+}
+
+function renderMarkupEditor() {
+  const t = activeTab();
+  if (!isMarkupTab(t)) return;
+  clearMarkupFocus();
+  t.previewNonce = `${Date.now()}-${++markupPreviewSerial}`;
+  const base = new URL(BASE + t.previewBase, window.location.origin).href;
+  document.getElementById('html-preview-frame').srcdoc =
+    markupEditorDocument(t, t.text || '', base);
+}
+
+function acceptMarkupEdit(t, text) {
+  if (typeof text !== 'string' || text === t.text) return;
+  clearMarkupFocus();
+  t.text = text;
+  t.editRevision = (t.editRevision || 0) + 1;
+  document.getElementById('text-editor').value = text;
+  if (active === t.path) document.getElementById('text-status').textContent = 'unsaved';
+  if (!t.dirty) { t.dirty = true; renderTabs(); }
+}
+
+window.addEventListener('message', event => {
+  const frame = document.getElementById('html-preview-frame');
+  const data = event.data || {};
+  const t = activeTab();
+  if (event.source !== frame.contentWindow || !isMarkupTab(t) ||
+      data.channel !== MARKUP_EDITOR_CHANNEL || data.nonce !== t.previewNonce) return;
+  if (data.kind === 'selection') {
+    publishMarkupFocus(t, data.selection || null);
+    return;
+  }
+  if (typeof data.text === 'string') acceptMarkupEdit(t, data.text);
+  if (data.kind === 'save') {
+    clearTimeout(t.markupSaveTimer);
+    t.markupSaveTimer = null;
+    persistText(t, t.text || '');
+  }
+});
+
+async function reloadTextFromDisk(target, force) {
+  const t = target || activeTab();
+  if (!t || t.kind !== 'text' || t.reloadInFlight) return false;
+  t.reloadInFlight = true;
+  try {
+    if (t.dirty && !force) {
+      const discard = await askConfirm(
+        `${t.name} has unsaved changes and also changed on disk.`,
+        'Reloading keeps the external file and discards this browser buffer.',
+        'Reload and discard');
+      if (!discard) return false;
+    }
+    const data = await api('/api/open', {
+      method: 'POST', body: JSON.stringify({path: t.path})});
+    t.text = data.text || '';
+    t.diskVersion = data.disk_version;
+    t.dirty = false;
+    t.externalConflict = false;
+    t.editRevision = (t.editRevision || 0) + 1;
+    if (active === t.path) {
+      document.getElementById('text-editor').value = t.text;
+      showActive();
+      document.getElementById('text-status').textContent = 'reloaded from disk';
+    }
+    renderTabs();
+    return true;
+  } catch (err) {
+    if (active === t.path) document.getElementById('text-status').textContent = 'reload failed';
+    flash('Reload failed: ' + errText(err));
+    return false;
+  } finally {
+    t.reloadInFlight = false;
+  }
+}
+
+/** Follow normal agent/file-tool saves that happen outside GusNotebook.
+ * A clean canvas can safely repaint immediately. A dirty canvas keeps the
+ * browser edit and advertises the conflict until the user explicitly reloads.
+ */
+async function pollMarkupDisk() {
+  const t = activeTab();
+  if (!isMarkupTab(t) || !t.diskVersion || t.saveInFlight || t.reloadInFlight ||
+      markupDiskPollBusy) return;
+  markupDiskPollBusy = true;
+  try {
+    const query = new URLSearchParams({path: t.path});
+    const data = await api('/api/text-version?' + query.toString());
+    if (active !== t.path || data.disk_version === t.diskVersion) return;
+    if (t.dirty) {
+      if (!t.externalConflict) markTextExternalConflict(t);
+      return;
+    }
+    const reloaded = await reloadTextFromDisk(t, true);
+    if (reloaded) flash(`${t.name} reloaded after an agent changed it`);
+  } catch (err) {
+    // Polling is best-effort. Open, save, and reload still report their errors.
+  } finally {
+    markupDiskPollBusy = false;
+  }
+}
+
+setInterval(pollMarkupDisk, 800);
+
 /** Show whichever pane the active tab needs, and fill it. */
 function showActive() {
   const t = activeTab();
@@ -47,8 +456,16 @@ function showActive() {
 
   document.getElementById('notebook-pane').style.display = isNb ? '' : 'none';
   document.getElementById('toolbar').style.display = kind === 'notebook' ? '' : 'none';
-  document.getElementById('textpane').classList.toggle('on', kind === 'text');
+  const textPane = document.getElementById('textpane');
+  textPane.classList.toggle('on', kind === 'text');
+  textPane.classList.toggle('markup', isMarkupTab(t));
   document.getElementById('imgpane').classList.toggle('on', kind === 'image');
+  if (!isMarkupTab(t)) {
+    clearMarkupFocus();
+    // Stop animations, timers and media belonging to a preview that is no
+    // longer visible. It is rebuilt from the tab's source when the user returns.
+    document.getElementById('html-preview-frame').srcdoc = '';
+  }
 
   // The app's name on a notebook tab — the same text the markup ships with, so
   // rendering a tab doesn't quietly rename the app back to something generic.
@@ -67,7 +484,9 @@ function showActive() {
     const ed = document.getElementById('text-editor');
     ed.value = t.text || '';
     document.getElementById('text-lang').textContent = t.language || 'text';
-    document.getElementById('text-status').textContent = t.dirty ? 'unsaved' : 'saved';
+    document.getElementById('text-status').textContent = t.externalConflict
+      ? 'changed on disk · reload' : (t.dirty ? 'unsaved' : 'saved');
+    if (isMarkupTab(t)) renderMarkupEditor();
   } else if (kind === 'image') {
     document.getElementById('imgview').src = BASE + t.url;
   } else {
@@ -98,7 +517,9 @@ async function openFile(path) {
   } else if (t.kind === 'image') {
     t.url = data.url;
   } else {
-    Object.assign(t, {text: data.text || '', language: data.language});
+    Object.assign(t, {text: data.text || '', language: data.language,
+                      previewBase: data.preview_base,
+                      diskVersion: data.disk_version});
   }
 
   stashActive();
@@ -180,27 +601,66 @@ function markTextDirty() {
   const t = activeTab();
   if (!t || t.kind !== 'text') return;
   t.text = document.getElementById('text-editor').value;
+  t.editRevision = (t.editRevision || 0) + 1;
   document.getElementById('text-status').textContent = 'unsaved';
   if (!t.dirty) { t.dirty = true; renderTabs(); }
 }
 
-async function saveText() {
-  const t = activeTab();
+async function persistText(t, text) {
   if (!t || t.kind !== 'text') return;
-  const text = document.getElementById('text-editor').value;
+  const revision = t.editRevision || 0;
   const st = document.getElementById('text-status');
-  st.textContent = 'saving…';
+  if (active === t.path) st.textContent = 'saving…';
+  t.saveInFlight = true;
   try {
-    await api('/api/text', {method: 'POST',
-                            body: JSON.stringify({path: t.path, text})});
-    t.text = text;
-    t.dirty = false;
-    st.textContent = 'saved';
+    const saved = await api('/api/text', {method: 'POST',
+      body: JSON.stringify({path: t.path, text, disk_version: t.diskVersion})});
+    if ((t.editRevision || 0) === revision) {
+      t.text = text;
+      t.diskVersion = saved.disk_version;
+      t.dirty = false;
+      t.externalConflict = false;
+      if (active === t.path) st.textContent = 'saved';
+      if (isMarkupTab(t)) {
+        document.getElementById('html-preview-frame').contentWindow.postMessage(
+          {channel: MARKUP_EDITOR_CHANNEL, nonce: t.previewNonce, command: 'saved'}, '*');
+      }
+    } else if (active === t.path) {
+      st.textContent = 'unsaved';
+    }
     renderTabs();
   } catch (err) {
-    st.textContent = 'save failed';
+    if (errCode(err) === 'external_change') {
+      markTextExternalConflict(t);
+      await reloadTextFromDisk(t, false);
+      return;
+    }
+    if (active === t.path) st.textContent = 'save failed';
     flash('Save failed: ' + errText(err));
+  } finally {
+    t.saveInFlight = false;
   }
+}
+
+function saveText() {
+  const t = activeTab();
+  if (!t || t.kind !== 'text') return;
+  if (!isMarkupTab(t)) {
+    persistText(t, document.getElementById('text-editor').value);
+    return;
+  }
+
+  document.getElementById('text-status').textContent = 'saving…';
+  const frame = document.getElementById('html-preview-frame');
+  frame.contentWindow.postMessage(
+    {channel: MARKUP_EDITOR_CHANNEL, nonce: t.previewNonce, command: 'save'}, '*');
+  // A malformed document can prevent the bridge from starting. Saving the last
+  // markup received is still better than leaving the toolbar stuck on saving.
+  clearTimeout(t.markupSaveTimer);
+  t.markupSaveTimer = setTimeout(() => {
+    t.markupSaveTimer = null;
+    persistText(t, t.text || '');
+  }, 750);
 }
 
 function onTextKey(e) {
