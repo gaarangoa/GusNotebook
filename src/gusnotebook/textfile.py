@@ -4,7 +4,6 @@ Text tabs are a simple read/save editor — no kernel involved. Files that aren'
 decodable text, or are very large, are reported as such instead of being loaded.
 """
 
-import base64
 import os
 import tempfile
 import threading
@@ -53,34 +52,6 @@ def kind_of(path):
     return "unknown"
 
 
-def html_preview_base(path):
-    """URL prefix from which an HTML preview resolves its relative assets.
-
-    The directory is encoded into one URL-safe path component so the browser
-    can request `styles/site.css` normally beneath it. The serving route decodes
-    and confines every request to this directory; nothing is copied or written
-    into the user's project.
-    """
-    root = str(Path(path).parent.resolve()).encode("utf-8")
-    token = base64.urlsafe_b64encode(root).decode("ascii").rstrip("=")
-    return f"/api/html-assets/{token}/"
-
-
-def html_asset(token, relative):
-    """Resolve a preview asset, refusing `..` and symlink escapes."""
-    try:
-        raw = base64.b64decode(token + "=" * (-len(token) % 4),
-                              altchars=b"-_", validate=True)
-        root = Path(raw.decode("utf-8")).resolve()
-        target = (root / relative).resolve()
-        target.relative_to(root)
-    except (ValueError, UnicodeDecodeError, OSError):
-        raise ValueError("invalid HTML preview path")
-    if not target.is_file():
-        raise ValueError("no such preview asset")
-    return target
-
-
 class TextFile:
     """One text document. Mirrors Notebook's mtime-based external-edit check."""
 
@@ -127,8 +98,6 @@ class TextFile:
                 "readonly": False,
                 "disk_version": self._version,
             }
-            if self.path.suffix.lower() in MARKUP_SUFFIXES:
-                data["preview_base"] = html_preview_base(self.path)
             return data
 
     def save(self, text, expected_version=_NO_EXPECTATION):

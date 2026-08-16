@@ -144,12 +144,15 @@ def make_fixtures():
     DEEP.mkdir(parents=True)
     (FIX / "seed.py").write_text("x = 1\n")
     (FIX / "preview.css").write_text("#preview-title { color: rgb(7, 89, 133); }\n")
+    (FIX / "preview-data.json").write_text('{"status":"yes"}\n')
     (FIX / "preview.html").write_text(
         "<!doctype html><html><head>"
-        "<link rel='stylesheet' href='preview.css'></head>"
+        "<link rel='stylesheet' href='/preview.css'></head>"
         "<body><h1 id='preview-title'>First render</h1>"
         "<script>document.body.dataset.scriptRan='yes';"
-        "try{parent.document.body.dataset.previewEscaped='yes'}catch(e){}"
+        "try{parent.document.body.dataset.previewEscaped='yes'}catch(e){};"
+        "fetch('/preview-data.json').then(r=>r.json()).then("
+        "x=>document.body.dataset.fetched=x.status)"
         "</script></body></html>")
     (FIX / "diagram.svg").write_text(
         "<?xml version=\"1.0\"?><svg xmlns=\"http://www.w3.org/2000/svg\" "
@@ -264,10 +267,26 @@ def main():
         check("relative CSS resolves beside the HTML file",
               preview.locator("#preview-title").evaluate(
                   "el => getComputedStyle(el).color"), "rgb(7, 89, 133)")
+        check("the iframe uses its own localhost browser origin",
+              pg.evaluate("new URL(activeTab().previewUrl).origin !== location.origin"),
+              True)
+        preview.locator("body[data-fetched='yes']").wait_for(timeout=20000)
+        check("root-relative fetch works inside the preview server",
+              preview.locator("body").get_attribute("data-fetched"), "yes")
         check("scripts run inside the sandbox",
               preview.locator("body").get_attribute("data-script-ran"), "yes")
         check("the sandbox cannot reach GusNotebook",
               pg.locator("body").get_attribute("data-preview-escaped"), None)
+
+        preview_version = pg.evaluate("activeTab().previewVersion")
+        (FIX / "preview.css").write_text(
+            "#preview-title { color: rgb(116, 37, 141); }\n")
+        pg.wait_for_function("before => activeTab().previewVersion !== before",
+                             arg=preview_version, timeout=20000)
+        preview.locator("#preview-title").wait_for(timeout=20000)
+        check("a served asset change reloads the integrated browser",
+              preview.locator("#preview-title").evaluate(
+                  "el => getComputedStyle(el).color"), "rgb(116, 37, 141)")
 
         preview.locator("#preview-title").evaluate("""el => {
           const range = el.ownerDocument.createRange();
@@ -378,6 +397,15 @@ def main():
         check("visual SVG edit saves to disk", "Edited diagram" in saved_svg, True)
         check("SVG remains a standalone SVG", "<html" in saved_svg.lower(), False)
         check("SVG prefix is preserved", saved_svg.startswith("<?xml version=\"1.0\"?>"), True)
+
+        svg_origin = pg.evaluate("activeTab().previewOrigin")
+        svg_path = pg.evaluate("active")
+        pg.evaluate("path => closeTab(path)", svg_path)
+        pg.wait_for_function(
+            "path => !tabs.some(t => t.path === path)", arg=svg_path, timeout=20000)
+        check("closing a visual tab removes its preview server",
+              any(p["origin"] == svg_origin for p in get("/api/previews")["previews"]),
+              False)
 
         # A typed .ipynb name goes to the notebook path even via New file.
         pg.evaluate("setTimeout(newFile, 0)")

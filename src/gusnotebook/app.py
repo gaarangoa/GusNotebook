@@ -28,6 +28,7 @@ from . import files
 from . import llm
 from . import notebook as notebook_mod
 from . import paths
+from . import preview
 from . import sessions as sessions_mod
 from . import skills as skills_mod
 from . import terminals
@@ -105,6 +106,7 @@ NOTEBOOK_PATH, WORK_DIR = _launch_notebook()
 
 notebooks = Registry()
 texts = textfile.TextRegistry()
+previews = preview.PreviewPool()
 kernels = KernelPool(default_python=sys.executable)
 terms = terminals.SessionPool()
 notebooks.get(NOTEBOOK_PATH)          # the tab that's open on first load
@@ -674,6 +676,7 @@ def api_delete_session(sid):
         if p == str(NOTEBOOK_PATH) or store.owns_tab(p):
             continue
         notebooks.close(p) or texts.close(p)
+        previews.close(p)
         kernels.drop(p)
     for t in s.terminals:
         terms.close(t)
@@ -739,6 +742,13 @@ def api_open():
         return jsonify({"error": str(e)}), 400
     # Only after it loaded: a file refused for being binary or oversized never
     # became a tab, so recording it would resurrect it on the next reload.
+    if path.suffix.lower() in textfile.MARKUP_SUFFIXES:
+        try:
+            server = previews.open(path)
+        except OSError as e:
+            return jsonify({"error": f"could not start preview server: {e}"}), 400
+        data["preview_origin"] = server.origin
+        data["preview_version"] = server.version()
     store.add_tab(str(path))
     return jsonify(data)
 
@@ -750,8 +760,11 @@ def api_close():
     key = str(files.normalize(raw))
     store.drop_tab(key)
     closed = notebooks.close(key) or texts.close(key)
+    preview_closed = previews.close(key)
     kernels.drop(key)
-    return jsonify({"status": "ok", "closed": closed, "open": notebooks.paths()})
+    return jsonify({"status": "ok", "closed": closed,
+                    "preview_closed": preview_closed,
+                    "open": notebooks.paths()})
 
 
 @app.route("/api/text", methods=["POST"])
@@ -765,6 +778,9 @@ def api_save_text():
         doc = texts.get(path)
         saved = (doc.save(body["text"], body["disk_version"])
                  if "disk_version" in body else doc.save(body["text"]))
+        server = previews.peek(path)
+        if server:
+            server.sync_saved(body["text"])
         return jsonify(saved)
     except textfile.ExternalChangeError as e:
         bus.publish("text_external_changed", path=str(path),
@@ -780,8 +796,40 @@ def api_text_version():
     path = files.normalize(request.args.get("path", ""))
     if textfile.kind_of(path) != "text" or not path.is_file():
         return jsonify({"error": "no such text file"}), 404
+    server = previews.peek(path)
     return jsonify({"path": str(path),
-                    "disk_version": textfile.disk_version(path)})
+                    "disk_version": textfile.disk_version(path),
+                    "preview_version": server.version() if server else None})
+
+
+@app.route("/api/preview", methods=["POST"])
+def api_preview():
+    """Serve the browser's current markup buffer from its localhost origin."""
+    body = request.get_json(silent=True) or {}
+    path = files.normalize(body.get("path", ""))
+    source = body.get("source")
+    nonce = body.get("nonce")
+    parent_origin = body.get("parent_origin")
+    if path.suffix.lower() not in textfile.MARKUP_SUFFIXES or not path.is_file():
+        return jsonify({"error": "preview requires an HTML or SVG file"}), 400
+    if not isinstance(source, str) or not isinstance(nonce, str):
+        return jsonify({"error": "preview source and nonce are required"}), 400
+    if len(source.encode("utf-8")) > textfile.MAX_BYTES:
+        return jsonify({"error": "visual document is too large"}), 400
+    if (not isinstance(parent_origin, str) or
+            not parent_origin.startswith(("http://", "https://"))):
+        return jsonify({"error": "valid parent origin is required"}), 400
+    try:
+        server = previews.open(path)
+        return jsonify(server.render(source, nonce, parent_origin))
+    except (OSError, UnicodeError) as e:
+        return jsonify({"error": f"could not render preview: {e}"}), 400
+
+
+@app.route("/api/previews")
+def api_previews():
+    """Live preview origins, primarily for lifecycle/status UI and tests."""
+    return jsonify({"previews": previews.info()})
 
 
 @app.route("/api/raw")
@@ -791,23 +839,6 @@ def api_raw():
     if not path.is_file():
         return jsonify({"error": "no such file"}), 404
     return send_file(str(path))
-
-
-@app.route("/api/html-assets/<token>/<path:asset>")
-def api_html_asset(token, asset):
-    """Serve a relative asset to a sandboxed live HTML preview.
-
-    The token identifies only the HTML file's directory. `html_asset` confines
-    the requested path to it, including after symlinks are resolved, so a
-    relative `../` cannot turn the preview into a second arbitrary-file API.
-    """
-    try:
-        path = textfile.html_asset(token, asset)
-    except ValueError as e:
-        return jsonify({"error": str(e)}), 404
-    response = send_file(str(path), max_age=0)
-    response.headers["Cache-Control"] = "no-cache"
-    return response
 
 
 # --- Notebook document API (all routes take ?notebook=/abs/path) ---
@@ -946,6 +977,9 @@ def api_replace_markup_selection():
             return jsonify({"error": str(e), "code": "external_change"}), 409
         except OSError as e:
             return jsonify({"error": str(e)}), 400
+        server = previews.peek(path)
+        if server:
+            server.sync_saved(updated)
         _markup_focus = {
             **focus,
             "document": updated,
@@ -1539,8 +1573,11 @@ def main(argv=None):
         ).start()
 
     # Reloader off: it would fork a second copy of every kernel and PTY.
-    app.run(host=args.host, port=args.port, debug=args.debug,
-            threaded=True, use_reloader=False)
+    try:
+        app.run(host=args.host, port=args.port, debug=args.debug,
+                threaded=True, use_reloader=False)
+    finally:
+        previews.close_all()
 
 
 if __name__ == "__main__":

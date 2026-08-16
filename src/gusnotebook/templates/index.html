@@ -206,11 +206,10 @@
                   oninput="markTextDirty()"
                   onkeydown="return onTextKey(event)"></textarea>
         <div class="html-preview" id="html-preview">
-          <!-- No allow-same-origin: scripts can animate and update their own
-               document, but edited HTML cannot reach into GusNotebook. Visual
-               edits return through a narrow postMessage bridge instead. -->
+          <!-- The preview has a separate localhost port, so same-origin web APIs
+               work inside it without granting access to GusNotebook itself. -->
           <iframe id="html-preview-frame" title="Visual document editor"
-                  sandbox="allow-scripts allow-forms allow-modals"
+                  sandbox="allow-scripts allow-same-origin allow-forms allow-modals"
                   referrerpolicy="no-referrer"></iframe>
         </div>
       </div>

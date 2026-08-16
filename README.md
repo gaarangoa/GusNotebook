@@ -5,10 +5,12 @@ agents on the right. Files open in tabs, each open notebook gets its own IPython
 kernel, and either agent can read and rewrite **the cell you're parked on**
 without being told which one it is.
 
-HTML and SVG files open as a visual editor rather than as source. Edit HTML text
-directly on the rendered page, or double-click SVG text to change it in place.
-Relative CSS, images, scripts, and links resolve from the file's directory;
-visual changes save back to the original file through **Save** or ⌘S.
+HTML and SVG files open in an integrated visual browser rather than as source.
+Each tab gets a short-lived server on its own localhost port, rooted beside the
+file, so relative and root-relative assets, scripts, modules, and `fetch()` work
+like a normal website. Closing the tab stops that server. Edit HTML text directly
+on the rendered page, or double-click SVG text to change it in place; visual
+changes save back to the original file through **Save** or ⌘S.
 
 Select a rendered region before moving to a Claude or Codex terminal and that
 exact range, its surrounding markup, and the document path are injected with
