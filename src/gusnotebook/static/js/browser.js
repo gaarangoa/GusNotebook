@@ -117,6 +117,7 @@ function fileCtxDir(e) {
   e.preventDefault();
   fileCtxTarget = null;
   showFileCtx(e.clientX, e.clientY, [
+    {label: 'Upload files', action: () => chooseUploads()},
     {label: '+ New file',   action: () => newFile()},
     {label: '+ New folder', action: () => newFolder()},
   ]);
@@ -126,10 +127,14 @@ function fileCtxEntry(e, path, kind) {
   e.preventDefault();
   e.stopPropagation();
   fileCtxTarget = {path, kind};
-  showFileCtx(e.clientX, e.clientY, [
+  const items = [
     {label: 'Rename', action: () => renameEntry(path)},
     {label: 'Delete', action: () => deleteEntry(path, kind), danger: true},
-  ]);
+  ];
+  if (kind !== 'dir') {
+    items.unshift({label: 'Download', action: () => downloadEntry(path)});
+  }
+  showFileCtx(e.clientX, e.clientY, items);
 }
 
 function showFileCtx(x, y, items) {
@@ -187,6 +192,51 @@ function escapeAttr(s) {
 function refreshFiles() { browse(fileState.path); }
 function browseUp() { if (fileState.parent) browse(fileState.parent); }
 function browseHome() { browse(fileState.home); }
+
+function chooseUploads() {
+  if (!fileState.path) { flash('The file panel has no directory open yet.'); return; }
+  const input = document.getElementById('file-upload');
+  input.value = '';
+  input.click();
+}
+
+async function uploadFiles(fileList) {
+  const selectedFiles = Array.from(fileList || []);
+  if (!selectedFiles.length || !fileState.path) return;
+  const directory = fileState.path;
+  const form = new FormData();
+  form.append('directory', directory);
+  selectedFiles.forEach(file => form.append('files', file, file.name));
+  const button = document.getElementById('file-upload-btn');
+  button.disabled = true;
+  button.classList.add('on');
+  try {
+    const response = await fetch(BASE + '/api/files/upload', {
+      method: 'POST', headers: {'X-Client-Id': CLIENT_ID}, body: form,
+    });
+    if (!response.ok) throw new Error(await response.text());
+    const data = await response.json();
+    await browse(directory);
+    const n = data.uploaded.length;
+    flash(`${n} file${n === 1 ? '' : 's'} uploaded`);
+  } catch (err) {
+    flash('Upload failed: ' + errText(err));
+  } finally {
+    button.disabled = false;
+    button.classList.remove('on');
+    document.getElementById('file-upload').value = '';
+  }
+}
+
+function downloadEntry(path) {
+  const link = document.createElement('a');
+  link.href = BASE + '/api/files/download?' + new URLSearchParams({path});
+  link.download = path.split('/').pop();
+  link.hidden = true;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+}
 
 // ---------- Creating things ----------
 

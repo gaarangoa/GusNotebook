@@ -501,11 +501,15 @@ function showRunning(id) {
   const out = document.getElementById('out-' + id);
   const body = out && out.parentElement;
   const note = body && body.querySelector('.out-note');
-  if (note) note.textContent = '▸ running…';
+  if (note) {
+    note.classList.add('running-dots');
+    note.textContent = '▸ running';
+  }
   else if (out) {
     out.insertAdjacentHTML('beforebegin',
-      `<div class="out-note" onclick="event.stopPropagation();toggleOutput('${id}')"
-         title="Show this cell's output">▸ running…</div>`);
+      `<div class="out-note running-dots"
+         onclick="event.stopPropagation();toggleOutput('${id}')"
+         title="Show this cell's output">▸ running</div>`);
   }
 }
 

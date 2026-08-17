@@ -594,8 +594,7 @@ async function dirPickNav(path) {
     '<div class="files-msg">Loading…</div>';
   let data;
   try {
-    // Reuse the existing file browser API — it already has the right OS permissions.
-    data = await api('/api/files?' + new URLSearchParams({path, hidden: '1'}));
+    data = await api('/api/dirlist?' + new URLSearchParams({path}));
   } catch (err) {
     document.getElementById('dirpick-list').innerHTML =
       `<div class="files-msg err">${escapeHtml(String(err))}</div>`;
@@ -612,8 +611,9 @@ async function dirPickNav(path) {
   });
   document.getElementById('dirpick-crumbs').innerHTML = crumbs;
 
-  // Only show dirs and .venv entries; detect venvs by pyvenv.cfg presence
-  const dirs = (data.entries || []).filter(e => e.kind === 'dir');
+  // The server inspects pyvenv.cfg/conda-meta and supplies the interpreter.
+  // Names are presentation only: MusicAI is as valid as .venv.
+  const dirs = data.entries || [];
 
   let html = '';
   if (data.parent) {
@@ -624,8 +624,8 @@ async function dirPickNav(path) {
     html += '<div class="files-msg">No subdirectories</div>';
   }
   dirs.forEach(e => {
-    const isVenv = e.name === '.venv' || e.name.endsWith('.venv');
-    const python = isVenv ? e.path + '/bin/python' : null;
+    const isVenv = !!e.is_venv;
+    const python = e.python;
     html += `<div class="dpick-row${isVenv ? ' dp-venv' : ''}"
       onclick="${isVenv
         ? `dirPickSelect('${escapeAttr(python)}','${escapeAttr(e.path)}')`
@@ -783,6 +783,32 @@ function pinStreams(root) {
     box.scrollTop = box.scrollHeight;
   }
 }
+
+/* A nested scroll box is useful for a long log, but browsers do not reliably
+ * chain a wheel gesture from it to our overflowed notebook pane (especially
+ * with the app itself fixed to the viewport). At the stream's boundary, move
+ * that same vertical delta into the notebook. Inside the boundary, native
+ * scrolling remains untouched. */
+function handoffOutputScroll(event) {
+  const target = event.target;
+  const stream = target && target.closest
+    ? target.closest('.output.stream') : null;
+  if (!stream || !event.deltaY) return;
+  const atTop = stream.scrollTop <= 0;
+  const atBottom = stream.scrollTop + stream.clientHeight >= stream.scrollHeight - 1;
+  if ((event.deltaY < 0 && !atTop) || (event.deltaY > 0 && !atBottom)) return;
+
+  const pane = document.getElementById('notebook-pane');
+  if (!pane) return;
+  const scale = event.deltaMode === WheelEvent.DOM_DELTA_LINE ? 16
+    : event.deltaMode === WheelEvent.DOM_DELTA_PAGE ? pane.clientHeight : 1;
+  event.preventDefault();
+  pane.scrollTop += event.deltaY * scale;
+}
+// Capture so editor widgets inside an output cannot stop the event before it
+// reaches the notebook handoff.
+document.addEventListener('wheel', handoffOutputScroll,
+                          {passive: false, capture: true});
 
 function renderOutputs(outputs, cellId) {
   if (!outputs || !outputs.length) return '';

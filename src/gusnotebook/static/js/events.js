@@ -115,6 +115,7 @@ es.onmessage = (e) => {
   if (msg.type === 'kernel_status') {
     setKernelStatus(msg.status);
   } else if (msg.type === 'cell_output') {
+    if (msg.kernel_status) setKernelStatus(msg.kernel_status);
     const el = document.getElementById('out-' + msg.cell_id);
     if (el) { el.innerHTML = renderOutputs(msg.outputs, msg.cell_id); pinStreams(el); }
     // Keep `cells[]` in step mid-run: the ▾ and the hidden-count are drawn from
@@ -124,10 +125,14 @@ es.onmessage = (e) => {
     syncOutputView(msg.cell_id);
   } else if (msg.type === 'cell_running') {
     const el = document.getElementById('out-' + msg.cell_id);
-    if (el) { el.innerHTML = '<div class="spin">running…</div>'; showRunning(msg.cell_id); }
+    if (el) {
+      el.innerHTML = '<div class="spin" role="status">running</div>';
+      showRunning(msg.cell_id);
+    }
     const help = document.getElementById('help-' + msg.cell_id);
     if (help) help.innerHTML = '';        // stale advice on a re-run
   } else if (msg.type === 'cell_done') {
+    if (msg.kernel_status) setKernelStatus(msg.kernel_status);
     const c = getCell(msg.cell_id);
     if (c) { c.outputs = msg.outputs; c.execution_count = msg.execution_count; }
     const el = document.getElementById('out-' + msg.cell_id);

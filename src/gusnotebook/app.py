@@ -476,6 +476,75 @@ def api_new_file():
                     "kind": textfile.kind_of(target)})
 
 
+@app.route("/api/files/upload", methods=["POST"])
+def api_upload_files():
+    """Upload one or more browser-selected files into the visible directory.
+
+    Existing files are never overwritten implicitly. This mirrors the safety
+    of New file and makes a duplicate name a useful, visible error instead of
+    silently destroying the copy already on disk.
+    """
+    directory = request.form.get("directory") or str(WORK_DIR)
+    incoming = [item for item in request.files.getlist("files")
+                if item and item.filename]
+    if not incoming:
+        return jsonify({"error": "choose at least one file to upload"}), 400
+
+    planned = []
+    seen = set()
+    try:
+        for item in incoming:
+            target = files.new_path(directory, item.filename)
+            if target in seen:
+                raise ValueError(f"{target.name} was selected more than once")
+            seen.add(target)
+            planned.append((item, target))
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+
+    written = []
+    try:
+        for item, target in planned:
+            # Exclusive creation closes the small validation/save race: an
+            # agent creating the same path at this instant still cannot be
+            # overwritten by the upload.
+            with target.open("xb") as destination:
+                written.append(target)
+                item.save(destination)
+    except OSError as e:
+        # Roll back only files created by this request. Nothing pre-existing is
+        # touched because every target was validated above.
+        for target in written:
+            try:
+                target.unlink()
+            except OSError:
+                pass
+        return jsonify({"error": str(e)}), 400
+
+    return jsonify({"uploaded": [{
+        "name": target.name,
+        "path": str(target),
+        "kind": files.kind_of(target),
+        "size": target.stat().st_size,
+    } for target in written]})
+
+
+@app.route("/api/files/download")
+def api_download_file():
+    """Download one file from the Files sidebar as an attachment."""
+    raw = request.args.get("path", "").strip()
+    if not raw:
+        return jsonify({"error": "path is required"}), 400
+    path = files.normalize(raw)
+    if not path.is_file():
+        return jsonify({"error": "no such file"}), 404
+    try:
+        return send_file(str(path), as_attachment=True,
+                         download_name=path.name, conditional=True)
+    except OSError as e:
+        return jsonify({"error": str(e)}), 400
+
+
 @app.route("/api/dirlist")
 def api_dirlist():
     """List subdirectories and venv-like entries for the directory picker.
@@ -496,14 +565,19 @@ def api_dirlist():
             return jsonify({"error": f"Permission denied: {p}"}), 403
         entries = []
         for child in children:
-            if child.name.startswith(".") and child.name not in (".venv",):
-                continue
             if not child.is_dir():
                 continue
-            is_venv = (child / "pyvenv.cfg").exists()
-            python = str(child / "bin" / "python") if is_venv and (child / "bin" / "python").exists() else None
+            python = venvs.python_bin(child)
+            is_venv = bool(python and (
+                (child / "pyvenv.cfg").is_file() or
+                (child / "conda-meta").is_dir()))
+            # Hidden directories are normally picker noise, but a structurally
+            # valid environment remains useful whatever it happens to be named.
+            if child.name.startswith(".") and not is_venv:
+                continue
             entries.append({"name": child.name, "path": str(child),
-                            "is_venv": is_venv, "python": python})
+                            "is_venv": is_venv,
+                            "python": str(python) if is_venv else None})
         parent = str(p.parent) if p.parent != p else None
         return jsonify({"path": str(p), "parent": parent, "entries": entries})
     except Exception as e:
@@ -1081,6 +1155,24 @@ def api_here():
 # elision is a rendering shortcut during the run, resolved when it ends.
 LIVE_STREAM_TAIL = 64_000
 
+# A Run fetch and a Stop fetch use separate HTTP connections, so the browser's
+# Stop can arrive first while Run is still being dispatched. Tokens let us
+# remember that early cancellation and apply it to exactly the intended run.
+_run_control_lock = threading.Lock()
+_cancelled_runs = {}
+
+
+def _remember_cancel(run_id):
+    if not run_id:
+        return
+    now = time.monotonic()
+    _cancelled_runs[run_id] = now
+    # Tokens are normally removed when their run exits. This also bounds stale
+    # tokens from a page which disappeared immediately after clicking Stop.
+    for token, when in list(_cancelled_runs.items()):
+        if now - when > 60:
+            _cancelled_runs.pop(token, None)
+
 
 def _trim_for_live(outputs):
     """Outputs with long stream text reduced to its tail, for live events."""
@@ -1098,7 +1190,7 @@ def _trim_for_live(outputs):
     return trimmed
 
 
-def _run_cell(key, cell_id):
+def _run_cell(key, cell_id, run_id=None):
     """Execute one code cell, streaming outputs to listeners as they arrive."""
     nb = get_nb(key)
     _, cell = nb.find(cell_id)
@@ -1115,14 +1207,31 @@ def _run_cell(key, cell_id):
         return {"status": "ok", "execution_count": None, "outputs": []}, 200
 
     with exec_lock(key):
+        k = kernel_for(key)
+        with _run_control_lock:
+            cancelled = bool(run_id and _cancelled_runs.pop(run_id, None))
+            k.prepare_execution(run_id)
+
         bus.publish("cell_running", cell_id=cell_id, notebook=key)
 
         def on_output(outputs):
             bus.publish("cell_output", cell_id=cell_id,
-                        outputs=_trim_for_live(outputs), notebook=key)
+                        outputs=_trim_for_live(outputs), notebook=key,
+                        kernel_status=k.status, python=k.python)
 
         try:
-            count, outputs = kernel_for(key).execute(source, on_output=on_output)
+            if cancelled:
+                k.cancel_prepared_execution(run_id)
+                count, outputs = None, [{
+                    "output_type": "error",
+                    "ename": "KeyboardInterrupt",
+                    "evalue": "execution stopped before the kernel was ready",
+                    "traceback": [],
+                }]
+                bus.publish("kernel_status", status=k.status, notebook=key,
+                            python=k.python)
+            else:
+                count, outputs = k.execute(source, on_output=on_output)
         except Exception as e:
             outputs = [{
                 "output_type": "error",
@@ -1131,10 +1240,15 @@ def _run_cell(key, cell_id):
                 "traceback": [],
             }]
             count = None
+        finally:
+            if run_id:
+                with _run_control_lock:
+                    _cancelled_runs.pop(run_id, None)
 
         nb.set_outputs(cell_id, outputs, count)
         bus.publish("cell_done", cell_id=cell_id, execution_count=count,
-                    outputs=[dict(o) for o in outputs], notebook=key)
+                    outputs=[dict(o) for o in outputs], notebook=key,
+                    kernel_status=k.status, python=k.python)
         return {"status": "ok", "execution_count": count, "outputs": outputs}, 200
 
 
@@ -1157,7 +1271,7 @@ def api_run_cell(cell_id):
     key = doc_key()
     if body.get("source") is not None:
         get_nb(key).update_cell(cell_id, source=body["source"])
-    result, status = _run_cell(key, cell_id)
+    result, status = _run_cell(key, cell_id, body.get("run_id"))
     return jsonify(result), status
 
 
@@ -1277,9 +1391,13 @@ def api_kernel_action(action):
         elif action == "restart":
             kernel_for(key).restart()
         elif action == "interrupt":
-            k = kernels.peek(key)
-            if k:
-                k.interrupt()
+            body = request.get_json(silent=True) or {}
+            run_id = body.get("run_id")
+            with _run_control_lock:
+                _remember_cancel(run_id)
+                k = kernels.peek(key)
+                if k:
+                    k.interrupt(run_id=run_id)
         elif action == "shutdown":
             kernels.drop(key)
         else:

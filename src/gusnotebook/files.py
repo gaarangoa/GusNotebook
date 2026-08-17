@@ -33,6 +33,12 @@ def _kind(entry_path, is_dir):
     return "file"
 
 
+def kind_of(path):
+    """The file-browser kind for an already-resolved path."""
+    p = Path(path)
+    return _kind(p, p.is_dir())
+
+
 def listdir(path, show_hidden=False):
     """One directory level: {path, parent, entries[]}.
 
@@ -98,8 +104,8 @@ def new_path(directory, name):
     name = (name or "").strip()
     if not name:
         raise ValueError("a name is required")
-    if "/" in name or name in (".", ".."):
-        raise ValueError("name cannot contain '/' — pick a plain file name")
+    if "/" in name or "\\" in name or name in (".", ".."):
+        raise ValueError("name cannot contain '/' or '\\' — pick a plain file name")
 
     parent = Path(directory).expanduser()
     try:

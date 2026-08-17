@@ -5,6 +5,7 @@
 
 // ---------- Editing ----------
 const saveTimers = {};
+const activeRuns = new Map();
 
 // Cells typed into but not yet PATCHed. `cells[].source` lags by up to the save
 // debounce, so it is not the answer to "what is in this editor" — and mountEditor()
@@ -192,12 +193,16 @@ async function runCell(id, advance = false) {
 
   const ed = document.getElementById('ed-' + id);
   const source = ed ? ed.value : c.source;
+  const notebook = active;
+  const runId = CLIENT_ID + '-run-' + Date.now().toString(36) +
+    Math.random().toString(36).slice(2);
+  activeRuns.set(notebook, runId);
   c.source = source;
   clearTimeout(saveTimers[id]);
 
   const outEl = document.getElementById('out-' + id);
   if (outEl && source.trim()) {
-    outEl.innerHTML = '<div class="spin">running…</div>';
+    outEl.innerHTML = '<div class="spin" role="status">running</div>';
     showRunning(id);       // the spinner is inside a hidden box on a collapsed cell
   } else if (outEl && !source.trim()) {
     // Empty cell — clear any stale output immediately, don't wait for SSE.
@@ -207,10 +212,13 @@ async function runCell(id, advance = false) {
   }
 
   try {
-    await api(`/api/cells/${id}/run${nbq()}`, {method: 'POST', body: JSON.stringify({source})});
+    await api(`/api/cells/${id}/run${nbq()}`, {
+      method: 'POST', body: JSON.stringify({source, run_id: runId})});
   } catch (err) {
     if (outEl) outEl.innerHTML = `<div class="outputs"><div class="output error">${escapeHtml(err)}</div></div>`;
     syncOutputView(id);
+  } finally {
+    if (activeRuns.get(notebook) === runId) activeRuns.delete(notebook);
   }
   if (advance) await advanceFrom(id);
 }
@@ -326,7 +334,7 @@ async function regenerate(id) {
   const c = getCell(id);
   if (!c || !c.prompt) return;
   const outEl = document.getElementById('out-' + id);
-  if (outEl) outEl.innerHTML = '<div class="spin">writing…</div>';
+  if (outEl) outEl.innerHTML = '<div class="spin" role="status">writing</div>';
   try {
     const data = await api(`/api/cells/${id}/ai${nbq()}`, {
       method: 'POST', body: JSON.stringify({prompt: c.prompt}),
@@ -554,13 +562,28 @@ async function clearOutputs() {
 }
 
 const restartKernel = () => api('/api/kernel/restart' + nbq(), {method: 'POST'});
-const interruptKernel = () => api('/api/kernel/interrupt' + nbq(), {method: 'POST'});
+async function interruptKernel() {
+  const t = activeTab();
+  if (!t || t.kind !== 'notebook') return;
+  const previousStatus = t.status || 'busy';
+  setKernelStatus('stopping');
+  try {
+    await api('/api/kernel/interrupt' + nbq(), {
+      method: 'POST',
+      body: JSON.stringify({run_id: activeRuns.get(active) || null}),
+    });
+  } catch (err) {
+    setKernelStatus(previousStatus);
+    flash('Stop failed: ' + errText(err));
+  }
+}
 
 // ---------- Kernel status ----------
 function setKernelStatus(status) {
+  const t = activeTab();
+  if (t && t.kind === 'notebook') t.status = status;
   document.getElementById('k-dot').className = 'dot ' + status;
   const el = document.getElementById('k-status');
   el.textContent = status;
-  const t = activeTab();
   el.title = (t && t.python ? t.python : 'python') + ' — ' + status;
 }

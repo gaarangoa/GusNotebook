@@ -202,7 +202,17 @@ def validate(python_or_prefix):
     if not p.is_absolute():
         raise ValueError("path must be absolute")
 
-    py = p if p.is_file() else python_bin(p)
+    if p.is_file():
+        py = p
+    elif p.is_dir() and p.name.lower() in ("bin", "scripts"):
+        # People commonly paste the directory displayed by `which python` or a
+        # file picker. Accept it just like its environment root.
+        names = (("python.exe",) if p.name.lower() == "scripts"
+                 else ("python3", "python"))
+        py = next((p / name for name in names
+                   if (p / name).is_file() and os.access(p / name, os.X_OK)), None)
+    else:
+        py = python_bin(p)
     if py is None:
         raise ValueError(f"no python found in {p}")
     if not os.access(py, os.X_OK):

@@ -577,6 +577,7 @@ button.tb.primary:hover { background: #fdf4f8; }
 .dot.idle { background: #22c55e; }
 .dot.busy { background: #f59e0b; animation: pulse 1s ease-in-out infinite; }
 .dot.starting { background: #38bdf8; animation: pulse 1s ease-in-out infinite; }
+.dot.stopping { background: #ef4444; animation: pulse .55s ease-in-out infinite; }
 .dot.dead, .dot.stopped { background: #ef4444; }
 @keyframes pulse { 0%,100% { opacity: 1 } 50% { opacity: .35 } }
 
@@ -906,7 +907,9 @@ button.tb.primary:hover { background: #fdf4f8; }
   padding: 8px 11px;
   margin: 3px 0;
   font-size: 11.5px;
-  overscroll-behavior: contain;
+  /* Scroll the console until it reaches an edge, then hand the wheel gesture
+     back to the notebook pane. `contain` trapped the pointer here forever. */
+  overscroll-behavior-y: auto;
 }
 .output.stream::-webkit-scrollbar { width: 9px; height: 9px; }
 .output.stream::-webkit-scrollbar-track { background: transparent; }
@@ -972,6 +975,24 @@ button.tb.primary:hover { background: #fdf4f8; }
 .output-html table[border] { border: none; }
 
 .spin { display: inline-block; color: var(--muted); font-size: 11px; padding: 4px 11px; font-family: var(--mono); }
+.spin::after,
+.running-dots::after {
+  content: '...';
+  display: inline-block;
+  width: 1ch;
+  overflow: hidden;
+  white-space: nowrap;
+  vertical-align: bottom;
+  animation: progress-dots 1.05s steps(1, end) infinite;
+}
+@keyframes progress-dots {
+  0%, 24% { width: 1ch; opacity: .55; }
+  25%, 64% { width: 2ch; opacity: .78; }
+  65%, 100% { width: 3ch; opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .spin::after, .running-dots::after { width: 3ch; animation: none; }
+}
 
 /* ---------- Error help ---------- */
 .help-btn {

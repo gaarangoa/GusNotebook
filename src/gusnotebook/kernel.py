@@ -47,6 +47,11 @@ class Kernel:
         self._km = None
         self._kc = None
         self._lock = threading.Lock()
+        self._run_state_lock = threading.Lock()
+        self._interrupt_requested = threading.Event()
+        self._prepared_run = None
+        self._run_prepared = False
+        self._kernel_cell_busy = False
         self.status = "stopped"
         self.execution_count = 0
 
@@ -151,10 +156,51 @@ class Kernel:
             self.python = str(python)
         self.start()
 
-    def interrupt(self):
-        with self._lock:
-            if self._km is not None:
-                self._km.interrupt_kernel()
+    def prepare_execution(self, run_id=None):
+        """Mark a browser run as pending before kernel startup begins.
+
+        The HTTP Stop request can overtake the Run request while the latter is
+        starting a kernel.  Preparing under the app's run-control lock gives
+        ``interrupt`` an execution to target throughout that window.
+        """
+        with self._run_state_lock:
+            self._interrupt_requested.clear()
+            self._prepared_run = run_id
+            self._run_prepared = True
+            self._kernel_cell_busy = False
+
+    def cancel_prepared_execution(self, run_id=None):
+        """Forget a prepared run which was cancelled before it reached IPython."""
+        with self._run_state_lock:
+            if run_id is None or self._prepared_run == run_id:
+                self._interrupt_requested.clear()
+                self._prepared_run = None
+                self._run_prepared = False
+                self._kernel_cell_busy = False
+
+    def interrupt(self, run_id=None):
+        """Interrupt the active execution without waiting for its run lock.
+
+        ``execute`` deliberately holds ``_lock`` until a cell is done so two
+        runs cannot consume each other's messages. Acquiring it here made Stop
+        wait behind the very execution it was meant to interrupt. KernelManager
+        sends SIGINT to the kernel process group, so it is both safe and
+        necessary to take this path concurrently with ``execute``.
+        """
+        with self._run_state_lock:
+            # A token prevents a delayed Stop response from interrupting a
+            # different cell which happened to start in the meantime.
+            if run_id is not None and self._run_prepared \
+                    and self._prepared_run != run_id:
+                return False
+            self._interrupt_requested.set()
+            # Before the target cell reports `busy`, SIGINT can land on an idle
+            # kernel (or on startup/bootstrap) and be consumed before the code
+            # begins. The execute loop re-delivers it on that cell's busy event.
+            km = self._km if self._kernel_cell_busy else None
+        if km is not None:
+            km.interrupt_kernel()
+        return True
 
     def is_alive(self):
         return self._km is not None and self._km.is_alive()
@@ -206,6 +252,13 @@ class Kernel:
         notifies immediately: those are single discrete events the user is
         waiting to see, not a firehose.
         """
+        # API callers prepare before entering this method so Stop can cover the
+        # kernel-start window. Direct callers still get a clean execution state.
+        with self._run_state_lock:
+            if not self._run_prepared:
+                self._interrupt_requested.clear()
+                self._prepared_run = None
+                self._run_prepared = True
         if not self.is_alive():
             self.start()
 
@@ -216,6 +269,28 @@ class Kernel:
 
             outputs = []
             exec_count = None
+
+            # Stop arrived during kernel startup. Do not send the cell merely
+            # to interrupt it a moment later; report the cancellation directly.
+            if self._interrupt_requested.is_set():
+                outputs.append({
+                    "output_type": "error",
+                    "ename": "KeyboardInterrupt",
+                    "evalue": "execution stopped before the kernel was ready",
+                    "traceback": [],
+                })
+                with self._run_state_lock:
+                    self._interrupt_requested.clear()
+                    self._prepared_run = None
+                    self._run_prepared = False
+                    self._kernel_cell_busy = False
+                self._set_status("idle" if self.is_alive() else "dead")
+                # Status first: the first output replaces the spinner, so the
+                # UI must already have left its temporary "stopping" state.
+                if on_output:
+                    on_output([dict(o) for o in outputs])
+                return None, outputs
+
             self._set_status("busy")
             msg_id = kc.execute(code, store_history=True)
 
@@ -264,7 +339,15 @@ class Kernel:
                     mtype, content = msg["msg_type"], msg["content"]
 
                     if mtype == "status":
-                        if content["execution_state"] == "idle":
+                        state = content["execution_state"]
+                        if state == "busy":
+                            with self._run_state_lock:
+                                self._kernel_cell_busy = True
+                                interrupt_now = self._interrupt_requested.is_set()
+                                km = self._km
+                            if interrupt_now and km is not None:
+                                km.interrupt_kernel()
+                        elif state == "idle":
                             break
                     elif mtype == "execute_input":
                         exec_count = content.get("execution_count")
@@ -315,6 +398,11 @@ class Kernel:
                 if pending[0]:
                     notify(force=True)
                 self._drain_shell(kc, msg_id)
+                with self._run_state_lock:
+                    self._interrupt_requested.clear()
+                    self._prepared_run = None
+                    self._run_prepared = False
+                    self._kernel_cell_busy = False
                 self._set_status("idle" if self.is_alive() else "dead")
 
             if exec_count is not None:

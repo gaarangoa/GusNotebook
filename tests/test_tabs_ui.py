@@ -11,6 +11,7 @@ virtualenv at /tmp/venv312 with ipykernel installed.
 
 import base64
 import json
+import os
 import pathlib
 import subprocess
 import sys
@@ -18,7 +19,7 @@ import urllib.request
 
 from playwright.sync_api import sync_playwright
 
-URL = "http://localhost:8888/"
+URL = os.environ.get("GUSNOTEBOOK_TEST_URL", "http://localhost:8888/")
 FIX = pathlib.Path("/tmp/nbtest")
 ALT_VENV = pathlib.Path("/tmp/venv312")
 
@@ -164,6 +165,27 @@ def main():
               ("idle", "busy", "starting", "stopped", "dead"), True)
         check("badge shows the env", pg.locator("#venv-name").inner_text() != "", True)
 
+        print("\n-- stop interrupts an active cell")
+        stop_cell = api("/api/cells" +
+                        "?notebook=" + urllib.parse.quote(pg.evaluate("active")),
+                        "POST", {"cell_type": "code", "source":
+                                 "import time\ntime.sleep(30)\nprint('not reached')"})["id"]
+        pg.evaluate("load()")
+        pg.wait_for_selector(f"#ed-{stop_cell}", timeout=20000)
+        pg.evaluate(f"setTimeout(() => runCell({stop_cell!r}), 0)")
+        pg.wait_for_selector(f"#out-{stop_cell} .spin", timeout=10000)
+        pg.click("#kernel-stop")
+        pg.wait_for_function("document.getElementById('k-status').textContent === 'stopping'",
+                             timeout=5000)
+        pg.wait_for_function(f"!document.querySelector('#out-{stop_cell} .spin')",
+                             timeout=10000)
+        check("Stop ends the run before its sleep completes",
+              pg.locator(f"#out-{stop_cell} .output.stream").count(), 0)
+        check("the interrupted cell reports KeyboardInterrupt",
+              "KeyboardInterrupt" in
+              pg.locator(f"#out-{stop_cell} .output.error").inner_text(), True)
+        check("kernel returns to idle", pg.locator("#k-status").inner_text(), "idle")
+
         print("\n-- shortcuts replacing the removed buttons")
         n_before = pg.evaluate("cells.length")
         first = pg.evaluate("cells[0].id")
@@ -193,7 +215,14 @@ def main():
         pg.click("#notebook")
         check("closes on outside click", pg.locator("#venv-menu").is_visible(), False)
 
-        pg.evaluate(f"setVenv('{ALT_VENV}')")
+        pg.evaluate("setTimeout(() => openDirPicker('/tmp'), 0)")
+        pg.wait_for_selector("#dirpick-back.on .dp-venv", timeout=20000)
+        check("an arbitrarily named environment is recognized",
+              pg.locator("#dirpick-list .dp-venv", has_text="venv312").count(), 1)
+        pg.evaluate("dirPickCancel()")
+
+        # A pasted bin directory is normalized to its Python executable too.
+        pg.evaluate(f"setVenv('{ALT_VENV / 'bin'}')")
         pg.wait_for_function(
             f"(activeTab().python || '').includes('venv312')", timeout=90000)
         check("badge shows new env", pg.locator("#venv-name").inner_text(), "venv312")

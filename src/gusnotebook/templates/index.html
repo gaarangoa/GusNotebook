@@ -49,6 +49,10 @@
            navigation, which is what this panel is for. -->
       <button class="files-btn" id="hidden-btn" onclick="toggleHidden()"
               title="Show hidden files">.*</button>
+      <button class="files-btn" id="file-upload-btn" onclick="chooseUploads()"
+              title="Upload files into this directory">⇧</button>
+      <input id="file-upload" type="file" multiple hidden
+             onchange="uploadFiles(this.files)">
       <button class="files-btn" onclick="browseHome()" title="Home directory">⌂</button>
       <button class="files-btn" onclick="browseUp()" title="Parent directory">↑</button>
       <button class="files-btn" onclick="refreshFiles()" title="Refresh">↻</button>
@@ -163,7 +167,8 @@
       <!-- acts on the cell the caret is in, so cells themselves stay button-free -->
       <button class="tb" onclick="deleteSelected()" title="Delete current cell">Delete</button>
       <div class="tb-sep"></div>
-      <button class="tb" onclick="interruptKernel()">■ Stop</button>
+      <button class="tb" id="kernel-stop" onclick="interruptKernel()"
+              title="Interrupt the running cell">■ Stop</button>
       <button class="tb" onclick="restartKernel()">↻ Restart</button>
 
       <!-- The kernel badge IS the environment picker: status now, click to switch. -->
@@ -259,7 +264,7 @@
       <div class="dirpick-sel" id="dirpick-sel"></div>
     </div>
     <div class="mfoot">
-      <input type="text" id="dirpick-manual" placeholder="or paste a path directly, e.g. /path/to/.venv"
+      <input type="text" id="dirpick-manual" placeholder="paste an environment root, bin folder, or Python path"
              spellcheck="false" autocomplete="off"
              oninput="dirPickManual(this.value)"
              onkeydown="if(event.key==='Enter' && !document.getElementById('dirpick-ok').disabled) dirPickOk()">

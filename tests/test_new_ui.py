@@ -437,6 +437,45 @@ def main():
               "already exists" in flash_text(pg, "already exists"), True)
         check("original untouched", (FIX / "seed.py").read_text(), before)
 
+        print("\n-- uploading and downloading from Files")
+        go_to(pg, FIX)
+        upload_path = FIX / "browser-upload.txt"
+        pg.locator("#file-upload").set_input_files({
+            "name": upload_path.name,
+            "mimeType": "text/plain",
+            "buffer": b"uploaded through the Files sidebar\n",
+        })
+        pg.wait_for_function(
+            "name => fileState.entries.some(e => e.name === name)",
+            arg=upload_path.name, timeout=20000)
+        check("upload writes the document into the browsed directory",
+              upload_path.read_text(), "uploaded through the Files sidebar\n")
+        check("upload button returns to ready",
+              pg.locator("#file-upload-btn").is_enabled(), True)
+
+        row = pg.locator(
+            f'#file-list .file-row[title="{upload_path.resolve()}"]')
+        row.click(button="right")
+        with pg.expect_download(timeout=20000) as download_info:
+            pg.locator("#file-ctx .file-ctx-item", has_text="Download").click()
+        downloaded = download_info.value
+        check("download keeps the file name", downloaded.suggested_filename,
+              upload_path.name)
+        check("download returns the file bytes",
+              pathlib.Path(downloaded.path()).read_bytes(), upload_path.read_bytes())
+
+        before_upload = upload_path.read_bytes()
+        clear_flash(pg)
+        pg.locator("#file-upload").set_input_files({
+            "name": upload_path.name,
+            "mimeType": "text/plain",
+            "buffer": b"must not overwrite\n",
+        })
+        check("duplicate upload reports the collision",
+              "already exists" in flash_text(pg, "already exists"), True)
+        check("duplicate upload leaves the original untouched",
+              upload_path.read_bytes(), before_upload)
+
         print("\n-- cancelling a prompt creates nothing")
         n_before = len(list(FIX.iterdir()))
         pg.evaluate("setTimeout(newFolder, 0)")
@@ -1419,9 +1458,16 @@ def main():
               pg.evaluate(f"document.getElementById('ed-{e2}').value"), "    z = 0")
         # ⇧⏎ must run once. The document-level handler treats CM's content div as
         # claimed; without that the cell runs twice, from both keymaps.
-        pg.evaluate(f"document.getElementById('ed-{e2}').value = 'print(6*7)'")
+        pg.evaluate(
+            f"document.getElementById('ed-{e2}').value = "
+            "'import time; time.sleep(1); print(6*7)'")
         pg.click(f"#ed-{e2} .cm-content")
         pg.keyboard.press("Shift+Enter")
+        pg.wait_for_selector(f"#out-{e2} .spin", timeout=10000)
+        check("running uses animated progress dots", pg.eval_on_selector(
+            f"#out-{e2} .spin",
+            "e => getComputedStyle(e, '::after').animationName"),
+              "progress-dots")
         pg.wait_for_selector(f"#out-{e2} .outputs", timeout=60000)
         pg.wait_for_function(f"!document.querySelector('#out-{e2} .spin')", timeout=60000)
         check("⇧⏎ runs the cell",
@@ -1429,6 +1475,37 @@ def main():
         check("exactly once", next(
             (c["execution_count"] for c in get("/api/notebook" + eq)["cells"]
              if c["id"] == e2), None), 1)
+
+        print("\n-- output scroll hands off to the notebook")
+        scroll_box = pg.evaluate(f"""() => {{
+          const out = document.getElementById('out-{e2}');
+          out.dataset.testOriginal = out.innerHTML;
+          out.innerHTML = '<div class="outputs"><div class="output stream">' +
+            Array.from({{length: 120}}, (_, i) => 'line ' + i).join('\\n') +
+            '</div></div>';
+          const spacer = document.createElement('div');
+          spacer.id = 'scroll-handoff-spacer'; spacer.style.height = '900px';
+          out.closest('.cell').after(spacer);
+          const stream = out.querySelector('.output.stream');
+          stream.scrollIntoView({{block: 'center'}});
+          stream.scrollTop = stream.scrollHeight;
+          const pane = document.getElementById('notebook-pane');
+          const rect = stream.getBoundingClientRect();
+          return {{x: rect.left + rect.width / 2, y: rect.top + rect.height / 2,
+                   before: pane.scrollTop}};
+        }}""")
+        pg.mouse.move(scroll_box["x"], scroll_box["y"])
+        pg.mouse.wheel(0, 500)
+        pg.wait_for_timeout(400)
+        after_scroll = pg.evaluate(
+            "document.getElementById('notebook-pane').scrollTop")
+        check("wheel continues into the notebook at the output's bottom",
+              after_scroll > scroll_box["before"], True)
+        pg.evaluate(f"""() => {{
+          document.getElementById('scroll-handoff-spacer').remove();
+          const out = document.getElementById('out-{e2}');
+          out.innerHTML = out.dataset.testOriginal; delete out.dataset.testOriginal;
+        }}""")
 
         # Rendered markdown has no editor at all, and an editing one gets no
         # Python grammar.
