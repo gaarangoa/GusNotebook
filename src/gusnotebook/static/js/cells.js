@@ -204,9 +204,20 @@ async function pollMarkupDisk() {
   try {
     const query = new URLSearchParams({path: t.path});
     const data = await api('/api/text-version?' + query.toString());
-    if (active !== t.path ||
-        (data.disk_version === t.diskVersion &&
-         data.preview_version === t.previewVersion)) return;
+    if (active !== t.path) return;
+    // A restarted GusNotebook process gives each document a new random preview
+    // port. Its generation starts at "1" again, so the generation alone cannot
+    // distinguish that live server from the dead origin retained by this page.
+    // Re-render the current browser buffer on the new origin; this is safe even
+    // while dirty because no disk content is read or discarded here.
+    if (Object.prototype.hasOwnProperty.call(data, 'preview_origin') &&
+        data.preview_origin !== t.previewOrigin) {
+      await renderMarkupEditor();
+      if (active === t.path) flash(`${t.name} preview reconnected`);
+      return;
+    }
+    if (data.disk_version === t.diskVersion &&
+        data.preview_version === t.previewVersion) return;
     if (t.dirty) {
       if (!t.externalConflict) markTextExternalConflict(t);
       return;
@@ -384,13 +395,24 @@ function markTextDirty() {
 
 async function persistText(t, text) {
   if (!t || t.kind !== 'text') return;
+  if (t.saveInFlight) {
+    // Double-clicking Save used to race two writes carrying the same disk
+    // revision: the first succeeded and the second looked like an external
+    // edit. Keep only the newest requested buffer and write it after this one
+    // if the document is still dirty.
+    t.queuedSaveText = text;
+    return;
+  }
   const revision = t.editRevision || 0;
   const st = document.getElementById('text-status');
   if (active === t.path) st.textContent = 'saving…';
   t.saveInFlight = true;
+  const controller = new AbortController();
+  const requestTimer = setTimeout(() => controller.abort(), 30000);
   try {
     const saved = await api('/api/text', {method: 'POST',
-      body: JSON.stringify({path: t.path, text, disk_version: t.diskVersion})});
+      body: JSON.stringify({path: t.path, text, disk_version: t.diskVersion}),
+      signal: controller.signal});
     if ((t.editRevision || 0) === revision) {
       t.text = text;
       t.diskVersion = saved.disk_version;
@@ -415,7 +437,13 @@ async function persistText(t, text) {
     if (active === t.path) st.textContent = 'save failed';
     flash('Save failed: ' + errText(err));
   } finally {
+    clearTimeout(requestTimer);
     t.saveInFlight = false;
+    const queued = t.queuedSaveText;
+    delete t.queuedSaveText;
+    if (typeof queued === 'string' && t.dirty && !t.externalConflict) {
+      persistText(t, typeof t.text === 'string' ? t.text : queued);
+    }
   }
 }
 

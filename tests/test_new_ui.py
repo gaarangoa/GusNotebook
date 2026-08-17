@@ -22,7 +22,7 @@ import urllib.request
 
 from playwright.sync_api import sync_playwright
 
-URL = "http://localhost:8888/"
+URL = os.environ.get("GUSNOTEBOOK_TEST_URL", "http://localhost:8888/")
 FIX = pathlib.Path("/tmp/nbcreate")
 # The app's own directory: a real one with dotfiles (.env, .gitignore) in it.
 APP_DIR = pathlib.Path(__file__).resolve().parent.parent
@@ -270,6 +270,16 @@ def main():
         check("the iframe uses its own localhost browser origin",
               pg.evaluate("new URL(activeTab().previewUrl).origin !== location.origin"),
               True)
+        preview_origin = pg.evaluate("activeTab().previewOrigin")
+        # A main-server restart recreates the preview on another random port,
+        # commonly with the same generation "1". Simulate the stale client
+        # half of that restart and make sure polling reconnects by origin.
+        pg.evaluate("activeTab().previewOrigin = 'http://127.0.0.1:9'")
+        pg.wait_for_function("origin => activeTab().previewOrigin === origin",
+                             arg=preview_origin, timeout=15000)
+        preview.locator("#preview-title").wait_for(timeout=20000)
+        check("a stale preview origin reconnects automatically",
+              pg.evaluate("activeTab().previewOrigin"), preview_origin)
         preview.locator("body[data-fetched='yes']").wait_for(timeout=20000)
         check("root-relative fetch works inside the preview server",
               preview.locator("body").get_attribute("data-fetched"), "yes")
@@ -300,10 +310,13 @@ def main():
         check("HTML text edits directly in the page",
               preview.locator("#preview-title").inner_text(), "Edited on the page")
         check("editing marks the HTML tab dirty", pg.evaluate("activeTab().dirty"), True)
-        pg.locator("#text-save").click()
+        pg.evaluate("saveText(); saveText(); saveText()")
         pg.wait_for_function("!activeTab().dirty", timeout=15000)
         saved_html = (FIX / "preview.html").read_text()
         check("visual HTML edit saves to disk", "Edited on the page" in saved_html, True)
+        check("repeated Save clicks do not create a false disk conflict",
+              (pg.evaluate("!!activeTab().externalConflict"),
+               pg.locator("#ask-back").is_visible()), (False, False))
         check("editor bridge is not written into HTML",
               "data-gusnotebook-runtime" in saved_html, False)
 

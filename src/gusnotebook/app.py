@@ -799,6 +799,7 @@ def api_text_version():
     server = previews.peek(path)
     return jsonify({"path": str(path),
                     "disk_version": textfile.disk_version(path),
+                    "preview_origin": server.origin if server else None,
                     "preview_version": server.version() if server else None})
 
 
