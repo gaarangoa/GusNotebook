@@ -1459,8 +1459,8 @@ def main():
         # ⇧⏎ must run once. The document-level handler treats CM's content div as
         # claimed; without that the cell runs twice, from both keymaps.
         pg.evaluate(
-            f"document.getElementById('ed-{e2}').value = "
-            "'import time; time.sleep(1); print(6*7)'")
+            f"document.getElementById('ed-{e2}').value = " + json.dumps(
+                "import time; print('working', flush=True); time.sleep(1); print(6*7)"))
         pg.click(f"#ed-{e2} .cm-content")
         pg.keyboard.press("Shift+Enter")
         pg.wait_for_selector(f"#out-{e2} .spin", timeout=10000)
@@ -1468,8 +1468,21 @@ def main():
             f"#out-{e2} .spin",
             "e => getComputedStyle(e, '::after').animationName"),
               "progress-dots")
+        pg.wait_for_function(
+            f"document.getElementById('out-{e2}').innerText.includes('working')",
+            timeout=10000)
+        check("streamed output keeps the running indicator",
+              pg.locator(f"#out-{e2} .spin").count(), 1)
+        check("the active cell animates its execution number",
+              pg.locator(f'.cell[data-id="{e2}"].is-running .run-symbol').count(), 1)
+        check("the execution number cycles between + and *", pg.eval_on_selector(
+            f'.cell[data-id="{e2}"] .run-symbol',
+            "e => getComputedStyle(e, '::before').animationName"),
+              "cell-run-symbol")
         pg.wait_for_selector(f"#out-{e2} .outputs", timeout=60000)
         pg.wait_for_function(f"!document.querySelector('#out-{e2} .spin')", timeout=60000)
+        check("completion removes the gutter animation",
+              pg.locator(f'.cell[data-id="{e2}"] .run-symbol').count(), 0)
         check("⇧⏎ runs the cell",
               pg.locator(f"#out-{e2}").inner_text(), lambda s: "42" in s)
         check("exactly once", next(

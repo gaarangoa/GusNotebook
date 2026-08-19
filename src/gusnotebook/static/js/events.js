@@ -13,7 +13,15 @@ async function load() {
   if (key !== active) return;          // the user switched tabs mid-request
 
   const t = activeTab();
-  cells = data.cells;
+  // A reload during execution reads the last completed outputs from disk. Keep
+  // the live SSE state already held in this page until cell_done replaces it.
+  const live = new Map(cells.filter(c => c._running).map(c => [c.id, c]));
+  cells = data.cells.map(c => {
+    const previous = live.get(c.id);
+    return previous
+      ? {...c, outputs: previous.outputs, _running: true}
+      : c;
+  });
   if (t) {
     t.cells = cells;
     if (data.kernel_python) t.python = data.kernel_python;
@@ -97,18 +105,32 @@ es.onmessage = (e) => {
   // are the only place that's visible, so keep them honest.
   if (msg.type === 'kernel_status') refreshSessionCounts();
 
+  // Record cell execution before the inactive-tab return: switching away and
+  // back during a run must still render its spinner and animated gutter. Also
+  // wake runCell's promise here, regardless of which notebook is visible.
+  const eventCell = t && t.cells
+    ? t.cells.find(c => c.id === msg.cell_id)
+    : null;
+  if (msg.type === 'cell_running' && eventCell) {
+    eventCell.outputs = [];
+    eventCell._running = true;
+  } else if (msg.type === 'cell_output' && eventCell) {
+    eventCell.outputs = msg.outputs;
+    eventCell._running = true;
+  } else if (msg.type === 'cell_done' && eventCell) {
+    eventCell.outputs = msg.outputs;
+    eventCell.execution_count = msg.execution_count;
+    eventCell._running = false;
+  }
+  if (msg.type === 'cell_done' && msg.run_id) {
+    const finish = runWaiters.get(msg.run_id);
+    if (finish) finish(msg);
+    if (activeRuns.get(msg.notebook) === msg.run_id) activeRuns.delete(msg.notebook);
+  }
+
   // For inactive tabs, keep the stashed cells[] up to date so switching back
   // shows the correct output without needing a load(). DOM events are skipped.
   if (msg.notebook && msg.notebook !== active) {
-    if (t && t.cells) {
-      if (msg.type === 'cell_output' || msg.type === 'cell_done') {
-        const c = t.cells.find(c => c.id === msg.cell_id);
-        if (c) {
-          c.outputs = msg.outputs;
-          if (msg.type === 'cell_done') c.execution_count = msg.execution_count;
-        }
-      }
-    }
     return;
   }
 
@@ -116,17 +138,22 @@ es.onmessage = (e) => {
     setKernelStatus(msg.status);
   } else if (msg.type === 'cell_output') {
     if (msg.kernel_status) setKernelStatus(msg.kernel_status);
+    const c = getCell(msg.cell_id);
+    if (c) { c.outputs = msg.outputs; c._running = true; }
+    setCellRunning(msg.cell_id, true);
     const el = document.getElementById('out-' + msg.cell_id);
-    if (el) { el.innerHTML = renderOutputs(msg.outputs, msg.cell_id); pinStreams(el); }
+    if (el) { el.innerHTML = renderCellOutput(c); pinStreams(el); }
     // Keep `cells[]` in step mid-run: the ▾ and the hidden-count are drawn from
     // it, and during a long run this is the only thing that knows there's output.
-    const c = getCell(msg.cell_id);
-    if (c) c.outputs = msg.outputs;
     syncOutputView(msg.cell_id);
+    showRunning(msg.cell_id);
   } else if (msg.type === 'cell_running') {
+    const c = getCell(msg.cell_id);
+    if (c) { c.outputs = []; c._running = true; }
+    setCellRunning(msg.cell_id, true);
     const el = document.getElementById('out-' + msg.cell_id);
     if (el) {
-      el.innerHTML = '<div class="spin" role="status">running</div>';
+      el.innerHTML = runningStatusHtml();
       showRunning(msg.cell_id);
     }
     const help = document.getElementById('help-' + msg.cell_id);
@@ -134,12 +161,15 @@ es.onmessage = (e) => {
   } else if (msg.type === 'cell_done') {
     if (msg.kernel_status) setKernelStatus(msg.kernel_status);
     const c = getCell(msg.cell_id);
-    if (c) { c.outputs = msg.outputs; c.execution_count = msg.execution_count; }
+    if (c) {
+      c.outputs = msg.outputs;
+      c.execution_count = msg.execution_count;
+      c._running = false;
+    }
+    setCellRunning(msg.cell_id, false);
     const el = document.getElementById('out-' + msg.cell_id);
     if (el) { el.innerHTML = renderOutputs(msg.outputs, msg.cell_id); pinStreams(el); }
     syncOutputView(msg.cell_id);
-    const cellEl = document.querySelector(`.cell[data-id="${msg.cell_id}"] .gutter-label`);
-    if (cellEl) cellEl.textContent = `[${msg.execution_count == null ? ' ' : msg.execution_count}]`;
   } else if (msg.type === 'notebook_changed') {
     // Our own write, coming back to us. Every path that mutates from this page
     // (typing, add, delete, move, undo, the AI cell) reloads locally already,

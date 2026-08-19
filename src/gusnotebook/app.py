@@ -1203,7 +1203,7 @@ def _run_cell(key, cell_id, run_id=None):
     if not source.strip():
         nb.set_outputs(cell_id, [], None)
         bus.publish("cell_done", cell_id=cell_id, execution_count=None,
-                    outputs=[], notebook=key)
+                    outputs=[], notebook=key, run_id=run_id)
         return {"status": "ok", "execution_count": None, "outputs": []}, 200
 
     with exec_lock(key):
@@ -1212,12 +1212,14 @@ def _run_cell(key, cell_id, run_id=None):
             cancelled = bool(run_id and _cancelled_runs.pop(run_id, None))
             k.prepare_execution(run_id)
 
-        bus.publish("cell_running", cell_id=cell_id, notebook=key)
+        bus.publish("cell_running", cell_id=cell_id, notebook=key,
+                    run_id=run_id)
 
         def on_output(outputs):
             bus.publish("cell_output", cell_id=cell_id,
                         outputs=_trim_for_live(outputs), notebook=key,
-                        kernel_status=k.status, python=k.python)
+                        kernel_status=k.status, python=k.python,
+                        run_id=run_id)
 
         try:
             if cancelled:
@@ -1248,8 +1250,48 @@ def _run_cell(key, cell_id, run_id=None):
         nb.set_outputs(cell_id, outputs, count)
         bus.publish("cell_done", cell_id=cell_id, execution_count=count,
                     outputs=[dict(o) for o in outputs], notebook=key,
-                    kernel_status=k.status, python=k.python)
+                    kernel_status=k.status, python=k.python, run_id=run_id)
         return {"status": "ok", "execution_count": count, "outputs": outputs}, 200
+
+
+def _start_cell_run(key, cell_id, run_id, origin=None):
+    """Run a browser-started cell without holding its HTTP connection open.
+
+    The page already receives every intermediate output and the final result over
+    SSE. Keeping the POST alive as well only consumes one of the browser's small
+    pool of localhost connections; once an event stream and several terminal
+    WebSockets are open, a new terminal or agent request can then sit queued until
+    the cell ends. A daemon worker leaves that connection free immediately.
+
+    Preserve the request origin on the worker so any events produced there still
+    belong to the page which started the run. More importantly, always publish a
+    terminal ``cell_done`` event if something fails outside Kernel.execute's own
+    error handling: the browser's running marker must never be stranded.
+    """
+    def work():
+        bus.set_origin(origin)
+        try:
+            _run_cell(key, cell_id, run_id)
+        except Exception as e:
+            outputs = [{
+                "output_type": "error",
+                "ename": type(e).__name__,
+                "evalue": str(e),
+                "traceback": [],
+            }]
+            try:
+                get_nb(key).set_outputs(cell_id, outputs, None)
+            except Exception:
+                pass
+            k = kernels.peek(key)
+            bus.publish("cell_done", cell_id=cell_id, execution_count=None,
+                        outputs=outputs, notebook=key, run_id=run_id,
+                        kernel_status=k.status if k else "dead",
+                        python=k.python if k else kernel_python(key))
+        finally:
+            bus.set_origin(None)
+
+    threading.Thread(target=work, name=f"cell-{cell_id}", daemon=True).start()
 
 
 @app.route("/api/cells/<cell_id>/run", methods=["POST"])
@@ -1271,6 +1313,13 @@ def api_run_cell(cell_id):
     key = doc_key()
     if body.get("source") is not None:
         get_nb(key).update_cell(cell_id, source=body["source"])
+    # Browser runs are event-driven: release this request as soon as the worker
+    # starts, then let cell_running/output/done carry the lifecycle. CLI callers
+    # retain the synchronous response because they have no SSE connection and
+    # expect the execution result in this response.
+    if from_browser():
+        _start_cell_run(key, cell_id, body.get("run_id"), bus.origin())
+        return jsonify({"status": "started", "run_id": body.get("run_id")}), 202
     result, status = _run_cell(key, cell_id, body.get("run_id"))
     return jsonify(result), status
 

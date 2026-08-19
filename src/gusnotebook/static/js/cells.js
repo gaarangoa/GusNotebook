@@ -848,6 +848,44 @@ function renderOutputs(outputs, cellId) {
   return html + '</div>';
 }
 
+/** The execution state stays separate from output so a streamed message cannot
+ * replace it. It deliberately comes after the output: on a long run the newest
+ * lines and the still-running signal remain together at the bottom of the cell. */
+function runningStatusHtml() {
+  return '<div class="spin cell-run-status" role="status">running</div>';
+}
+
+function runningLabelHtml() {
+  return '[<span class="run-symbol" role="img" aria-label="running"></span>]';
+}
+
+function executionLabel(c) {
+  return `[${c && c.execution_count != null ? c.execution_count : ' '}]`;
+}
+
+/** Update both the in-memory cell and the two small DOM affordances in place. */
+function setCellRunning(id, running) {
+  const c = getCell(id);
+  if (c) c._running = !!running;
+  const cellEl = document.querySelector(`.cell[data-id="${id}"]`);
+  if (!cellEl) return;
+  cellEl.classList.toggle('is-running', !!running);
+  const label = cellEl.querySelector('.gutter-label');
+  if (!label) return;
+  if (running) {
+    label.innerHTML = runningLabelHtml();
+    label.title = 'Cell is running';
+  } else {
+    label.textContent = executionLabel(c);
+    label.removeAttribute('title');
+  }
+}
+
+function renderCellOutput(c) {
+  return renderOutputs(c && c.outputs, c && c.id) +
+    (c && c._running ? runningStatusHtml() : '');
+}
+
 /* How many lines a folded cell shows, as a max-height for the clip. In em so it
  * tracks the editor's line-height rather than a pixel count that breaks when the
  * font size changes; the extra covers the editor's vertical padding. */
@@ -928,8 +966,9 @@ function cellHtml(c) {
   const isEditing = editing.has(c.id) || !c.source.trim();
   // Code cells show [n]; markdown/raw/ai show a marker instead.
   const label = isCode
-    ? `[${c.execution_count == null ? ' ' : c.execution_count}]`
+    ? executionLabel(c)
     : (isAi ? 'AI' : '');
+  const labelHtml = isCode && c._running ? runningLabelHtml() : escapeHtml(label);
 
   let bodyInner = '';
   let hdBtn = '';
@@ -1054,18 +1093,22 @@ function cellHtml(c) {
   // What replaces the output when it's collapsed — the count, so the cell still
   // says it produced something. Hiding output is a view preference; leaving no
   // trace of it would make a collapsed cell look like one that never ran.
-  const outNote = (hasOuts && outHidden) ? outNoteHtml(c) : '';
+  const outNote = outHidden && c._running
+    ? `<div class="out-note running-dots"
+         onclick="event.stopPropagation();toggleOutput('${c.id}')"
+         title="Show this cell's output">▸ running</div>`
+    : ((hasOuts && outHidden) ? outNoteHtml(c) : '');
 
   return `
-  <div class="cell" data-id="${c.id}" data-type="${c.cell_type}"
+  <div class="cell ${c._running ? 'is-running' : ''}" data-id="${c.id}" data-type="${c.cell_type}"
        onclick="selectCell('${c.id}')">
     <div class="gutter">
-      ${hdBtn}<span class="gutter-label">${escapeHtml(label)}</span>${viewBtns}${histBtns}${cellBtns}
+      ${hdBtn}<span class="gutter-label"${c._running ? ' title="Cell is running"' : ''}>${labelHtml}</span>${viewBtns}${histBtns}${cellBtns}
     </div>
     <div class="cell-body">
       ${promptStrip}${claudeStrip}${undoStrip}${bodyInner}${outNote}
       <div id="out-${c.id}" class="${outHidden ? 'out-off' : ''}">${
-        renderOutputs(c.outputs, c.id)}</div>
+        renderCellOutput(c)}</div>
       <div class="help-panel" id="help-${c.id}"></div>
     </div>
   </div>`;

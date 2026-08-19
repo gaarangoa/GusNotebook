@@ -285,8 +285,8 @@ class Kernel:
                     self._run_prepared = False
                     self._kernel_cell_busy = False
                 self._set_status("idle" if self.is_alive() else "dead")
-                # Status first: the first output replaces the spinner, so the
-                # UI must already have left its temporary "stopping" state.
+                # Status first so the UI has left its temporary "stopping"
+                # state by the time it displays the cancellation.
                 if on_output:
                     on_output([dict(o) for o in outputs])
                 return None, outputs

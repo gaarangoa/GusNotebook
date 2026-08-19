@@ -6,6 +6,10 @@
 // ---------- Editing ----------
 const saveTimers = {};
 const activeRuns = new Map();
+// Browser run POSTs return as soon as their server worker starts. The matching
+// cell_done SSE event resolves this promise, preserving Shift+Enter and Run all
+// sequencing without monopolising an HTTP connection for the whole computation.
+const runWaiters = new Map();
 
 // Cells typed into but not yet PATCHed. `cells[].source` lags by up to the save
 // debounce, so it is not the answer to "what is in this editor" — and mountEditor()
@@ -196,13 +200,16 @@ async function runCell(id, advance = false) {
   const notebook = active;
   const runId = CLIENT_ID + '-run-' + Date.now().toString(36) +
     Math.random().toString(36).slice(2);
+  const finished = new Promise(resolve => runWaiters.set(runId, resolve));
   activeRuns.set(notebook, runId);
   c.source = source;
   clearTimeout(saveTimers[id]);
 
   const outEl = document.getElementById('out-' + id);
   if (outEl && source.trim()) {
-    outEl.innerHTML = '<div class="spin" role="status">running</div>';
+    c.outputs = [];
+    setCellRunning(id, true);
+    outEl.innerHTML = runningStatusHtml();
     showRunning(id);       // the spinner is inside a hidden box on a collapsed cell
   } else if (outEl && !source.trim()) {
     // Empty cell — clear any stale output immediately, don't wait for SSE.
@@ -214,10 +221,13 @@ async function runCell(id, advance = false) {
   try {
     await api(`/api/cells/${id}/run${nbq()}`, {
       method: 'POST', body: JSON.stringify({source, run_id: runId})});
+    await finished;
   } catch (err) {
+    setCellRunning(id, false);
     if (outEl) outEl.innerHTML = `<div class="outputs"><div class="output error">${escapeHtml(err)}</div></div>`;
     syncOutputView(id);
   } finally {
+    runWaiters.delete(runId);
     if (activeRuns.get(notebook) === runId) activeRuns.delete(notebook);
   }
   if (advance) await advanceFrom(id);
