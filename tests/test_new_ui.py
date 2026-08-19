@@ -149,6 +149,9 @@ def make_fixtures():
         "<!doctype html><html><head>"
         "<link rel='stylesheet' href='/preview.css'></head>"
         "<body><h1 id='preview-title'>First render</h1>"
+        "<div style='height:1100px'></div>"
+        "<p id='preview-scroll-anchor'>Reading position</p>"
+        "<div style='height:1100px'></div>"
         "<script>document.body.dataset.scriptRan='yes';"
         "try{parent.document.body.dataset.previewEscaped='yes'}catch(e){};"
         "fetch('/preview-data.json').then(r=>r.json()).then("
@@ -334,12 +337,25 @@ def main():
               ("markup", "Edited on the page"))
         check("the agent receives surrounding document context",
               "preview.css" in visual_here.get("document", ""), True)
+        preview.locator("#preview-scroll-anchor").evaluate(
+            "el => el.scrollIntoView({block: 'start'})")
+        pg.wait_for_function(
+            "activeTab().markupView && activeTab().markupView.y > 500",
+            timeout=10000)
+        before_agent_reload = preview.locator("#preview-scroll-anchor").evaluate(
+            "el => ({y: scrollY, top: el.getBoundingClientRect().top})")
         replacement = '<em id="agent-revision">Agent revision</em>'
         patch("/api/markup-selection", {
             "selection_id": visual_here["selection_id"], "replacement": replacement})
         preview.locator("#agent-revision").wait_for(timeout=20000)
         check("the agent replacement appears in the live canvas",
               preview.locator("#agent-revision").inner_text(), "Agent revision")
+        after_agent_reload = preview.locator("#preview-scroll-anchor").evaluate(
+            "el => ({y: scrollY, top: el.getBoundingClientRect().top})")
+        check("an agent refresh preserves the reading position",
+              (abs(after_agent_reload["y"] - before_agent_reload["y"]) <= 2,
+               abs(after_agent_reload["top"] - before_agent_reload["top"]) <= 2),
+              (True, True))
         agent_saved = (FIX / "preview.html").read_text()
         check("only the selected bytes were replaced", agent_saved,
               saved_html.replace("Edited on the page", replacement, 1))

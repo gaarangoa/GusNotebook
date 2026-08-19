@@ -8,6 +8,9 @@
   var runtimeAttr = 'data-gusnotebook-runtime';
   var svgEditor = null;
   var changed = false;
+  var viewFrame = null;
+  var pendingView = null;
+  var userMovedAfterRestore = false;
 
   function cleanClone(node) {
     var clone = node.cloneNode(true);
@@ -74,6 +77,94 @@
 
   function sendToParent(message) {
     parent.postMessage(message, config.parentOrigin || '*');
+  }
+
+  function elementPath(element) {
+    var parts = [];
+    while (element && element.nodeType === 1) {
+      var name = (element.localName || element.tagName || '').toLowerCase();
+      if (!name) break;
+      var index = 1;
+      var sibling = element.previousElementSibling;
+      while (sibling) {
+        if ((sibling.localName || '').toLowerCase() === name) index += 1;
+        sibling = sibling.previousElementSibling;
+      }
+      parts.unshift(name + ':nth-of-type(' + index + ')');
+      if (element === document.documentElement) break;
+      element = element.parentElement;
+    }
+    return parts.join(' > ');
+  }
+
+  function currentView() {
+    var x = window.scrollX || window.pageXOffset || 0;
+    var y = window.scrollY || window.pageYOffset || 0;
+    var pointX = Math.max(0, Math.min(window.innerWidth - 1,
+                                     Math.round(window.innerWidth / 2)));
+    var pointY = Math.max(0, Math.min(window.innerHeight - 1, 20));
+    var element = document.elementFromPoint(pointX, pointY);
+    if (element && element.hasAttribute && element.hasAttribute(runtimeAttr)) {
+      element = element.parentElement;
+    }
+    var rect = element && element.getBoundingClientRect
+      ? element.getBoundingClientRect() : null;
+    return {x: x, y: y, anchor: element ? {
+      id: element.id || null,
+      path: elementPath(element),
+      top: rect ? rect.top : 0,
+      left: rect ? rect.left : 0,
+    } : null};
+  }
+
+  function reportView() {
+    viewFrame = null;
+    sendToParent({channel: config.channel, nonce: config.nonce,
+                  kind: 'view-state', view: currentView()});
+  }
+
+  function queueViewReport() {
+    if (viewFrame !== null) return;
+    viewFrame = requestAnimationFrame(reportView);
+  }
+
+  function findViewAnchor(anchor) {
+    if (!anchor) return null;
+    if (anchor.id) {
+      var byId = document.getElementById(anchor.id);
+      if (byId) return byId;
+    }
+    if (!anchor.path) return null;
+    try { return document.querySelector(anchor.path); }
+    catch (_error) { return null; }
+  }
+
+  function applyView(view) {
+    if (!view || userMovedAfterRestore) return;
+    window.scrollTo(view.x || 0, view.y || 0);
+    var anchor = findViewAnchor(view.anchor);
+    if (anchor) {
+      var rect = anchor.getBoundingClientRect();
+      window.scrollBy(rect.left - (view.anchor.left || 0),
+                      rect.top - (view.anchor.top || 0));
+    }
+    queueViewReport();
+  }
+
+  function restoreView(view) {
+    pendingView = view;
+    userMovedAfterRestore = false;
+    requestAnimationFrame(function () {
+      requestAnimationFrame(function () { applyView(pendingView); });
+    });
+    // Images and late styles can change layout after DOMContentLoaded. Reapply
+    // once at full load unless the user has already started navigating.
+    if (document.readyState === 'complete') {
+      setTimeout(function () { applyView(pendingView); }, 0);
+    } else {
+      window.addEventListener('load', function () { applyView(pendingView); },
+                              {once: true});
+    }
   }
 
   function reportSelection() {
@@ -158,6 +249,7 @@
     if (svgEditor && event.target === svgEditor.input) return;
     changed = true;
     send('change', true);
+    queueViewReport();
   }, true);
   document.addEventListener('keydown', function (event) {
     if (event.key.toLowerCase() !== 's' || (!event.metaKey && !event.ctrlKey)) return;
@@ -181,7 +273,16 @@
       send('save', false);
     } else if (data.command === 'saved') {
       changed = false;
+    } else if (data.command === 'restore-view') {
+      restoreView(data.view);
     }
+  });
+
+  window.addEventListener('scroll', queueViewReport, {passive: true});
+  window.addEventListener('resize', queueViewReport, {passive: true});
+  ['wheel', 'touchstart', 'pointerdown', 'keydown'].forEach(function (kind) {
+    window.addEventListener(kind, function () { userMovedAfterRestore = true; },
+                            {passive: true});
   });
 
   function enableEditing() {
@@ -191,6 +292,7 @@
       document.body.spellcheck = true;
       document.body.setAttribute('data-gusnotebook-edit-root', '');
     }
+    sendToParent({channel: config.channel, nonce: config.nonce, kind: 'ready'});
   }
   if (document.readyState === 'loading')
     document.addEventListener('DOMContentLoaded', enableEditing, {once: true});

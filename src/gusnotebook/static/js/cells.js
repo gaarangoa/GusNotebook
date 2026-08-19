@@ -143,6 +143,19 @@ window.addEventListener('message', event => {
   if (event.source !== frame.contentWindow || !isMarkupTab(t) ||
       event.origin !== t.previewOrigin ||
       data.channel !== MARKUP_EDITOR_CHANNEL || data.nonce !== t.previewNonce) return;
+  if (data.kind === 'view-state') {
+    if (data.view && typeof data.view.y === 'number') t.markupView = data.view;
+    return;
+  }
+  if (data.kind === 'ready') {
+    if (t.markupView) {
+      frame.contentWindow.postMessage({
+        channel: MARKUP_EDITOR_CHANNEL, nonce: t.previewNonce,
+        command: 'restore-view', view: t.markupView,
+      }, t.previewOrigin);
+    }
+    return;
+  }
   if (data.kind === 'selection') {
     publishMarkupFocus(t, data.selection || null);
     return;
@@ -339,7 +352,8 @@ async function openFile(path, options = {}) {
       Object.assign(t, {text: data.text || '', language: data.language,
                         previewOrigin: data.preview_origin,
                         previewVersion: data.preview_version,
-                        diskVersion: data.disk_version});
+                        diskVersion: data.disk_version,
+                        markupView: cached && cached.markupView});
     }
   }
 
