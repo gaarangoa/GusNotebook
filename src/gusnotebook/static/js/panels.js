@@ -173,7 +173,37 @@ async function deleteSkill() {
  * tell you a kernel is still burning CPU in a session you can't see.
  */
 let sessionList = [];
-let currentSession = null;
+// Local, unsaved view state while this window visits another workspace. Files
+// remain shared on disk; this cache is only tabs, caret/folds/scroll and dirty
+// editor buffers belonging to this browser window.
+const workspaceViews = new Map();
+
+function stashWorkspace() {
+  stashActive();
+  if (currentSession) workspaceViews.set(currentSession, {
+    tabs, active, activeTerm, root: fileState.path,
+  });
+}
+
+function workspaceTabEntries(path) {
+  const found = tabs.filter(t => t.path === path)
+    .map(t => ({sid: currentSession, tab: t, visible: true}));
+  for (const [sid, view] of workspaceViews) {
+    if (sid === currentSession) continue;
+    for (const t of view.tabs || []) {
+      if (t.path === path) found.push({sid, tab: t, visible: false});
+    }
+  }
+  return found;
+}
+
+function forgetWorkspace(sid) {
+  workspaceViews.delete(sid);
+  clearTimeout(rootTimers.get(sid));
+  rootTimers.delete(sid);
+  clearTimeout(activeTimers.get(sid));
+  activeTimers.delete(sid);
+}
 
 function toggleSessions() {
   document.getElementById('sessions').classList.toggle('collapsed');
@@ -189,12 +219,20 @@ function refreshSessionCounts() {
 }
 
 async function loadSessions() {
+  const requested = currentSession;
   try {
     const data = await api('/api/sessions');
+    // A sessions_changed event can leave an older request in flight while the
+    // user switches. Never let that response pull this window back.
+    if (currentSession !== requested) return false;
+    const serverMoved = !!requested && data.current !== requested;
     sessionList = data.sessions || [];
-    currentSession = data.current;
+    setCurrentSession(data.current);
+    renderSessions();
+    return serverMoved;
   } catch (err) { sessionList = []; }
   renderSessions();
+  return false;
 }
 
 function renderSessions() {
@@ -219,6 +257,8 @@ function renderSessions() {
       <span class="ic">${s.current ? '▾' : '▸'}</span>
       <span class="nm">${escapeHtml(s.name)}</span>
       <span class="meta">${bits.join(' ')}</span>
+      <span class="pop" onclick="openSessionWindow('${escapeAttr(s.id)}', event)"
+            title="Open this session in a new window">↗</span>
       <span class="note ${s.instructions || hasRestrictions(s.restrictions) ? 'set' : ''}"
             onclick="openSessionInstr('${escapeAttr(s.id)}', event)"
             title="${s.instructions
@@ -236,12 +276,27 @@ function renderSessions() {
 
 async function switchSession(sid) {
   if (sid === currentSession) return;
-  stashActive();                     // don't lose an unsaved text edit
+  clearMarkupFocus();
+  stashWorkspace();                  // don't lose an unsaved text edit
+  const previous = currentSession;
+  setCurrentSession(sid);
   try {
     await api('/api/sessions/' + encodeURIComponent(sid),
               {method: 'POST', body: JSON.stringify({switch: true})});
-  } catch (err) { flash('Cannot switch session: ' + errText(err)); return; }
+  } catch (err) {
+    workspaceViews.delete(previous);
+    setCurrentSession(previous);
+    flash('Cannot switch session: ' + errText(err));
+    return;
+  }
   await reloadWorkspace();
+}
+
+function openSessionWindow(sid, ev) {
+  if (ev) ev.stopPropagation();
+  const url = new URL(location.href);
+  url.searchParams.set('session', sid);
+  window.open(url.toString(), '_blank', 'noopener');
 }
 
 /** Repaint tabs, terminals and the file tree for whatever session is current.
@@ -250,6 +305,8 @@ async function switchSession(sid) {
  *  in place: the server is what knows which documents belong to the session, and
  *  a stale local tab would point at a document this session doesn't own. */
 async function reloadWorkspace() {
+  const cached = workspaceViews.get(currentSession) || null;
+  workspaceViews.delete(currentSession);
   // Detach each xterm individually — #term-empty lives inside the stack, and
   // emptying the whole container would delete the empty-state element with it.
   for (const t of terms) {
@@ -264,26 +321,38 @@ async function reloadWorkspace() {
   cells = [];
   let info = {};
   try { info = await api('/api/tabs'); } catch (err) { info = {}; }
-  // loadSessions() first: browse() records where you are onto the current
-  // session, and until this lands `currentSession` is still the one we left —
-  // which would write the new session's root onto the old one.
   await loadSessions();
-  for (const t of (info.tabs || [])) await openFile(t.path);
+  const cachedTabs = new Map((cached ? cached.tabs : []).map(t => [t.path, t]));
+  for (const t of (info.tabs || [])) {
+    await openFile(t.path, {restore: true, quiet: true, cached: cachedTabs.get(t.path)});
+  }
+  const target = (cached && tab(cached.active))
+    ? cached.active
+    : (info.active && tab(info.active) ? info.active : (tabs[0] && tabs[0].path));
+  if (target) switchTab(target, false);
   // An empty session paints nothing on its own — openFile() is what normally
   // repaints, and it never ran.
   if (!tabs.length) { renderTabs(); showActive(); }
-  await browse(info.session_root || null);
+  await browse((cached && cached.root) || info.session_root || null);
   await bootTerminals();
+  if (cached && findTerm(cached.activeTerm)) focusTerm(cached.activeTerm);
 }
 
 async function newSession(ev) {
   if (ev) ev.stopPropagation();       // the header itself toggles the list
   const name = await askName('New session', '', 'its own tabs and kernels');
   if (name === null || !name.trim()) return;
+  stashWorkspace();
+  let created;
   try {
-    await api('/api/sessions', {method: 'POST', body: JSON.stringify(
+    created = await api('/api/sessions', {method: 'POST', body: JSON.stringify(
       {name: name.trim(), root: fileState.path || undefined, switch: true})});
-  } catch (err) { flash('Cannot create the session: ' + errText(err)); return; }
+  } catch (err) {
+    workspaceViews.delete(currentSession);
+    flash('Cannot create the session: ' + errText(err));
+    return;
+  }
+  setCurrentSession(created.id);
   await reloadWorkspace();
   flash(`Session "${name.trim()}" — empty, rooted in ${fileState.path}`);
 }
@@ -311,10 +380,17 @@ async function deleteSession(sid, ev) {
                               warn + 'Its tabs close; the files stay on disk.',
                               'Close session');
   if (!ok) return;
+  let result;
   try {
-    await api('/api/sessions/' + encodeURIComponent(sid), {method: 'DELETE'});
+    result = await api('/api/sessions/' + encodeURIComponent(sid), {method: 'DELETE'});
   } catch (err) { flash('Cannot close the session: ' + errText(err)); return; }
-  await reloadWorkspace();
+  forgetWorkspace(sid);
+  if (sid === currentSession) {
+    setCurrentSession(result.current);
+    await reloadWorkspace();
+  } else {
+    await loadSessions();
+  }
 }
 
 /* Per-session instructions for agents. Kept on the session rather than in
@@ -371,11 +447,13 @@ async function boot() {
   let open = [];
   let primary = null;
   let root = null;
+  let savedActive = null;
   try {
     const t = await api('/api/tabs');
     open = t.tabs || [];
     primary = t.primary;
     root = t.session_root;
+    savedActive = t.active;
   } catch (err) { /* fall back to the single default notebook below */ }
 
   // Only when the server offered nothing at all. An empty session is a real
@@ -387,10 +465,11 @@ async function boot() {
   // currentSession says — null until this has loaded.
   await loadSessions();
 
-  // Open the primary notebook first so it lands leftmost and gets focus.
-  open.sort((a, b) => (a.path === primary ? -1 : b.path === primary ? 1 : 0));
-  for (const t of open) await openFile(t.path);
-  if (primary && tab(primary)) switchTab(primary);
+  for (const t of open) await openFile(t.path, {restore: true, quiet: true});
+  const target = savedActive && tab(savedActive)
+    ? savedActive : (primary && tab(primary) ? primary : (tabs[0] && tabs[0].path));
+  if (target) switchTab(target, false);
+  else { renderTabs(); showActive(); }
   await browse(root);  // the session's root, or the notebook's own directory
   // The .* button is lit from toggleHidden() onwards; light it here too so it
   // matches the starting state instead of claiming dotfiles are off.
@@ -398,6 +477,7 @@ async function boot() {
   await loadSessions();   // refetch: opening those tabs changed the counts
   await loadSkills();
   booted = true;       // anything waiting on first paint can watch this
+  window.dispatchEvent(new Event('workspace-ready'));
 }
 
 let booted = false;

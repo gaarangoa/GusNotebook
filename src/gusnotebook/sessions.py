@@ -217,6 +217,19 @@ class SessionStore:
             self._save()
             return s
 
+    def set_active(self, sid, path):
+        """Remember the tab visible in one workspace without changing membership."""
+        with self._lock:
+            s = self._sessions.get(sid)
+            if s is None:
+                raise ValueError(f"no such session: {sid}")
+            path = str(path) if path else None
+            if path is not None and path not in s.tabs:
+                raise ValueError("the active file is not open in this session")
+            s.active = path
+            self._save()
+            return s
+
     def delete(self, sid):
         """Remove a session and report what it owned, for the caller to release.
 
@@ -249,17 +262,22 @@ class SessionStore:
             self._save()
             return s
 
-    def drop_tab(self, path):
-        """Remove a tab from whichever sessions hold it."""
+    def drop_tab(self, path, sid=None):
+        """Remove a tab from one session (the persisted current one by default).
+
+        A path may intentionally be open in several workspaces. Closing it in one
+        must not silently remove it from all the others.
+        """
         with self._lock:
             path = str(path)
-            hit = False
-            for s in self._sessions.values():
-                if path in s.tabs:
-                    s.tabs.remove(path)
-                    hit = True
-                if s.active == path:
-                    s.active = s.tabs[-1] if s.tabs else None
+            s = self._sessions.get(sid or self._current)
+            if s is None:
+                return False
+            hit = path in s.tabs
+            if hit:
+                s.tabs.remove(path)
+            if s.active == path:
+                s.active = s.tabs[-1] if s.tabs else None
             if hit:
                 self._save()
             return hit

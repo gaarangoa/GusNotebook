@@ -530,7 +530,8 @@ async function getHelp(id) {
   try {
     const r = await fetch(BASE + `/api/cells/${id}/help${nbq()}`, {
       method: 'POST',
-      headers: {'Content-Type': 'application/json'},
+      headers: {'Content-Type': 'application/json',
+                ...(currentSession ? {'X-Session-Id': currentSession} : {})},
       body: '{}',
     });
     const data = await r.json();

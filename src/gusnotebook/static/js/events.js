@@ -67,35 +67,90 @@ es.onmessage = (e) => {
   if (msg.type === 'terminal_opened') return;   // we already have it locally
   // Another view (or nb.py) touched the session list — repaint the counts, but
   // don't switch this page's workspace out from under whoever is typing.
-  if (msg.type === 'sessions_changed') { loadSessions(); return; }
+  if (msg.type === 'sessions_changed') {
+    const before = currentSession;
+    loadSessions().then(serverMoved => {
+      // Another window may have closed the workspace shown here. The server
+      // falls the request back to a surviving one; follow that change with a
+      // complete repaint instead of leaving deleted tabs on screen.
+      if (serverMoved && before && currentSession !== before) {
+        forgetWorkspace(before);
+        reloadWorkspace();
+      }
+    });
+    return;
+  }
   // A skill can be added by editing the markdown outside the app, so the list
   // follows the server rather than only what this page did.
   if (msg.type === 'skills_changed') { loadSkills(); return; }
   if (msg.type === 'text_external_changed') {
     const changed = tab(msg.path);
     if (changed && changed.kind === 'text') markTextExternalConflict(changed);
+    if (typeof workspaceTabEntries === 'function') {
+      for (const entry of workspaceTabEntries(msg.path)) {
+        if (!entry.visible && entry.tab.kind === 'text' && entry.tab.dirty) {
+          entry.tab.externalConflict = true;
+        }
+      }
+    }
     return;
   }
   // An agent replaced the exact HTML/SVG range selected in the visual editor.
   // The server already saved it; repaint from that authoritative text without
   // marking the tab dirty or exposing the iframe's DOM to the parent page.
   if (msg.type === 'markup_changed') {
-    const visual = tab(msg.path);
-    if (!visual || !isMarkupTab(visual)) return;
-    visual.text = msg.text;
-    visual.diskVersion = msg.disk_version;
-    visual.editRevision = (visual.editRevision || 0) + 1;
-    visual.dirty = false;
-    if (msg.path === active) {
-      document.getElementById('text-editor').value = msg.text;
-      document.getElementById('text-status').textContent = 'saved by agent';
-      renderMarkupEditor();
+    const entries = typeof workspaceTabEntries === 'function'
+      ? workspaceTabEntries(msg.path)
+      : (tab(msg.path) ? [{sid: currentSession, tab: tab(msg.path), visible: true}] : []);
+    for (const entry of entries) {
+      const visual = entry.tab;
+      if (!isMarkupTab(visual)) continue;
+      // The agent in one workspace saved shared disk state. Never replace an
+      // unsaved buffer held by another workspace; flag it like any other
+      // out-of-band write and let the user choose reload or keep editing.
+      if (visual.dirty && msg.session && entry.sid !== msg.session) {
+        visual.externalConflict = true;
+        if (entry.visible) markTextExternalConflict(visual);
+        continue;
+      }
+      visual.text = msg.text;
+      visual.diskVersion = msg.disk_version;
+      visual.editRevision = (visual.editRevision || 0) + 1;
+      visual.dirty = false;
+      visual.externalConflict = false;
+      if (entry.visible && msg.path === active) {
+        document.getElementById('text-editor').value = msg.text;
+        document.getElementById('text-status').textContent = 'saved by agent';
+        renderMarkupEditor();
+      }
     }
     renderTabs();
     return;
   }
 
   const t = msg.notebook ? tab(msg.notebook) : null;
+  if (msg.notebook && typeof workspaceTabEntries === 'function') {
+    for (const entry of workspaceTabEntries(msg.notebook)) {
+      if (entry.visible || entry.tab.kind !== 'notebook') continue;
+      const background = entry.tab;
+      if (msg.type === 'kernel_status') {
+        background.status = msg.status;
+        if (msg.python) background.python = msg.python;
+      }
+      const cell = (background.cells || []).find(c => c.id === msg.cell_id);
+      if (msg.type === 'cell_running' && cell) {
+        cell.outputs = [];
+        cell._running = true;
+      } else if (msg.type === 'cell_output' && cell) {
+        cell.outputs = msg.outputs;
+        cell._running = true;
+      } else if (msg.type === 'cell_done' && cell) {
+        cell.outputs = msg.outputs;
+        cell.execution_count = msg.execution_count;
+        cell._running = false;
+      }
+    }
+  }
   if (t && msg.type === 'kernel_status') {
     t.status = msg.status;
     if (msg.python) t.python = msg.python;

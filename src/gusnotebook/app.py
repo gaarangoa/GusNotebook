@@ -148,7 +148,7 @@ def restore_session_state():
             elif textfile.kind_of(p) == "text":
                 texts.get(Path(p))
         except (OSError, ValueError):
-            store.drop_tab(p)          # unreadable now; don't keep claiming it
+            store.drop_tab(p, cur.id)  # unreadable now; don't keep claiming it
     # The notebook the app was launched with is always reachable, even if it
     # belongs to no session — otherwise NOTEBOOK= would open into nothing.
     if not store.owns_tab(str(NOTEBOOK_PATH)) and not cur.tabs:
@@ -156,6 +156,24 @@ def restore_session_state():
 
 
 restore_session_state()
+
+
+def request_session():
+    """The workspace named by this client, falling back to the last-used one.
+
+    Browser windows send X-Session-Id on every request. That makes "current" a
+    property of the window rather than a process-wide switch: two windows can be
+    parked in different workspaces while CLI callers without a header retain the
+    persisted last-used default.
+    """
+    sid = request.headers.get("X-Session-Id")
+    named = store.get(sid) if sid else None
+    return named or store.current()
+
+
+def request_session_id():
+    session = request_session()
+    return session.id if session else None
 
 # One execution at a time per notebook — different notebooks run concurrently.
 _exec_locks = {}
@@ -165,30 +183,30 @@ _exec_locks_guard = threading.Lock()
 # as the selection moves. This is what makes "the cell I'm on" answerable to
 # `gusnb here`, so Claude can work on it without being told an id.
 #
-# One record, not one per notebook: a caret is somewhere, singular. Keying it by
-# notebook meant an unqualified `gusnb here` fell back to doc_key()'s guess — the
-# session's first notebook — which is exactly the tab the user is *not* looking
-# at when it's wrong. The hook has no notebook to pass, so this has to answer on
-# its own.
+# One record per workspace, not one per notebook: a caret is somewhere within a
+# workspace, singular. Keeping the workspace key prevents an agent in one window
+# from receiving the cell selected in another.
 #
 # In memory, not in sessions.json: it changes on every click, and a disk write
 # per click to record something meaningless after a restart is a bad trade. A
 # cursor that resets to nothing when the app restarts is correct — nobody is
 # parked anywhere until they click.
-_focus = {"notebook": None, "cell_id": None}
+_focuses = {}
 _focus_guard = threading.Lock()
-_markup_focus = None
+_markup_focuses = {}
 _markup_focus_serial = 0
 
 
-def set_focus(key, cell_id):
-    global _markup_focus
+def set_focus(key, cell_id, session_id=None):
+    session_id = session_id or "default"
     with _focus_guard:
+        focus = _focuses.setdefault(
+            session_id, {"notebook": None, "cell_id": None})
         if cell_id:
-            _focus.update(notebook=str(key), cell_id=cell_id)
-            _markup_focus = None
-        elif _focus["notebook"] == str(key):
-            _focus.update(notebook=None, cell_id=None)
+            focus.update(notebook=str(key), cell_id=cell_id)
+            _markup_focuses.pop(session_id, None)
+        elif focus["notebook"] == str(key):
+            focus.update(notebook=None, cell_id=None)
 
 
 def _source_selection(rendered, source, start, end):
@@ -215,19 +233,22 @@ def _source_selection(rendered, source, start, end):
     return source_start, source_end
 
 
-def set_markup_focus(path, selection, source=None, expected_version=None):
+def set_markup_focus(path, selection, source=None, expected_version=None,
+                     session_id=None):
     """Remember the exact serialized range selected in a visual document."""
-    global _markup_focus, _markup_focus_serial
+    global _markup_focus_serial
+    session_id = session_id or "default"
     path = str(path)
     with _focus_guard:
+        markup_focus = _markup_focuses.get(session_id)
         if not selection:
-            if _markup_focus and _markup_focus["path"] == path:
-                _markup_focus = None
+            if markup_focus and markup_focus["path"] == path:
+                _markup_focuses.pop(session_id, None)
             return None
 
         actual_version = textfile.disk_version(path)
         if expected_version is not None and actual_version != expected_version:
-            _markup_focus = None
+            _markup_focuses.pop(session_id, None)
             raise textfile.ExternalChangeError(
                 f"{Path(path).name} changed on disk; reload it before selecting")
 
@@ -242,7 +263,7 @@ def set_markup_focus(path, selection, source=None, expected_version=None):
         start, end = _source_selection(rendered, document, start, end)
 
         _markup_focus_serial += 1
-        _markup_focus = {
+        markup_focus = {
             "id": _markup_focus_serial,
             "path": path,
             "document": document,
@@ -252,20 +273,24 @@ def set_markup_focus(path, selection, source=None, expected_version=None):
             "text": str(selection.get("text") or ""),
             "disk_version": actual_version,
         }
-        _focus.update(notebook=None, cell_id=None)
-        return dict(_markup_focus)
+        _markup_focuses[session_id] = markup_focus
+        _focuses.setdefault(session_id, {}).update(
+            notebook=None, cell_id=None)
+        return dict(markup_focus)
 
 
-def get_markup_focus():
-    global _markup_focus
+def get_markup_focus(session_id=None):
+    session_id = session_id or "default"
     with _focus_guard:
-        focus = dict(_markup_focus) if _markup_focus else None
+        stored = _markup_focuses.get(session_id)
+        focus = dict(stored) if stored else None
     if not focus or not Path(focus["path"]).is_file():
         return None, None
     if textfile.disk_version(focus["path"]) != focus["disk_version"]:
         with _focus_guard:
-            if _markup_focus and _markup_focus["id"] == focus["id"]:
-                _markup_focus = None
+            stored = _markup_focuses.get(session_id)
+            if stored and stored["id"] == focus["id"]:
+                _markup_focuses.pop(session_id, None)
         return None, focus["path"]
     return focus, None
 
@@ -275,9 +300,9 @@ def get_markup_focus():
 # strip. Recorded by the same `UserPromptSubmit` hook that injects the focused
 # cell, which already has the payload in hand.
 #
-# One record, in memory, like the focus above: there's one user typing one prompt
-# at a time, and which prompt was live an hour ago is not worth a disk write.
-_prompt = {"text": None, "at": 0.0}
+# One in-memory record per workspace, like the focus above. Two agents can be
+# active at once, so prompt attribution must not cross their workspace boundary.
+_prompts = {}
 
 # How long a prompt stays attributable. A cell rewritten by `gusnb set` from a
 # plain shell hours after the last Claude prompt must not be labelled with it:
@@ -287,22 +312,25 @@ _prompt = {"text": None, "at": 0.0}
 PROMPT_TTL = 30 * 60
 
 
-def set_prompt_text(text):
+def set_prompt_text(text, session_id=None):
+    session_id = session_id or "default"
     text = (text or "").strip()
     with _focus_guard:
-        _prompt.update(text=text or None, at=time.time())
+        _prompts[session_id] = {"text": text or None, "at": time.time()}
 
 
-def recent_prompt():
+def recent_prompt(session_id=None):
     """The live prompt, or None if there isn't one or it's gone stale."""
+    session_id = session_id or "default"
     with _focus_guard:
-        text, at = _prompt["text"], _prompt["at"]
+        prompt = _prompts.get(session_id) or {"text": None, "at": 0.0}
+        text, at = prompt["text"], prompt["at"]
     if not text or time.time() - at > PROMPT_TTL:
         return None
     return text
 
 
-def get_focus(key=None):
+def get_focus(key=None, session_id=None):
     """The focused (notebook, cell_id), or (None, None).
 
     `key` narrows it: a request that names a notebook wants that notebook's
@@ -313,8 +341,10 @@ def get_focus(key=None):
     have been deleted since it was focused, and handing an agent a stale id
     would have it edit whatever that id no longer is.
     """
+    session_id = session_id or "default"
     with _focus_guard:
-        path, cell_id = _focus["notebook"], _focus["cell_id"]
+        focus = _focuses.get(session_id) or {}
+        path, cell_id = focus.get("notebook"), focus.get("cell_id")
     if not path or not cell_id:
         return None, None
     if key is not None and str(key) != path:
@@ -346,7 +376,7 @@ def doc_key():
         raw = (request.get_json(silent=True) or {}).get("notebook")
     if not raw:
         paths = notebooks.paths()
-        cur = store.current()
+        cur = request_session()
         mine = [p for p in (cur.tabs if cur else []) if p in set(paths)]
         raw = (mine or paths or [str(NOTEBOOK_PATH)])[0]
     return str(files.normalize(raw))
@@ -432,7 +462,7 @@ def api_completions():
 @app.route("/api/files")
 def api_files():
     """List a directory. Defaults to the current session's root."""
-    cur = store.current()
+    cur = request_session()
     path = (request.args.get("path") or (cur.root if cur else None)
             or str(Path(doc_key()).parent))
     show_hidden = request.args.get("hidden") == "1"
@@ -644,7 +674,7 @@ def execution_blocked():
     restriction is a property of the workspace you're working in, and `gusnb`
     doesn't name a session.
     """
-    return bool(restrictions_for(store.current()).get("no_execute"))
+    return bool(restrictions_for(request_session()).get("no_execute"))
 
 
 def from_browser():
@@ -667,7 +697,7 @@ NO_EXECUTE_NOTE = ("execution is disabled for terminals in this session — "
                    "the cell is in the notebook, press ▶ to run it")
 
 
-def session_json(s):
+def session_json(s, current_id=None):
     """A session plus the live counts the list shows.
 
     Kernels and terminals are reported per session because "2 kernels live" is
@@ -678,13 +708,14 @@ def session_json(s):
             "kernels": sum(1 for p in s.tabs
                            if kernels.status(p) not in ("stopped", "dead")),
             "terminals_live": sum(1 for t in s.terminals if terms.get(t)),
-            "current": s.id == (store.current().id if store.current() else None)}
+            "current": s.id == current_id}
 
 
 @app.route("/api/sessions")
 def api_sessions():
-    return jsonify({"sessions": [session_json(s) for s in store.all()],
-                    "current": store.current().id if store.current() else None})
+    current_id = request_session_id()
+    return jsonify({"sessions": [session_json(s, current_id) for s in store.all()],
+                    "current": current_id})
 
 
 @app.route("/api/sessions", methods=["POST"])
@@ -698,7 +729,7 @@ def api_new_session():
         return jsonify({"error": str(e)}), 400
     s = store.create(body.get("name"), root, switch=bool(body.get("switch", True)))
     bus.publish("sessions_changed", session=s.id)
-    return jsonify(session_json(s))
+    return jsonify(session_json(s, s.id))
 
 
 @app.route("/api/sessions/<sid>", methods=["POST"])
@@ -714,6 +745,8 @@ def api_update_session(sid):
             store.set_instructions(sid, body["instructions"])
         if "restrictions" in body:
             store.set_restrictions(sid, body["restrictions"])
+        if "active" in body:
+            store.set_active(sid, body["active"])
         if body.get("switch"):
             store.switch(sid)
             # Opening happens here, not in the browser: switching must leave the
@@ -726,11 +759,12 @@ def api_update_session(sid):
                     elif textfile.kind_of(p) == "text":
                         texts.get(Path(p))
                 except (OSError, ValueError):
-                    store.drop_tab(p)
+                    store.drop_tab(p, sid)
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
     bus.publish("sessions_changed", session=sid)
-    return jsonify(session_json(store.get(sid)))
+    current_id = sid if body.get("switch") else request_session_id()
+    return jsonify(session_json(store.get(sid), current_id))
 
 
 @app.route("/api/sessions/<sid>", methods=["DELETE"])
@@ -740,10 +774,15 @@ def api_delete_session(sid):
     This is the one place things are torn down: a session you can no longer see
     must not leave kernels and PTYs running where nothing can reach them.
     """
+    requested = request_session_id()
     try:
         s = store.delete(sid)
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
+    with _focus_guard:
+        _focuses.pop(sid, None)
+        _markup_focuses.pop(sid, None)
+        _prompts.pop(sid, None)
     for p in s.tabs:
         # Never close the launch notebook, and never close a tab another session
         # also holds — membership overlaps when you open the same file in two.
@@ -754,9 +793,11 @@ def api_delete_session(sid):
         kernels.drop(p)
     for t in s.terminals:
         terms.close(t)
-    bus.publish("sessions_changed", session=store.current().id)
+    fallback = store.current().id
+    current = fallback if requested == sid else requested
+    bus.publish("sessions_changed", session=current)
     return jsonify({"status": "ok", "deleted": s.id,
-                    "current": store.current().id})
+                    "current": current})
 
 
 # --- Tabs: open / close any file ---
@@ -769,25 +810,32 @@ def api_tabs():
     stay open server-side but aren't this page's tabs. `all_tabs` is everything,
     for gusnb and anything that works across sessions.
     """
-    cur = store.current()
+    cur = request_session()
     mine = list(cur.tabs) if cur else []
-    kinds = {p: "notebook" for p in notebooks.paths()}
-    kinds.update({p: "text" for p in texts.paths()})
+    all_paths = []
+    for session in store.all():
+        for path in session.tabs:
+            if path not in all_paths and Path(path).is_file():
+                all_paths.append(path)
+    kinds = {p: textfile.kind_of(p) for p in all_paths}
     return jsonify({
         "tabs": [{"path": p, "kind": kinds.get(p, "text")} for p in mine
-                 if p in kinds],
-        "all_tabs": [{"path": p, "kind": k} for p, k in kinds.items()],
+                 if p in kinds and kinds[p] != "unknown"],
+        "all_tabs": [{"path": p, "kind": kinds[p]} for p in all_paths
+                     if kinds[p] != "unknown"],
         "primary": str(NOTEBOOK_PATH),
         "session": cur.id if cur else None,
         "session_name": cur.name if cur else None,
         "session_root": cur.root if cur else str(WORK_DIR),
+        "active": cur.active if cur else None,
     })
 
 
 @app.route("/api/open", methods=["POST"])
 def api_open():
     """Open a file as a tab. Notebooks get cells + a kernel; text gets an editor."""
-    raw = (request.get_json(silent=True) or {}).get("path", "")
+    body = request.get_json(silent=True) or {}
+    raw = body.get("path", "")
     if not raw:
         return jsonify({"error": "path is required"}), 400
     path = files.normalize(raw)
@@ -795,9 +843,12 @@ def api_open():
         return jsonify({"error": "path must be absolute"}), 400
 
     kind = textfile.kind_of(path)
+    remember = not body.get("restore")
+    session = request_session()
     if kind == "notebook":
         doc = notebooks.get(path)
-        store.add_tab(str(path))
+        if remember:
+            store.add_tab(str(path), session.id if session else None)
         data = doc.to_json()
         data["kind"] = "notebook"
         data["kernel_status"] = kernels.status(str(path))
@@ -805,6 +856,8 @@ def api_open():
         return jsonify(data)
 
     if kind == "image":
+        if remember:
+            store.add_tab(str(path), session.id if session else None)
         return jsonify({"path": str(path), "kind": "image",
                         "url": f"/api/raw?path={path}"})
 
@@ -823,19 +876,23 @@ def api_open():
             return jsonify({"error": f"could not start preview server: {e}"}), 400
         data["preview_origin"] = server.origin
         data["preview_version"] = server.version()
-    store.add_tab(str(path))
+    if remember:
+        store.add_tab(str(path), session.id if session else None)
     return jsonify(data)
 
 
 @app.route("/api/close", methods=["POST"])
 def api_close():
-    """Close a tab: drop the document and its kernel."""
+    """Close a tab in this workspace; release shared resources at last owner."""
     raw = (request.get_json(silent=True) or {}).get("path", "")
     key = str(files.normalize(raw))
-    store.drop_tab(key)
-    closed = notebooks.close(key) or texts.close(key)
-    preview_closed = previews.close(key)
-    kernels.drop(key)
+    session = request_session()
+    store.drop_tab(key, session.id if session else None)
+    closed = preview_closed = False
+    if not store.owns_tab(key):
+        closed = notebooks.close(key) or texts.close(key)
+        preview_closed = previews.close(key)
+        kernels.drop(key)
     return jsonify({"status": "ok", "closed": closed,
                     "preview_closed": preview_closed,
                     "open": notebooks.paths()})
@@ -958,7 +1015,7 @@ def api_update_cell(cell_id):
     # with what was asked for, and it's the only moment we can: the CLI has the
     # cell id but no idea what prompt sent it.
     if undoable and body.get("source") is not None:
-        text = recent_prompt()
+        text = recent_prompt(request_session_id())
         if text:
             cell = doc.set_claude_prompt(cell_id, text) or cell
     return jsonify(cell)
@@ -997,7 +1054,7 @@ def api_move_cell(cell_id):
 def api_set_focus():
     """The browser reporting where the caret is. Fire-and-forget."""
     body = request.get_json(silent=True) or {}
-    set_focus(doc_key(), body.get("cell_id"))
+    set_focus(doc_key(), body.get("cell_id"), request_session_id())
     return jsonify({"status": "ok"})
 
 
@@ -1010,7 +1067,7 @@ def api_set_markup_focus():
         return jsonify({"error": "visual selection is not in an open HTML/SVG file"}), 400
     try:
         focus = set_markup_focus(path, body.get("selection"), body.get("source"),
-                                 body.get("disk_version"))
+                                 body.get("disk_version"), request_session_id())
     except textfile.ExternalChangeError as e:
         bus.publish("text_external_changed", path=str(path),
                     disk_version=textfile.disk_version(path))
@@ -1023,7 +1080,6 @@ def api_set_markup_focus():
 @app.route("/api/markup-selection", methods=["PATCH"])
 def api_replace_markup_selection():
     """Replace only the visual range the user selected, then notify the page."""
-    global _markup_focus
     body = request.get_json(silent=True) or {}
     replacement = body.get("replacement")
     if not isinstance(replacement, str):
@@ -1033,8 +1089,9 @@ def api_replace_markup_selection():
     except (TypeError, ValueError):
         return jsonify({"error": "selection_id is required"}), 400
 
+    workspace = request_session_id() or "default"
     with _focus_guard:
-        focus = _markup_focus
+        focus = _markup_focuses.get(workspace)
         if not focus or focus["id"] != wanted:
             return jsonify({"error": "the visual selection changed; select the region again"}), 409
         path = Path(focus["path"])
@@ -1046,7 +1103,7 @@ def api_replace_markup_selection():
         try:
             saved = texts.get(path).save(updated, focus["disk_version"])
         except textfile.ExternalChangeError as e:
-            _markup_focus = None
+            _markup_focuses.pop(workspace, None)
             bus.publish("text_external_changed", path=str(path),
                         disk_version=textfile.disk_version(path))
             return jsonify({"error": str(e), "code": "external_change"}), 409
@@ -1055,7 +1112,7 @@ def api_replace_markup_selection():
         server = previews.peek(path)
         if server:
             server.sync_saved(updated)
-        _markup_focus = {
+        _markup_focuses[workspace] = {
             **focus,
             "document": updated,
             "end": start + len(replacement),
@@ -1068,7 +1125,7 @@ def api_replace_markup_selection():
     bus.publish("markup_changed", path=str(path), text=updated,
                 disk_version=saved["disk_version"],
                 selection_start=start, selection_end=start + len(replacement),
-                selection_id=selection_id)
+                selection_id=selection_id, session=workspace)
     return jsonify({"status": "ok", "path": str(path),
                     "selection_id": selection_id,
                     "selection_start": start,
@@ -1084,7 +1141,7 @@ def api_set_prompt():
     and never fatal: a prompt has to go through whether or not this lands.
     """
     body = request.get_json(silent=True) or {}
-    set_prompt_text(body.get("prompt"))
+    set_prompt_text(body.get("prompt"), request_session_id())
     return jsonify({"status": "ok"})
 
 
@@ -1100,7 +1157,9 @@ def api_here():
     # the tab on screen, and doc_key()'s fallback is the session's first
     # notebook, which is a different thing whenever the user has switched tabs.
     named = request.args.get("notebook")
-    visual, stale_path = (None, None) if named else get_markup_focus()
+    workspace = request_session_id()
+    visual, stale_path = ((None, None) if named
+                          else get_markup_focus(workspace))
     if stale_path:
         bus.publish("text_external_changed", path=stale_path,
                     disk_version=textfile.disk_version(stale_path))
@@ -1127,7 +1186,7 @@ def api_here():
                      "and preserve the rest of the document"),
         })
 
-    key, cell_id = get_focus(named and doc_key())
+    key, cell_id = get_focus(named and doc_key(), workspace)
     if not cell_id:
         return jsonify({"cell": None, "notebook": named and doc_key(),
                         "note": "no cell or visual region is selected in the browser"})
@@ -1490,7 +1549,7 @@ def api_terminals():
     """Live sessions. `?session=mine` narrows to the current session's."""
     all_terms = terms.list()
     if request.args.get("session") == "mine":
-        cur = store.current()
+        cur = request_session()
         mine = set(cur.terminals) if cur else set()
         all_terms = [t for t in all_terms if t["id"] in mine]
     return jsonify({"terminals": all_terms})
@@ -1506,7 +1565,7 @@ def api_new_terminal():
     # This session's own instructions and restrictions, on top of the app-wide
     # ones. Both agents receive the instructions at launch. Claude also receives
     # its native deny rules, which are fixed when the process starts.
-    cur = store.current()
+    cur = request_session()
     cwd = body.get("cwd") or (cur.root if cur else None) or str(Path(doc_key()).parent)
     try:
         s = terms.create(str(files.normalize(cwd)),
@@ -1515,10 +1574,11 @@ def api_new_terminal():
                              cur.instructions if cur else None,
                              restrictions_for(cur)),
                          label=body.get("label"),
-                         python=kernel_python(doc_key()))
+                         python=kernel_python(doc_key()),
+                         workspace=cur.id if cur else None)
     except (ValueError, OSError) as e:
         return jsonify({"error": str(e)}), 400
-    store.add_terminal(s.id)
+    store.add_terminal(s.id, cur.id if cur else None)
     return jsonify(s.to_json())
 
 
@@ -1539,7 +1599,11 @@ def websocket(ws, sid):
     if session is None:
         ws.send(f"\r\n\x1b[31m[no such terminal: {sid}]\x1b[0m\r\n")
         return
-
+    client_workspace = request.args.get("session")
+    if (client_workspace and session.workspace and
+            client_workspace != session.workspace):
+        ws.send("\r\n\x1b[31m[terminal belongs to another session]\x1b[0m\r\n")
+        return
     q = queue.Queue()
     session.attach(q)
     try:

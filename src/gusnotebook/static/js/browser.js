@@ -42,18 +42,20 @@ async function browse(path) {
 /* Where you browsed becomes the session's root, so switching back lands you
  * where you left off rather than where the session was first created. Fired on
  * every navigation, so it's debounced and skips no-ops. */
-let rootTimer = null;
+const rootTimers = new Map();
 
 function rememberRoot(path) {
   if (!currentSession || !path) return;
-  const s = sessionList.find(x => x.id === currentSession);
+  const sid = currentSession;
+  const s = sessionList.find(x => x.id === sid);
   if (s && s.root === path) return;
   if (s) s.root = path;                  // locally, so the check above settles
-  clearTimeout(rootTimer);
-  rootTimer = setTimeout(() => {
-    api('/api/sessions/' + encodeURIComponent(currentSession),
+  clearTimeout(rootTimers.get(sid));
+  rootTimers.set(sid, setTimeout(() => {
+    rootTimers.delete(sid);
+    api('/api/sessions/' + encodeURIComponent(sid),
         {method: 'POST', body: JSON.stringify({root: path})}).catch(() => {});
-  }, 600);
+  }, 600));
 }
 
 /* Show the deepest CRUMB_TAIL folders — the ones you're actually working in.
@@ -212,7 +214,10 @@ async function uploadFiles(fileList) {
   button.classList.add('on');
   try {
     const response = await fetch(BASE + '/api/files/upload', {
-      method: 'POST', headers: {'X-Client-Id': CLIENT_ID}, body: form,
+      method: 'POST', headers: {
+        'X-Client-Id': CLIENT_ID,
+        ...(currentSession ? {'X-Session-Id': currentSession} : {}),
+      }, body: form,
     });
     if (!response.ok) throw new Error(await response.text());
     const data = await response.json();

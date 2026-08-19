@@ -281,36 +281,71 @@ function showActive() {
   }
 }
 
-/** Open any file in a tab (or focus the tab that already has it). */
-async function openFile(path) {
-  if (tab(path)) { switchTab(path); return; }
+/** Open any file in a tab (or focus the tab that already has it).
+ *
+ * `restore` reads a tab already recorded in the workspace without recording it
+ * again. `cached` carries only this window's view state while the authoritative
+ * document content still comes from the server. */
+async function openFile(path, options = {}) {
+  if (tab(path)) { if (!options.quiet) switchTab(path); return tab(path); }
   let data;
   try {
-    data = await api('/api/open', {method: 'POST', body: JSON.stringify({path})});
+    data = await api('/api/open', {method: 'POST',
+      body: JSON.stringify({path, restore: !!options.restore})});
   } catch (err) {
     flash('Cannot open: ' + errText(err));
     return;
   }
   const p = data.path || path;
-  if (tab(p)) { switchTab(p); return; }      // server normalized to an open tab
+  if (tab(p)) {
+    if (!options.quiet) switchTab(p);
+    return tab(p);
+  }                                         // server normalized to an open tab
 
-  const t = {path: p, name: p.split('/').pop(), kind: data.kind || 'text', dirty: false};
+  const cached = options.cached;
+  let t = {path: p, name: p.split('/').pop(), kind: data.kind || 'text', dirty: false};
   if (t.kind === 'notebook') {
-    Object.assign(t, {cells: data.cells || [], selected: null, editing: new Set(),
-                      codeOpen: new Set(), outsHidden: new Set(),
+    const oldCells = new Map((cached && cached.cells || []).map(c => [c.id, c]));
+    const freshCells = (data.cells || []).map(c => {
+      const old = oldCells.get(c.id);
+      // A server snapshot taken in the middle of execution can lag the SSE
+      // stream. Keep the live output this window already saw until cell_done.
+      return old && old._running
+        ? {...c, outputs: old.outputs, _running: true}
+        : c;
+    });
+    Object.assign(t, {cells: freshCells,
+                      selected: cached && cached.selected,
+                      editing: cached && cached.editing || new Set(),
+                      codeOpen: cached && cached.codeOpen || new Set(),
+                      outsHidden: cached && cached.outsHidden || new Set(),
+                      headingsCollapsed: cached && cached.headingsCollapsed || new Set(),
+                      scroll: cached && cached.scroll || 0,
                       python: data.kernel_python || data.python,
                       status: data.kernel_status || 'stopped'});
   } else if (t.kind === 'image') {
     t.url = data.url;
   } else {
-    Object.assign(t, {text: data.text || '', language: data.language,
-                      previewOrigin: data.preview_origin,
-                      previewVersion: data.preview_version,
-                      diskVersion: data.disk_version});
+    if (cached && (cached.dirty || cached.saveInFlight)) {
+      // Keep an unsaved buffer and its optimistic disk revision. If disk changed
+      // while away, polling/save will surface the conflict instead of replacing
+      // the user's text.
+      t = cached;
+      Object.assign(t, {path: p, name: p.split('/').pop(), kind: data.kind || 'text',
+                        language: data.language,
+                        previewOrigin: data.preview_origin,
+                        previewVersion: data.preview_version});
+    } else {
+      Object.assign(t, {text: data.text || '', language: data.language,
+                        previewOrigin: data.preview_origin,
+                        previewVersion: data.preview_version,
+                        diskVersion: data.disk_version});
+    }
   }
 
-  stashActive();
+  if (!options.quiet) stashActive();
   tabs.push(t);
+  if (options.quiet) return t;
   active = p;
   if (t.kind === 'notebook') {
     cells = t.cells; selected = null; editing = t.editing;
@@ -321,9 +356,23 @@ async function openFile(path) {
   showActive();
   if (fileState.path) browse(fileState.path);   // re-mark which rows are open
   loadSessions();          // the tab joined this session; update its count
+  return t;
 }
 
-function switchTab(path) {
+const activeTimers = new Map();
+
+function rememberActive(path) {
+  if (!currentSession) return;
+  const sid = currentSession;
+  clearTimeout(activeTimers.get(sid));
+  activeTimers.set(sid, setTimeout(() => {
+    activeTimers.delete(sid);
+    api('/api/sessions/' + encodeURIComponent(sid), {method: 'POST',
+      body: JSON.stringify({active: path || null})}).catch(() => {});
+  }, 100));
+}
+
+function switchTab(path, remember = true) {
   if (path === active) return;
   const t = tab(path);
   if (!t) return;
@@ -340,6 +389,7 @@ function switchTab(path) {
   closeVenvMenu();
   renderTabs();
   showActive();
+  if (remember) rememberActive(path);
   if (t.kind === 'notebook') load();     // pick up anything changed while away
   if (fileState.path) browse(fileState.path);
 }
@@ -376,6 +426,7 @@ async function closeTab(path, ev) {
       codeOpen = new Set(); outsHidden = new Set(); headingsCollapsed = new Set();
     }
     showActive();
+    rememberActive(active);
     if (next && next.kind === 'notebook') load();
   }
   renderTabs();

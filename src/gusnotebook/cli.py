@@ -53,6 +53,7 @@ import urllib.request
 
 PORT = os.environ.get("PORT", "8888")
 BASE = os.environ.get("NB_URL", f"http://127.0.0.1:{PORT}")
+SESSION = os.environ.get("NB_SESSION", "")
 
 # Which notebook tab commands act on. Set from -n / $NB_NOTEBOOK; empty means
 # "whatever the app has open", which is what a single-notebook session wants.
@@ -69,9 +70,12 @@ def call(path, method="GET", body=None, timeout=600):
         sep = "&" if "?" in path else "?"
         path += sep + urllib.parse.urlencode({"notebook": TARGET})
     data = json.dumps(body).encode() if body is not None else None
+    headers = {"Content-Type": "application/json"}
+    if SESSION:
+        headers["X-Session-Id"] = SESSION
     req = urllib.request.Request(
         BASE + path, data=data, method=method,
-        headers={"Content-Type": "application/json"},
+        headers=headers,
     )
     try:
         with urllib.request.urlopen(req, timeout=timeout) as r:

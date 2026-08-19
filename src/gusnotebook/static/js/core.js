@@ -39,6 +39,20 @@ let codeOpen = new Set();           // long cells you've expanded
 let outsHidden = new Set();         // cells whose output you've collapsed
 let headingsCollapsed = new Set();  // heading cell ids whose section is collapsed
 
+/* The workspace belongs to this browser window, not to the server process.
+ * Keeping it in the URL means a reload—and a second window—return to the same
+ * session independently. The request header is what makes every API call use
+ * that identity even if another window switches the persisted default. */
+let currentSession = new URLSearchParams(location.search).get('session');
+
+function setCurrentSession(sid) {
+  currentSession = sid || null;
+  const url = new URL(location.href);
+  if (currentSession) url.searchParams.set('session', currentSession);
+  else url.searchParams.delete('session');
+  history.replaceState(null, '', url);
+}
+
 // Where a code cell starts being long enough to fold. About a screenful in this
 // layout: below it, folding hides nothing worth a click to get back.
 const CODE_FOLD_LINES = 10;
@@ -69,6 +83,7 @@ const api = async (path, opts = {}) => {
     ...opts,
     headers: {'Content-Type': 'application/json',
               'X-Client-Id': CLIENT_ID,
+              ...(currentSession ? {'X-Session-Id': currentSession} : {}),
               ...(opts.headers || {})},
   });
   return r.ok ? r.json() : Promise.reject(await r.text());

@@ -345,7 +345,8 @@ export NB_URL
 payload=$(cat)
 if command -v curl >/dev/null 2>&1; then
   printf '%s' "$payload" | curl -sS -m 2 -X POST \
-    -H 'Content-Type: application/json' --data-binary @- \
+    -H 'Content-Type: application/json' \
+    -H "X-Session-Id: $NB_SESSION" --data-binary @- \
     "$NB_URL/api/prompt" >/dev/null 2>&1 &
 fi
 cell=$({nb} here 2>/dev/null) || exit 0
@@ -528,7 +529,8 @@ def bedrock_env():
 class Session:
     """One PTY and the clients watching it."""
 
-    def __init__(self, sid, cwd, command=None, label=None, python=None):
+    def __init__(self, sid, cwd, command=None, label=None, python=None,
+                 workspace=None):
         self.id = sid
         self.cwd = str(cwd)
         self.command = list(command or DEFAULT_COMMAND)
@@ -541,6 +543,7 @@ class Session:
             self.kind = "claude"
         self.label = label or os.path.basename(self.cwd.rstrip("/")) or "/"
         self.python = python  # the notebook's selected interpreter, for venv activation
+        self.workspace = workspace
         self.pid = None
         self.fd = None
         self.alive = False
@@ -565,6 +568,8 @@ class Session:
         # credential in an interactive shell's environment leaks it into every
         # child process and into `env` output.
         extra_env = {"NB_URL": APP_URL}
+        if self.workspace:
+            extra_env["NB_SESSION"] = self.workspace
         is_shell = self.kind == "shell"
         if self.kind == "claude":
             extra_env.update(bedrock_env())
@@ -753,6 +758,7 @@ class Session:
             # "shell", "claude", or "codex": the browser icons the tab by this, so a
             # session reattached after a reload still shows what it is.
             "kind": self.kind,
+            "workspace": self.workspace,
             "alive": self.alive,
             "note": self.exit_note,
         }
@@ -764,14 +770,16 @@ class SessionPool:
         self._next = 1
         self._lock = threading.RLock()
 
-    def create(self, cwd, command=None, label=None, python=None):
+    def create(self, cwd, command=None, label=None, python=None,
+               workspace=None):
         cwd = str(cwd)
         if not os.path.isdir(cwd):
             raise ValueError(f"no such directory: {cwd}")
         with self._lock:
             sid = f"t{self._next}"
             self._next += 1
-            s = Session(sid, cwd, command=command, label=label, python=python)
+            s = Session(sid, cwd, command=command, label=label, python=python,
+                        workspace=workspace)
             self._sessions[sid] = s
         return s.start()
 

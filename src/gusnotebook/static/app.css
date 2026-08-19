@@ -128,12 +128,13 @@ body {
 }
 .session-row.current .meta { color: #db2777; }
 .session-row .live { color: #16a34a; }
-.session-row .x {
+.session-row .x, .session-row .pop {
   flex: 0 0 auto; font-size: 11px; color: #cbd5e1; padding: 0 2px;
   visibility: hidden;
 }
-.session-row:hover .x { visibility: visible; }
+.session-row:hover .x, .session-row:hover .pop { visibility: visible; }
 .session-row .x:hover { color: #b91c1c; }
+.session-row .pop:hover { color: var(--accent); }
 /* Per-session instructions for agents. Same hover-to-reveal as the ✕: a row
    should read as a name and what's live in it, not a strip of icons. */
 .session-row .note {

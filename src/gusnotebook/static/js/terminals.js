@@ -117,7 +117,10 @@ function attachTerm(info) {
   const t = {...info, term, fit, host, ws: null};
   terms.push(t);
 
-  const ws = new WebSocket(wsProto + '//' + location.host + BASE + '/ws/' + info.id);
+  const wsQuery = currentSession
+    ? '?' + new URLSearchParams({session: currentSession}) : '';
+  const ws = new WebSocket(
+    wsProto + '//' + location.host + BASE + '/ws/' + info.id + wsQuery);
   ws.binaryType = 'arraybuffer';
   t.ws = ws;
   ws.onopen = () => {
@@ -189,7 +192,8 @@ function fitTerm() {
 }
 window.addEventListener('resize', fitTerm);
 restoreAgentKind();
-bootTerminals();
+if (booted) bootTerminals();
+else window.addEventListener('workspace-ready', bootTerminals, {once: true});
 
 // ---------- Layout (file column | notebook | splitter | terminal) ----------
 const FILES_WIDTH = 230;

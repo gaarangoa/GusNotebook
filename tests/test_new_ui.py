@@ -903,6 +903,9 @@ def main():
         check("exactly one is current",
               pg.locator("#session-list .session-row.current").count(), 1)
         first_session = pg.evaluate("currentSession")
+        first_root = pg.evaluate("fileState.path")
+        check("each session can open in its own window",
+              pg.locator("#session-list .session-row .pop").count() >= 1, True)
 
         go_to(pg, FIX)
         pg.evaluate("setTimeout(newSession, 0)")
@@ -922,11 +925,35 @@ def main():
         check("and they're not on screen here",
               pg.evaluate("tabs.length"), 0)
         second = pg.evaluate("currentSession")
+
+        # A session is page-scoped, not one mutable server-global. Two browser
+        # windows can stay on separate workspaces and switching either one must
+        # not pull the other page along with it.
+        peer = b.new_page(viewport={"width": 1200, "height": 800})
+        peer.on("pageerror", lambda e: errors.append("peer: " + str(e)))
+        peer.goto(URL + ("&" if "?" in URL else "?") +
+                  "session=" + urllib.parse.quote(first_session),
+                  wait_until="domcontentloaded")
+        peer.wait_for_function("booted", timeout=30000)
+        check("a second window restores the requested session",
+              peer.evaluate("currentSession"), first_session)
+        peer.evaluate(f"switchSession({json.dumps(second)})")
+        peer.wait_for_function(
+            f"currentSession === {json.dumps(second)}", timeout=30000)
+        peer.evaluate(f"switchSession({json.dumps(first_session)})")
+        peer.wait_for_function(
+            f"currentSession === {json.dumps(first_session)}", timeout=30000)
+        check("the original window remains independent",
+              pg.evaluate("currentSession"), second)
+        peer.close()
+
         pg.evaluate(f"switchSession({json.dumps(first_session)})")
         pg.wait_for_function(
             f"currentSession === {json.dumps(first_session)}", timeout=30000)
         check("switching back restores its tabs",
               pg.evaluate("tabs.length") == len(sess[first_session]["tabs"]), True)
+        check("switching back restores its Files location",
+              pg.evaluate("fileState.path"), first_root)
 
         # Deleting is the one destructive path — it must not take the files.
         (FIX / "kept.py").write_text("still here\n")
