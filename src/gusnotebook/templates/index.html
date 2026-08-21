@@ -23,11 +23,13 @@
   "@codemirror/language":     "https://esm.sh/*@codemirror/language@6.10.1?target=es2022",
   "@codemirror/commands":     "https://esm.sh/*@codemirror/commands@6.6.0?target=es2022",
   "@codemirror/lang-python":  "https://esm.sh/*@codemirror/lang-python@6.1.6?target=es2022",
+  "@codemirror/lang-yaml":    "https://esm.sh/*@codemirror/lang-yaml@6.1.2?target=es2022",
   "@codemirror/autocomplete": "https://esm.sh/*@codemirror/autocomplete@6.16.0?target=es2022",
   "@lezer/common":            "https://esm.sh/*@lezer/common@1.2.1?target=es2022",
   "@lezer/highlight":         "https://esm.sh/*@lezer/highlight@1.2.0?target=es2022",
   "@lezer/lr":                "https://esm.sh/*@lezer/lr@1.4.0?target=es2022",
   "@lezer/python":            "https://esm.sh/*@lezer/python@1.1.13?target=es2022",
+  "@lezer/yaml":              "https://esm.sh/*@lezer/yaml@1.0.3?target=es2022",
   "style-mod":                "https://esm.sh/*style-mod@4.1.2?target=es2022",
   "w3c-keyname":              "https://esm.sh/*w3c-keyname@2.2.8?target=es2022",
   "crelt":                    "https://esm.sh/*crelt@1.0.6?target=es2022"
@@ -186,12 +188,6 @@
 
     <div class="pane" id="notebook-pane">
       <div class="notebook" id="notebook"></div>
-      <div class="add-row">
-        <button onclick="addCell('code')">+ Code</button>
-        <button onclick="addCell('markdown')">+ Markdown</button>
-        <button onclick="addCell('raw')">+ Raw</button>
-        <button onclick="addCell('ai')">+ AI</button>
-      </div>
     </div>
 
     <!-- Non-notebook tabs render here instead of the notebook pane -->
@@ -523,6 +519,7 @@ try {
     import("@codemirror/lang-python"), import("@lezer/highlight"),
     import("@codemirror/autocomplete"),
   ]);
+  const langYaml = await import("@codemirror/lang-yaml").catch(() => null);
   const t = highlight.tags;
   // Our own palette rather than defaultHighlightStyle, whose colours assume a
   // different background than this app's light theme.
@@ -550,6 +547,7 @@ try {
     indentMore: commands.indentMore, indentLess: commands.indentLess,
     defaultKeymap: commands.defaultKeymap, historyKeymap: commands.historyKeymap,
     python: langPython.python,
+    yaml: langYaml && langYaml.yaml,
     syntaxTree: language.syntaxTree,
     autocompletion: autocomplete.autocompletion,
     startCompletion: autocomplete.startCompletion,

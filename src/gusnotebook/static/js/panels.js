@@ -319,6 +319,7 @@ async function reloadWorkspace() {
   tabs = [];
   active = null;
   cells = [];
+  fileState.path = null;
   let info = {};
   try { info = await api('/api/tabs'); } catch (err) { info = {}; }
   await loadSessions();

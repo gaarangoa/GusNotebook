@@ -820,15 +820,14 @@ def main():
             check("prompt persisted in the .ipynb",
                   any(m and "HELLO" in m for m in metas), True)
 
-        print("\n-- toolbar and add-row offer every cell type")
+        print("\n-- toolbar offers every cell type")
         labels = [t.strip() for t in pg.locator("#toolbar button.tb").all_inner_texts()]
         print("     toolbar:", labels)
         check("+ Raw and + AI present",
               "+ Raw" in labels and "+ AI" in labels, True)
         check("kernel controls still there",
               "■ Stop" in labels and "↻ Restart" in labels, True)
-        row = [t.strip() for t in pg.locator(".add-row button").all_inner_texts()]
-        check("add-row matches", row, ["+ Code", "+ Markdown", "+ Raw", "+ AI"])
+        check("bottom add-row removed", pg.locator(".add-row button").count(), 0)
 
         print("\n-- the + tab is where you create things")
         check("+ tab is last in the strip", pg.evaluate(
@@ -932,6 +931,9 @@ def main():
         check("a new session starts empty", pg.evaluate("tabs.length"), 0)
         check("rooted where the panel was", pg.evaluate("fileState.path"),
               str(FIX.resolve()))
+        go_to(pg, DEEP)
+        check("the second session can move independently",
+              pg.evaluate("fileState.path"), str(DEEP.resolve()))
 
         # Switching is a view change, not a teardown: the whole point is that a
         # kernel left running elsewhere is still running when you come back.
@@ -970,6 +972,11 @@ def main():
               pg.evaluate("tabs.length") == len(sess[first_session]["tabs"]), True)
         check("switching back restores its Files location",
               pg.evaluate("fileState.path"), first_root)
+        pg.evaluate(f"switchSession({json.dumps(second)})")
+        pg.wait_for_function(
+            f"currentSession === {json.dumps(second)}", timeout=30000)
+        check("switching forward restores the other Files location",
+              pg.evaluate("fileState.path"), str(DEEP.resolve()))
 
         # Deleting is the one destructive path — it must not take the files.
         (FIX / "kept.py").write_text("still here\n")

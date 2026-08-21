@@ -24,6 +24,10 @@ async function load() {
   });
   if (t) {
     t.cells = cells;
+    restoreNotebookView(t);
+    codeOpen = t.codeOpen || codeOpen;
+    outsHidden = t.outsHidden || outsHidden;
+    headingsCollapsed = t.headingsCollapsed || headingsCollapsed;
     if (data.kernel_python) t.python = data.kernel_python;
     if (data.kernel_status) t.status = data.kernel_status;
   }

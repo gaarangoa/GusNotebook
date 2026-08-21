@@ -18,6 +18,81 @@
  * Playwright suites read and write it. See shimHost() for how CM gets one.
  */
 const cmViews = new Map();       // cell id -> EditorView, mounted cells only
+let textFileCm = null;           // the single CodeMirror view for text-file tabs
+let textFileCmSyncing = false;
+
+function isSyntaxTextTab(t) {
+  return !!t && t.kind === 'text' &&
+    (t.language === 'yaml' || t.language === 'yml');
+}
+
+function unmountTextFileEditor() {
+  const area = document.getElementById('text-editor');
+  if (textFileCm) {
+    textFileCm.destroy();
+    textFileCm = null;
+  }
+  if (area) area.style.display = '';
+}
+
+function syncTextFileEditor(text) {
+  if (!textFileCm) return;
+  const current = textFileCm.state.doc.toString();
+  const next = String(text == null ? '' : text);
+  if (current === next) return;
+  textFileCmSyncing = true;
+  try {
+    textFileCm.dispatch({changes: {from: 0, to: current.length, insert: next}});
+  } finally {
+    textFileCmSyncing = false;
+  }
+}
+
+function mountTextFileEditor(t) {
+  const area = document.getElementById('text-editor');
+  if (!area) return;
+  if (!isSyntaxTextTab(t) || !window.CM || !CM.yaml) {
+    unmountTextFileEditor();
+    return;
+  }
+
+  const text = area.value || '';
+  if (textFileCm && textFileCm.nbPath === t.path) {
+    syncTextFileEditor(text);
+    area.style.display = 'none';
+    return;
+  }
+  unmountTextFileEditor();
+
+  const view = new CM.EditorView({
+    doc: text,
+    extensions: [
+      CM.history(),
+      CM.highlightActiveLine(),
+      CM.lineNumbers(),
+      CM.syntaxHighlighting(CM.style),
+      CM.indentUnit.of('  '),
+      CM.yaml(),
+      CM.Prec.high(CM.keymap.of([
+        {key: 'Mod-s', run: () => { saveText(); return true; }},
+        {key: 'Tab', run: CM.indentMore, shift: CM.indentLess},
+      ])),
+      CM.keymap.of([...CM.historyKeymap, ...CM.defaultKeymap]),
+      CM.EditorView.lineWrapping,
+      CM.EditorView.updateListener.of((u) => {
+        if (!u.docChanged) return;
+        if (textFileCmSyncing) return;
+        area.value = u.state.doc.toString();
+        markTextDirty();
+      }),
+    ],
+  });
+  view.nbPath = t.path;
+  view.dom.classList.add('text-file-cm');
+  area.after(view.dom);
+  area.style.display = 'none';
+  textFileCm = view;
+}
 
 /**
  * Give a mounted CM host a `value` property, so `document.getElementById('ed-X')
@@ -362,6 +437,7 @@ function mountEditors() {
 // hand, mountEditors() did it and there is nothing here to do.
 window.addEventListener('cm-ready', () => {
   if (window.CM && isNotebookTab()) render();
+  if (window.CM && isSyntaxTextTab(activeTab())) mountTextFileEditor(activeTab());
 });
 
 /**
@@ -422,6 +498,11 @@ function toggleFold(id) {
   // there would make the first click on ⌃ open an already-open cell.
   const fold = !wrap.classList.contains('folded');
   if (fold) codeOpen.delete(id); else codeOpen.add(id);
+  const t = activeTab();
+  if (t && t.kind === 'notebook') {
+    t.codeOpen = codeOpen;
+    rememberNotebookView(t);
+  }
   wrap.classList.toggle('folded', fold);
   // The veil is a click target over hidden code, so it belongs to the folded
   // state alone — left in place it would swallow clicks on code now visible, and
@@ -438,14 +519,16 @@ function toggleOutput(id) {
   const c = getCell(id);
   const hide = !outsHidden.has(id);
   if (hide) outsHidden.add(id); else outsHidden.delete(id);
+  const t = activeTab();
+  if (t && t.kind === 'notebook') {
+    t.outsHidden = outsHidden;
+    rememberNotebookView(t);
+  }
   const out = document.getElementById('out-' + id);
-  if (out) out.classList.toggle('out-off', hide);
-  const body = document.querySelector(`.cell[data-id="${id}"] .cell-body`);
-  const note = body && body.querySelector('.out-note');
-  if (note) note.remove();
-  // The note isn't in the DOM while the output shows, so hiding has to make it.
-  if (hide && body && out && c && (c.outputs || []).length) {
-    out.insertAdjacentHTML('beforebegin', outNoteHtml(c));
+  if (out && c) {
+    out.classList.toggle('output-hidden', hide);
+    out.innerHTML = hide ? outNoteHtml(c) : outputSlotHtml(c);
+    if (!hide) pinStreams(out);
   }
   refreshViewBtns(id);
 }
@@ -483,11 +566,13 @@ function syncOutputView(id) {
   const c = getCell(id);
   if (!out || !c) return;
   const hidden = outsHidden.has(id);
-  out.classList.toggle('out-off', hidden);
-  const body = out.parentElement;
-  const note = body && body.querySelector('.out-note');
-  if (note) note.remove();
-  if (hidden && (c.outputs || []).length) out.insertAdjacentHTML('beforebegin', outNoteHtml(c));
+  out.classList.toggle('output-hidden', hidden);
+  if (hidden) {
+    out.innerHTML = (c.outputs || []).length ? outNoteHtml(c) : '';
+  } else {
+    out.innerHTML = outputSlotHtml(c);
+    pinStreams(out);
+  }
   refreshViewBtns(id);
 }
 
@@ -499,17 +584,16 @@ function syncOutputView(id) {
 function showRunning(id) {
   if (!outsHidden.has(id)) return;
   const out = document.getElementById('out-' + id);
-  const body = out && out.parentElement;
-  const note = body && body.querySelector('.out-note');
+  const note = out && out.querySelector('.out-note');
   if (note) {
     note.classList.add('running-dots');
     note.textContent = '▸ running';
   }
   else if (out) {
-    out.insertAdjacentHTML('beforebegin',
-      `<div class="out-note running-dots"
+    out.innerHTML =
+      `<button class="out-note running-dots"
          onclick="event.stopPropagation();toggleOutput('${id}')"
-         title="Show this cell's output">▸ running</div>`);
+         title="Show this cell's output">▸ running</button>`;
   }
 }
 

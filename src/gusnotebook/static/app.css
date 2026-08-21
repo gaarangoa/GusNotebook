@@ -444,6 +444,24 @@ body {
   color: #1e293b;
   tab-size: 4;
 }
+.textpane .text-file-cm {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  border: 0;
+  border-radius: 0;
+  background: #fff;
+  font-size: 12px;
+}
+.textpane .text-file-cm .cm-scroller {
+  overflow: auto;
+}
+.textpane .text-file-cm .cm-content {
+  padding: 12px 0;
+}
+.textpane .text-file-cm .cm-line {
+  padding: 0 14px;
+}
 .html-preview {
   display: none; min-width: 0; min-height: 0;
   flex-direction: column; background: #fff;
@@ -612,6 +630,7 @@ button.tb.primary:hover { background: #fdf4f8; }
   display: grid;
   grid-template-columns: 62px 1fr;
   margin-bottom: 6px;
+  position: relative;
 }
 
 .gutter {
@@ -742,13 +761,23 @@ button.tb.primary:hover { background: #fdf4f8; }
 /* Output collapsed away. The note replaces it rather than leaving a gap, so
    "this cell has output" survives hiding it — otherwise a collapsed cell is
    indistinguishable from one that never ran. */
+.output-area { min-width: 0; }
 .out-off { display: none; }
+.output-hidden { min-height: 20px; }
 .out-note {
-  font-size: 11px;
+  display: block;
+  font-size: 9px;
+  line-height: 1.25;
   color: var(--muted);
   cursor: pointer;
   padding: 3px 2px;
+  margin: 0 0 3px;
+  border: 0;
+  background: transparent;
+  font-family: inherit;
+  text-align: left;
   user-select: none;
+  appearance: none;
 }
 .out-note:hover { color: var(--accent); }
 
@@ -795,27 +824,35 @@ button.tb.primary:hover { background: #fdf4f8; }
 .hist-btn:hover:not(:disabled) { color: var(--accent); border-color: #d9a8c4; }
 .hist-btn:disabled { opacity: .3; cursor: default; }
 
-/* Delete, and add a code cell below. Faint until the row is hovered or current:
-   they sit beside every cell in the notebook, and at full strength a long
-   notebook reads as a column of buttons with some code next to it. */
+/* Move/type/add/delete for a cell. On the upper-right edge, hidden until hover
+   so the cell content stays visually quiet while reading. */
 .gutter-acts {
   display: flex;
-  flex-direction: column;
-  align-items: flex-end;
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-end;
   gap: 2px;
-  margin-top: 5px;
+  position: absolute;
+  right: 12px;
+  top: 0;
+  transform: translateY(-50%);
+  margin: 0;
   opacity: 0;
+  pointer-events: none;
   transition: opacity .12s;
+  z-index: 3;
 }
 .act-row {
-  display: flex;
-  gap: 2px;
+  display: contents;
 }
-.cell:hover .gutter-acts,
-.cell.is-current .gutter-acts { opacity: 1; }
+.cell:hover .gutter-acts { opacity: 1; pointer-events: auto; }
+.cell[data-type="markdown"] .gutter-acts {
+  top: 28px;
+  transform: none;
+}
 /* Keyboard users never hover, so the buttons must appear on focus too or they
    are unreachable by tab. */
-.gutter-acts:focus-within { opacity: 1; }
+.gutter-acts:focus-within { opacity: 1; pointer-events: auto; }
 .act-btn {
   font-size: 11px;
   line-height: 1;
@@ -860,18 +897,24 @@ button.tb.primary:hover { background: #fdf4f8; }
   cursor: text;
 }
 .hd-toggle {
-  display: block;
+  position: absolute;
+  left: 40px;
+  top: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   background: none;
   border: none;
   padding: 0;
-  width: 100%;
+  width: 18px;
+  height: 18px;
   font-size: 11px;
   color: var(--muted);
   cursor: pointer;
-  text-align: right;
   line-height: 1;
-  margin-bottom: 3px;
+  border-radius: 4px;
 }
+.hd-toggle:hover { color: var(--accent); background: #f8fafc; }
 .md-rendered:empty::after { content: 'Empty markdown cell — double-click to edit'; color: var(--muted); font-style: italic; }
 .md-rendered h1 { font-size: 22px; margin: 12px 0 8px; font-weight: 650; }
 .md-rendered h2 { font-size: 18px; margin: 12px 0 7px; font-weight: 650; }
@@ -1107,22 +1150,7 @@ button.tb.primary:hover { background: #fdf4f8; }
   background: none; padding: 0; color: inherit; font-size: 11.5px;
 }
 
-.add-row {
-  display: flex;
-  gap: 6px;
-  /* Trailing room so the last cell clears the fixed hint bar and there's
-     somewhere to click below the notebook. */
-  padding: 4px 16px 90px 78px;
-  opacity: .45;
-  transition: opacity .12s;
-}
-.add-row:hover { opacity: 1; }
-.add-row button {
-  font: inherit; font-size: 10.5px; padding: 3px 9px;
-  color: #64748b; background: #fff;
-  border: 1px dashed #cbd5e1; border-radius: 4px; cursor: pointer;
-}
-.add-row button:hover { border-style: solid; color: var(--text); }
+.add-row { display: none !important; }
 
 /* ---------- Splitter ---------- */
 .splitter { background: var(--border); cursor: col-resize; }

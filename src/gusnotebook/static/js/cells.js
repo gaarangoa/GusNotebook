@@ -257,7 +257,9 @@ function showActive() {
   const textPane = document.getElementById('textpane');
   textPane.classList.toggle('on', kind === 'text');
   textPane.classList.toggle('markup', isMarkupTab(t));
+  textPane.classList.toggle('syntax', isSyntaxTextTab(t));
   document.getElementById('imgpane').classList.toggle('on', kind === 'image');
+  if (kind !== 'text') unmountTextFileEditor();
   if (!isMarkupTab(t)) {
     clearMarkupFocus();
     // Stop animations, timers and media belonging to a preview that is no
@@ -286,6 +288,7 @@ function showActive() {
     document.getElementById('text-status').textContent = t.externalConflict
       ? 'changed on disk · reload' : (t.dirty ? 'unsaved' : 'saved');
     if (isMarkupTab(t)) renderMarkupEditor();
+    mountTextFileEditor(t);
   } else if (kind === 'image') {
     document.getElementById('imgview').src = BASE + t.url;
   } else {
@@ -336,6 +339,7 @@ async function openFile(path, options = {}) {
                       scroll: cached && cached.scroll || 0,
                       python: data.kernel_python || data.python,
                       status: data.kernel_status || 'stopped'});
+    restoreNotebookView(t);
   } else if (t.kind === 'image') {
     t.url = data.url;
   } else {
@@ -362,6 +366,7 @@ async function openFile(path, options = {}) {
   if (options.quiet) return t;
   active = p;
   if (t.kind === 'notebook') {
+    restoreNotebookView(t);
     cells = t.cells; selected = null; editing = t.editing;
     codeOpen = t.codeOpen; outsHidden = t.outsHidden;
     headingsCollapsed = t.headingsCollapsed || new Set();
@@ -393,6 +398,7 @@ function switchTab(path, remember = true) {
   stashActive();
   active = path;
   if (t.kind === 'notebook') {
+    restoreNotebookView(t);
     cells = t.cells || [];
     selected = t.selected || null;
     editing = t.editing || new Set();
@@ -429,6 +435,7 @@ async function closeTab(path, ev) {
     const next = tabs[Math.min(i, tabs.length - 1)];
     active = next ? next.path : null;
     if (next && next.kind === 'notebook') {
+      restoreNotebookView(next);
       cells = next.cells || [];
       selected = next.selected || null;
       editing = next.editing || new Set();
@@ -987,19 +994,15 @@ function veilHtml(c) {
 }
 
 /**
- * The gutter's fold and output toggles. Its own function because a cell that had
- * no output when it was rendered grows one when it runs, and the ▾ has to appear
- * without re-rendering the notebook — see refreshViewBtns().
+ * The gutter's fold toggle. Output hide/show lives inside the output area, so
+ * the control is in the same place for both visible and hidden output.
  *
- * Both are shown only when there's something to hide: a short cell has no fold
- * state worth a button, and a cell that hasn't run has no output, so a ▾ on it
- * would toggle nothing.
+ * Shown only when there's something to fold: a short cell has no fold state
+ * worth a button.
  */
 function viewBtnsHtml(c) {
-  const hasOuts = !!(c.outputs && c.outputs.length);
   const long = isFoldable(c);
-  if (!long && !hasOuts) return '';
-  const hidden = outsHidden.has(c.id);
+  if (!long) return '';
   // What's on screen when there's something on screen to ask, since the caret
   // exemption in isFolded() means the set alone doesn't decide it. Only the
   // initial render has no wrapper to ask.
@@ -1009,19 +1012,32 @@ function viewBtnsHtml(c) {
         <button class="out-btn" id="foldb-${c.id}"
                 title="${folded ? 'Show the whole cell' : "Fold this cell's code"}"
                 onclick="event.stopPropagation();toggleFold('${c.id}')">${
-                  folded ? '⌄' : '⌃'}</button>` : ''}${hasOuts ? `
-        <button class="out-btn ${hidden ? 'off' : ''}" id="outb-${c.id}"
-                title="${hidden ? 'Show' : 'Hide'} this cell's output"
-                onclick="event.stopPropagation();toggleOutput('${c.id}')">${
-                  hidden ? '▸' : '▾'}</button>` : ''}
+                  folded ? '⌄' : '⌃'}</button>` : ''}
       </div>`;
+}
+
+function outHideHtml(c) {
+  if (!(c.outputs || []).length) return '';
+  return `<button class="out-note" onclick="event.stopPropagation();toggleOutput('${c.id}')"
+      title="Hide this cell's output">▾ Hide output</button>`;
 }
 
 /** The "N outputs hidden" stand-in shown in place of collapsed output. */
 function outNoteHtml(c) {
-  const n = (c.outputs || []).length;
-  return `<div class="out-note" onclick="event.stopPropagation();toggleOutput('${c.id}')"
-      title="Show this cell's output">▸ ${n} output${n > 1 ? 's' : ''} hidden</div>`;
+  return `<button class="out-note" onclick="event.stopPropagation();toggleOutput('${c.id}')"
+      title="Show this cell's output">▸ Show output</button>`;
+}
+
+function outputSlotHtml(c) {
+  if (outsHidden.has(c.id)) {
+    if (!(c.outputs || []).length && !c._running) return '';
+    return c._running
+      ? `<button class="out-note running-dots"
+           onclick="event.stopPropagation();toggleOutput('${c.id}')"
+           title="Show this cell's output">▸ running</button>`
+      : outNoteHtml(c);
+  }
+  return outHideHtml(c) + renderCellOutput(c);
 }
 
 function cellHtml(c) {
@@ -1155,15 +1171,6 @@ function cellHtml(c) {
         </div>
       </div>`;
 
-  // What replaces the output when it's collapsed — the count, so the cell still
-  // says it produced something. Hiding output is a view preference; leaving no
-  // trace of it would make a collapsed cell look like one that never ran.
-  const outNote = outHidden && c._running
-    ? `<div class="out-note running-dots"
-         onclick="event.stopPropagation();toggleOutput('${c.id}')"
-         title="Show this cell's output">▸ running</div>`
-    : ((hasOuts && outHidden) ? outNoteHtml(c) : '');
-
   return `
   <div class="cell ${c._running ? 'is-running' : ''}" data-id="${c.id}" data-type="${c.cell_type}"
        onclick="selectCell('${c.id}')">
@@ -1171,9 +1178,11 @@ function cellHtml(c) {
       ${hdBtn}<span class="gutter-label"${c._running ? ' title="Cell is running"' : ''}>${labelHtml}</span>${viewBtns}${histBtns}${cellBtns}
     </div>
     <div class="cell-body">
-      ${promptStrip}${claudeStrip}${undoStrip}${bodyInner}${outNote}
-      <div id="out-${c.id}" class="${outHidden ? 'out-off' : ''}">${
-        renderCellOutput(c)}</div>
+      ${promptStrip}${claudeStrip}${undoStrip}${bodyInner}
+      <div class="output-area">
+        <div id="out-${c.id}" class="${outHidden ? 'output-hidden' : ''}">${
+          outputSlotHtml(c)}</div>
+      </div>
       <div class="help-panel" id="help-${c.id}"></div>
     </div>
   </div>`;
@@ -1210,6 +1219,11 @@ function toggleHeading(id) {
   if (idx === -1) return;
   const collapsed = headingsCollapsed.has(id);
   if (collapsed) headingsCollapsed.delete(id); else headingsCollapsed.add(id);
+  const t = activeTab();
+  if (t && t.kind === 'notebook') {
+    t.headingsCollapsed = headingsCollapsed;
+    rememberNotebookView(t);
+  }
   applyHeadingCollapse();
   // Update just this button without a full render.
   const btn = document.querySelector(`.hd-toggle[data-id="${id}"]`);

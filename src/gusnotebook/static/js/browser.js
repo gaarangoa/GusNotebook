@@ -7,6 +7,7 @@
 // hidden: true by default — .env, .gitignore and friends are working files in a
 // project like this one, so hiding them by default hides things you came to edit.
 let fileState = {path: null, home: null, notebook: null, hidden: true};
+let browseSerial = 0;
 
 const FILE_ICON = {dir: '▸', notebook: '◆', file: '·'};
 
@@ -19,6 +20,8 @@ function fmtSize(n) {
 }
 
 async function browse(path) {
+  const serial = ++browseSerial;
+  const sessionAtStart = currentSession;
   const q = new URLSearchParams();
   if (path) q.set('path', path);
   if (fileState.hidden) q.set('hidden', '1');
@@ -26,10 +29,12 @@ async function browse(path) {
   try {
     data = await api('/api/files?' + q);
   } catch (err) {
+    if (serial !== browseSerial || sessionAtStart !== currentSession) return false;
     document.getElementById('file-list').innerHTML =
       `<div class="files-msg err">${escapeHtml(String(err).slice(0, 200))}</div>`;
-    return;
+    return false;
   }
+  if (serial !== browseSerial || sessionAtStart !== currentSession) return false;
   Object.assign(fileState, {
     path: data.path, home: data.home, parent: data.parent,
     entries: data.entries,        // used to suggest an untaken new-file name
@@ -37,6 +42,7 @@ async function browse(path) {
   renderCrumbs(data.path);
   renderFileList(data.entries);
   rememberRoot(data.path);
+  return true;
 }
 
 /* Where you browsed becomes the session's root, so switching back lands you
@@ -384,6 +390,46 @@ function errCode(err) {
 }
 
 /** Park the on-screen state back into the tab it belongs to. */
+function rememberNotebookView(t) {
+  if (!t || t.kind !== 'notebook') return;
+  const state = {
+    codeOpen: new Set(t.codeOpen || codeOpen),
+    outsHidden: new Set(t.outsHidden || outsHidden),
+    headingsCollapsed: new Set(t.headingsCollapsed || headingsCollapsed),
+  };
+  notebookViewState.set(t.path, state);
+  try {
+    sessionStorage.setItem('gusnotebook:view:' + t.path, JSON.stringify({
+      codeOpen: [...state.codeOpen],
+      outsHidden: [...state.outsHidden],
+      headingsCollapsed: [...state.headingsCollapsed],
+    }));
+  } catch (e) {}
+}
+
+function restoreNotebookView(t) {
+  if (!t || t.kind !== 'notebook') return;
+  let saved = notebookViewState.get(t.path);
+  if (!saved) {
+    try {
+      const raw = sessionStorage.getItem('gusnotebook:view:' + t.path);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        saved = {
+          codeOpen: new Set(parsed.codeOpen || []),
+          outsHidden: new Set(parsed.outsHidden || []),
+          headingsCollapsed: new Set(parsed.headingsCollapsed || []),
+        };
+        notebookViewState.set(t.path, saved);
+      }
+    } catch (e) {}
+  }
+  if (!saved) return;
+  t.codeOpen = new Set(saved.codeOpen || []);
+  t.outsHidden = new Set(saved.outsHidden || []);
+  t.headingsCollapsed = new Set(saved.headingsCollapsed || []);
+}
+
 function stashActive() {
   const t = activeTab();
   if (!t) return;
@@ -395,6 +441,7 @@ function stashActive() {
     t.outsHidden = outsHidden;
     t.headingsCollapsed = headingsCollapsed;
     t.scroll = document.getElementById('notebook-pane').scrollTop;
+    rememberNotebookView(t);
   } else if (t.kind === 'text') {
     t.text = document.getElementById('text-editor').value;
   }
