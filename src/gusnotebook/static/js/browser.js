@@ -138,7 +138,7 @@ function fileCtxDir(e) {
       {label: 'Copy full name', action: () => copyText(baseName(fileState.path), 'Name copied')},
     );
     if (fileClipboard) {
-      items.push({label: 'Paste copy here', action: () => pasteEntry(fileState.path)});
+      items.push({label: pasteLabel('here'), action: () => pasteEntry(fileState.path)});
     }
   }
   showFileCtx(e.clientX, e.clientY, [
@@ -158,13 +158,14 @@ function fileCtxEntry(e, path, kind) {
     {label: 'Copy full name', action: () => copyText(baseName(path), 'Name copied')},
     {label: 'Duplicate...', action: () => duplicateEntry(path, kind)},
     {label: 'Copy', action: () => copyEntry(path, kind)},
+    {label: 'Cut', action: () => cutEntry(path, kind)},
     {label: 'Rename', action: () => renameEntry(path)},
     {label: 'Delete', action: () => deleteEntry(path, kind), danger: true},
   ];
   if (kind !== 'dir') {
     items.unshift({label: 'Download', action: () => downloadEntry(path)});
   } else if (fileClipboard) {
-    items.splice(4, 0, {label: 'Paste copy inside', action: () => pasteEntry(path)});
+    items.splice(5, 0, {label: pasteLabel('inside'), action: () => pasteEntry(path)});
   }
   showFileCtx(e.clientX, e.clientY, items);
 }
@@ -268,8 +269,19 @@ function copyNameFor(path) {
 }
 
 function copyEntry(path, kind) {
-  fileClipboard = {path, kind};
+  fileClipboard = {path, kind, mode: 'copy'};
   flash(`${kind === 'dir' ? 'Folder' : 'File'} copied`);
+}
+
+function cutEntry(path, kind) {
+  fileClipboard = {path, kind, mode: 'cut'};
+  flash(`${kind === 'dir' ? 'Folder' : 'File'} cut`);
+}
+
+function pasteLabel(place) {
+  if (!fileClipboard) return 'Paste';
+  const what = fileClipboard.mode === 'cut' ? 'move' : 'copy';
+  return `Paste ${what} ${place}`;
 }
 
 async function copyEntryAs(path, directory, name, openCopied) {
@@ -303,10 +315,41 @@ async function duplicateEntry(path, kind) {
 
 async function pasteEntry(directory) {
   if (!fileClipboard) return;
+  if (fileClipboard.mode === 'cut') {
+    const sourceDir = fileClipboard.path.split('/').slice(0, -1).join('/') || '/';
+    if (sourceDir === directory) {
+      flash('Already in this folder');
+      return;
+    }
+    await moveEntryTo(fileClipboard.path, directory, true);
+    return;
+  }
   let name = baseName(fileClipboard.path);
   const sourceDir = fileClipboard.path.split('/').slice(0, -1).join('/') || '/';
   if (sourceDir === directory) name = copyNameFor(fileClipboard.path);
   await copyEntryAs(fileClipboard.path, directory, name, false);
+}
+
+async function moveEntryTo(path, directory, fromClipboard) {
+  try {
+    const data = await api('/api/files/move', {method: 'POST',
+      body: JSON.stringify({path, directory})});
+    if (fromClipboard) fileClipboard = null;
+    await browse(fileState.path || directory);
+    const t = tab(path);
+    if (t && data.kind !== 'dir') {
+      t.path = data.path;
+      t.name = baseName(data.path);
+      if (active === path) {
+        active = data.path;
+        showActive();
+      }
+      renderTabs();
+    }
+    flash('Moved');
+  } catch (err) {
+    flash('Move failed: ' + errText(err));
+  }
 }
 
 function fileDragStart(e, path, kind) {
@@ -345,10 +388,7 @@ async function fileDrop(e, target, kind) {
   }
   if (!data.path || data.path === target) return;
   try {
-    await api('/api/files/move', {method: 'POST',
-      body: JSON.stringify({path: data.path, directory: target})});
-    await browse(fileState.path);
-    flash('Moved');
+    await moveEntryTo(data.path, target, false);
   } catch (err) {
     flash('Move failed: ' + errText(err));
   } finally {

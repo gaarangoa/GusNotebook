@@ -704,6 +704,10 @@ def api_move_file():
         src_path.rename(target)
     except OSError as e:
         return jsonify({"error": str(e)}), 400
+    store.rename_tab(str(src_path), str(target))
+    notebooks.close(str(src_path)) or texts.close(str(src_path))
+    previews.close(str(src_path))
+    kernels.drop(str(src_path))
     return jsonify({"path": str(target), "kind": files.kind_of(target)})
 
 
