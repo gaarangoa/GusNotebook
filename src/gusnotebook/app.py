@@ -634,6 +634,75 @@ def api_rename_file():
     return jsonify({"path": str(dst_path)})
 
 
+@app.route("/api/files/copy", methods=["POST"])
+def api_copy_file():
+    """Copy one file or folder to a directory under a caller-chosen name."""
+    import shutil
+    body = request.get_json(silent=True) or {}
+    src = body.get("path", "").strip()
+    directory = body.get("directory", "").strip()
+    name = body.get("name", "").strip()
+    if not src or not directory or not name:
+        return jsonify({"error": "path, directory and name are required"}), 400
+    try:
+        src_path = files.normalize(src)
+        parent = Path(directory).expanduser().resolve()
+        target = files.new_path(parent, name)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    if not src_path.exists():
+        return jsonify({"error": "source does not exist"}), 404
+    if not parent.is_dir():
+        return jsonify({"error": "target directory does not exist"}), 400
+    try:
+        if src_path.is_dir():
+            target.resolve().relative_to(src_path.resolve())
+            return jsonify({"error": "cannot copy a folder into itself"}), 400
+    except ValueError:
+        pass
+    try:
+        if src_path.is_dir():
+            shutil.copytree(src_path, target)
+        else:
+            shutil.copy2(src_path, target)
+    except OSError as e:
+        return jsonify({"error": str(e)}), 400
+    return jsonify({"path": str(target), "kind": files.kind_of(target)})
+
+
+@app.route("/api/files/move", methods=["POST"])
+def api_move_file():
+    """Move one file or folder into a directory without overwriting."""
+    body = request.get_json(silent=True) or {}
+    src = body.get("path", "").strip()
+    directory = body.get("directory", "").strip()
+    if not src or not directory:
+        return jsonify({"error": "path and directory are required"}), 400
+    try:
+        src_path = files.normalize(src)
+        parent = Path(directory).expanduser().resolve()
+    except OSError as e:
+        return jsonify({"error": str(e)}), 400
+    if not src_path.exists():
+        return jsonify({"error": "source does not exist"}), 404
+    if not parent.is_dir():
+        return jsonify({"error": "target directory does not exist"}), 400
+    target = parent / src_path.name
+    if target.exists():
+        return jsonify({"error": f"{target.name} already exists there"}), 400
+    try:
+        if src_path.is_dir():
+            target.resolve().relative_to(src_path.resolve())
+            return jsonify({"error": "cannot move a folder into itself"}), 400
+    except ValueError:
+        pass
+    try:
+        src_path.rename(target)
+    except OSError as e:
+        return jsonify({"error": str(e)}), 400
+    return jsonify({"path": str(target), "kind": files.kind_of(target)})
+
+
 @app.route("/api/files/delete", methods=["POST"])
 def api_delete_file():
     import shutil

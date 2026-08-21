@@ -18,81 +18,6 @@
  * Playwright suites read and write it. See shimHost() for how CM gets one.
  */
 const cmViews = new Map();       // cell id -> EditorView, mounted cells only
-let textFileCm = null;           // the single CodeMirror view for text-file tabs
-let textFileCmSyncing = false;
-
-function isSyntaxTextTab(t) {
-  return !!t && t.kind === 'text' &&
-    (t.language === 'yaml' || t.language === 'yml');
-}
-
-function unmountTextFileEditor() {
-  const area = document.getElementById('text-editor');
-  if (textFileCm) {
-    textFileCm.destroy();
-    textFileCm = null;
-  }
-  if (area) area.style.display = '';
-}
-
-function syncTextFileEditor(text) {
-  if (!textFileCm) return;
-  const current = textFileCm.state.doc.toString();
-  const next = String(text == null ? '' : text);
-  if (current === next) return;
-  textFileCmSyncing = true;
-  try {
-    textFileCm.dispatch({changes: {from: 0, to: current.length, insert: next}});
-  } finally {
-    textFileCmSyncing = false;
-  }
-}
-
-function mountTextFileEditor(t) {
-  const area = document.getElementById('text-editor');
-  if (!area) return;
-  if (!isSyntaxTextTab(t) || !window.CM || !CM.yaml) {
-    unmountTextFileEditor();
-    return;
-  }
-
-  const text = area.value || '';
-  if (textFileCm && textFileCm.nbPath === t.path) {
-    syncTextFileEditor(text);
-    area.style.display = 'none';
-    return;
-  }
-  unmountTextFileEditor();
-
-  const view = new CM.EditorView({
-    doc: text,
-    extensions: [
-      CM.history(),
-      CM.highlightActiveLine(),
-      CM.lineNumbers(),
-      CM.syntaxHighlighting(CM.style),
-      CM.indentUnit.of('  '),
-      CM.yaml(),
-      CM.Prec.high(CM.keymap.of([
-        {key: 'Mod-s', run: () => { saveText(); return true; }},
-        {key: 'Tab', run: CM.indentMore, shift: CM.indentLess},
-      ])),
-      CM.keymap.of([...CM.historyKeymap, ...CM.defaultKeymap]),
-      CM.EditorView.lineWrapping,
-      CM.EditorView.updateListener.of((u) => {
-        if (!u.docChanged) return;
-        if (textFileCmSyncing) return;
-        area.value = u.state.doc.toString();
-        markTextDirty();
-      }),
-    ],
-  });
-  view.nbPath = t.path;
-  view.dom.classList.add('text-file-cm');
-  area.after(view.dom);
-  area.style.display = 'none';
-  textFileCm = view;
-}
 
 /**
  * Give a mounted CM host a `value` property, so `document.getElementById('ed-X')
@@ -437,7 +362,6 @@ function mountEditors() {
 // hand, mountEditors() did it and there is nothing here to do.
 window.addEventListener('cm-ready', () => {
   if (window.CM && isNotebookTab()) render();
-  if (window.CM && isSyntaxTextTab(activeTab())) mountTextFileEditor(activeTab());
 });
 
 /**

@@ -105,6 +105,11 @@ function renderFileList(entries) {
         : `openFile('${escapeAttr(e.path)}')`;
       return `<div class="${cls.join(' ')}" onclick="${action}"
         oncontextmenu="fileCtxEntry(event,'${escapeAttr(e.path)}','${e.kind}')"
+        draggable="true"
+        ondragstart="fileDragStart(event,'${escapeAttr(e.path)}','${e.kind}')"
+        ondragover="fileDragOver(event,'${e.kind}')"
+        ondragleave="fileDragLeave(event)"
+        ondrop="fileDrop(event,'${escapeAttr(e.path)}','${e.kind}')"
         title="${escapeAttr(e.path)}">
         <span class="ic">${FILE_ICON[e.kind]}</span>
         <span class="nm">${escapeHtml(e.name)}</span>
@@ -120,6 +125,8 @@ function renderFileList(entries) {
 // ---------- File context menu ----------
 
 let fileCtxTarget = null;
+let fileClipboard = null;
+let fileDragPayload = null;
 
 function fileCtxDir(e) {
   e.preventDefault();
@@ -130,6 +137,9 @@ function fileCtxDir(e) {
       {label: 'Copy path', action: () => copyText(fileState.path, 'Path copied')},
       {label: 'Copy full name', action: () => copyText(baseName(fileState.path), 'Name copied')},
     );
+    if (fileClipboard) {
+      items.push({label: 'Paste copy here', action: () => pasteEntry(fileState.path)});
+    }
   }
   showFileCtx(e.clientX, e.clientY, [
     ...items,
@@ -146,11 +156,15 @@ function fileCtxEntry(e, path, kind) {
   const items = [
     {label: 'Copy path', action: () => copyText(path, 'Path copied')},
     {label: 'Copy full name', action: () => copyText(baseName(path), 'Name copied')},
+    {label: 'Duplicate...', action: () => duplicateEntry(path, kind)},
+    {label: 'Copy', action: () => copyEntry(path, kind)},
     {label: 'Rename', action: () => renameEntry(path)},
     {label: 'Delete', action: () => deleteEntry(path, kind), danger: true},
   ];
   if (kind !== 'dir') {
     items.unshift({label: 'Download', action: () => downloadEntry(path)});
+  } else if (fileClipboard) {
+    items.splice(4, 0, {label: 'Paste copy inside', action: () => pasteEntry(path)});
   }
   showFileCtx(e.clientX, e.clientY, items);
 }
@@ -203,6 +217,102 @@ async function copyText(text, message) {
     flash(message || 'Copied');
   } catch (err) {
     flash('Copy failed: ' + errText(err));
+  }
+}
+
+function copyNameFor(path) {
+  const old = baseName(path);
+  const dot = old.lastIndexOf('.');
+  if (dot > 0) return old.slice(0, dot) + ' copy' + old.slice(dot);
+  return old + ' copy';
+}
+
+function copyEntry(path, kind) {
+  fileClipboard = {path, kind};
+  flash(`${kind === 'dir' ? 'Folder' : 'File'} copied`);
+}
+
+async function copyEntryAs(path, directory, name, openCopied) {
+  try {
+    const data = await api('/api/files/copy', {method: 'POST',
+      body: JSON.stringify({path, directory, name})});
+    await browse(fileState.path || directory);
+    if (openCopied && data.kind !== 'dir') openFile(data.path);
+    flash('Copied');
+    return data;
+  } catch (err) {
+    flash('Copy failed: ' + errText(err));
+    return null;
+  }
+}
+
+async function duplicateEntry(path, kind) {
+  const directory = path.split('/').slice(0, -1).join('/') || '/';
+  const old = baseName(path);
+  const name = await askName('Duplicate', old,
+                             'Pick a new name. The copy is created only after this.',
+                             'Duplicate');
+  if (name === null) return;
+  const trimmed = name.trim();
+  if (!trimmed || trimmed === old) {
+    flash('Choose a different name for the duplicate.');
+    return;
+  }
+  await copyEntryAs(path, directory, trimmed, kind !== 'dir');
+}
+
+async function pasteEntry(directory) {
+  if (!fileClipboard) return;
+  let name = baseName(fileClipboard.path);
+  const sourceDir = fileClipboard.path.split('/').slice(0, -1).join('/') || '/';
+  if (sourceDir === directory) name = copyNameFor(fileClipboard.path);
+  await copyEntryAs(fileClipboard.path, directory, name, false);
+}
+
+function fileDragStart(e, path, kind) {
+  closeFileCtx();
+  fileDragPayload = {path, kind};
+  e.dataTransfer.effectAllowed = 'move';
+  e.dataTransfer.setData('application/x-gusnotebook-file',
+                         JSON.stringify(fileDragPayload));
+  e.dataTransfer.setData('text/plain', path);
+}
+
+function fileDragOver(e, kind) {
+  if (kind !== 'dir') return;
+  e.preventDefault();
+  e.currentTarget.classList.add('drop');
+  e.dataTransfer.dropEffect = 'move';
+}
+
+function fileDragLeave(e) {
+  e.currentTarget.classList.remove('drop');
+}
+
+async function fileDrop(e, target, kind) {
+  if (kind !== 'dir') return;
+  e.preventDefault();
+  e.stopPropagation();
+  e.currentTarget.classList.remove('drop');
+  let data;
+  try {
+    data = JSON.parse(e.dataTransfer.getData('application/x-gusnotebook-file') || '{}');
+  } catch (_) { data = {}; }
+  if (!data.path && fileDragPayload) data = fileDragPayload;
+  if (!data.path) {
+    const plain = e.dataTransfer.getData('text/plain');
+    if (plain) data = {path: plain, kind: 'file'};
+  }
+  if (!data.path || data.path === target) return;
+  try {
+    await api('/api/files/move', {method: 'POST',
+      body: JSON.stringify({path: data.path, directory: target})});
+    await browse(fileState.path);
+    flash('Moved');
+  } catch (err) {
+    flash('Move failed: ' + errText(err));
+  } finally {
+    fileDragPayload = null;
   }
 }
 

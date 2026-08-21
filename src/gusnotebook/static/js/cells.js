@@ -257,9 +257,7 @@ function showActive() {
   const textPane = document.getElementById('textpane');
   textPane.classList.toggle('on', kind === 'text');
   textPane.classList.toggle('markup', isMarkupTab(t));
-  textPane.classList.toggle('syntax', isSyntaxTextTab(t));
   document.getElementById('imgpane').classList.toggle('on', kind === 'image');
-  if (kind !== 'text') unmountTextFileEditor();
   if (!isMarkupTab(t)) {
     clearMarkupFocus();
     // Stop animations, timers and media belonging to a preview that is no
@@ -288,7 +286,6 @@ function showActive() {
     document.getElementById('text-status').textContent = t.externalConflict
       ? 'changed on disk · reload' : (t.dirty ? 'unsaved' : 'saved');
     if (isMarkupTab(t)) renderMarkupEditor();
-    mountTextFileEditor(t);
   } else if (kind === 'image') {
     document.getElementById('imgview').src = BASE + t.url;
   } else {
