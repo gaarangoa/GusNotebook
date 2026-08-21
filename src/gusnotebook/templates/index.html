@@ -91,10 +91,15 @@
 
   <div class="left">
     <div class="nb-title">
-      <span id="nb-label">GusNotebook</span> <span class="path" id="nb-path"></span>
+      <span id="nb-label">GusNotebook</span>
+      <span class="path" id="nb-path" spellcheck="false"
+            onkeydown="notebookNameKey(event)"
+            onblur="commitNotebookNameEdit()"></span>
       <!-- The one way into settings: here rather than the toolbar, which hides
            on text and image tabs, and settings aren't notebook-specific. -->
       <span class="grow"></span>
+      <button class="files-btn" id="nb-reload" onclick="reloadNotebookFromDisk()"
+              title="Reload this notebook from disk">Reload</button>
       <button class="files-btn" onclick="openSettings()"
               title="Settings — inline LLM model and gateway credentials">⚙</button>
     </div>
@@ -283,6 +288,48 @@
       <span class="grow"></span>
       <button class="tb" onclick="askDone(false)">Cancel</button>
       <button class="tb primary" id="ask-ok" onclick="askDone(true)">Create</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-back" id="prov-back" onclick="if (event.target === this) provenanceDone(false)">
+  <div class="modal provenance">
+    <div class="mhead">
+      <span class="grow">Copy provenance</span>
+      <button class="help-close" onclick="provenanceDone(false)">✕</button>
+    </div>
+    <div class="mbody">
+      <label class="prov-field">
+        <span>Attached file</span>
+        <div class="prov-path-row">
+          <input type="text" id="prov-path"
+                 placeholder="outputs/data.csv, figures/chart.svg, or leave empty"
+                 spellcheck="false" autocomplete="off"
+                 onkeydown="provenanceKey(event)">
+          <button class="tb" onclick="provenanceTogglePicker()">Browse</button>
+        </div>
+      </label>
+      <div class="prov-picker" id="prov-picker">
+        <div class="prov-picker-top">
+          <div class="prov-crumbs" id="prov-crumbs"></div>
+          <input type="search" id="prov-search" placeholder="filter"
+                 oninput="provenanceRenderPicker()" autocomplete="off">
+        </div>
+        <div class="prov-files" id="prov-files"></div>
+      </div>
+      <label class="prov-field">
+        <span>Comment</span>
+        <textarea id="prov-comment" rows="4"
+                  placeholder="Why this source matters, how the data was produced, or what to rebuild from it"
+                  spellcheck="true"
+                  onkeydown="provenanceKey(event)"></textarea>
+      </label>
+      <div class="prov-hint" id="prov-hint"></div>
+    </div>
+    <div class="mfoot">
+      <span class="grow"></span>
+      <button class="tb" onclick="provenanceDone(false)">Cancel</button>
+      <button class="tb primary" onclick="provenanceDone(true)">Copy</button>
     </div>
   </div>
 </div>

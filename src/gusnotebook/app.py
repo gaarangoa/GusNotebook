@@ -623,7 +623,7 @@ def api_rename_file():
         return jsonify({"error": "path and name are required"}), 400
     if "/" in name or "\\" in name or name in (".", ".."):
         return jsonify({"error": "name must be a single path component"}), 400
-    src_path = Path(src)
+    src_path = files.normalize(src)
     dst_path = src_path.parent / name
     if dst_path.exists():
         return jsonify({"error": f"{name} already exists"}), 400
@@ -631,6 +631,10 @@ def api_rename_file():
         src_path.rename(dst_path)
     except OSError as e:
         return jsonify({"error": str(e)}), 400
+    store.rename_tab(str(src_path), str(dst_path))
+    notebooks.close(str(src_path)) or texts.close(str(src_path))
+    previews.close(str(src_path))
+    kernels.drop(str(src_path))
     return jsonify({"path": str(dst_path)})
 
 
@@ -1047,7 +1051,10 @@ def api_raw():
 @app.route("/api/notebook")
 def api_notebook():
     key = doc_key()
-    data = get_nb(key).to_json()
+    doc = get_nb(key)
+    if request.args.get("force") == "1":
+        doc.load()
+    data = doc.to_json()
     data["kind"] = "notebook"
     data["kernel_status"] = kernels.status(key)
     data["kernel_python"] = kernel_python(key)

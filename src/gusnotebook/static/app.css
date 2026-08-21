@@ -284,6 +284,23 @@ body {
   font-size: 10.5px;
   font-weight: 400;
   color: var(--muted);
+  min-width: 4ch;
+  padding: 2px 4px;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  outline: none;
+}
+.nb-title .path.editable {
+  cursor: text;
+}
+.nb-title .path.editable:hover {
+  color: var(--text);
+  background: #fff;
+}
+.nb-title .path.editable:focus {
+  color: var(--text);
+  background: #fff;
+  border-color: #c9b3c1;
 }
 .nb-title .grow { flex: 1; }
 
@@ -1302,6 +1319,119 @@ button.tb.primary:hover { background: #fdf4f8; }
   margin-top: 6px; font-size: 10.5px; color: var(--muted);
   font-family: var(--mono);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+.modal.provenance { width: 480px; max-width: 92vw; }
+.modal.provenance .mbody {
+  display: flex; flex-direction: column; gap: 12px;
+  padding: 14px 16px 12px;
+}
+.prov-field {
+  display: flex; flex-direction: column; gap: 6px;
+  color: var(--text);
+}
+.prov-field > span {
+  font-size: 11px; font-weight: 650; color: var(--muted);
+}
+.prov-field input,
+.prov-field textarea {
+  width: 100%;
+  font: inherit; font-size: 12.5px;
+  border: 1px solid var(--border); border-radius: 6px;
+  background: #fff; color: var(--text);
+}
+.prov-field input {
+  padding: 7px 9px;
+  font-family: var(--mono);
+}
+.prov-path-row {
+  display: flex; align-items: center; gap: 8px;
+}
+.prov-path-row input { flex: 1; min-width: 0; }
+.prov-field textarea {
+  resize: vertical; min-height: 82px;
+  padding: 8px 9px;
+  line-height: 1.45;
+}
+.prov-field input:focus,
+.prov-field textarea:focus {
+  outline: none; border-color: #c9b3c1;
+}
+.prov-hint {
+  min-height: 14px;
+  color: var(--muted);
+  font-size: 10.5px;
+  font-family: var(--mono);
+}
+.prov-picker {
+  display: none;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+  background: #fff;
+}
+.prov-picker.on { display: block; }
+.prov-picker-top {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 130px;
+  gap: 8px;
+  align-items: center;
+  padding: 7px 8px;
+  border-bottom: 1px solid var(--border);
+  background: #fafbfc;
+}
+.prov-crumbs {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font: 11px/1.4 var(--mono);
+  color: var(--muted);
+}
+.prov-crumb {
+  cursor: pointer;
+  color: var(--text);
+}
+.prov-crumb:hover { text-decoration: underline; }
+.prov-picker-top input {
+  width: 100%;
+  min-width: 0;
+  padding: 5px 7px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  font: 11px/1.35 var(--mono);
+}
+.prov-files {
+  max-height: 190px;
+  overflow: auto;
+  padding: 4px;
+}
+.prov-file-row {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  gap: 6px;
+  align-items: center;
+  min-height: 25px;
+  padding: 3px 6px;
+  border-radius: 5px;
+  font: 12px/1.35 var(--mono);
+  cursor: pointer;
+}
+.prov-file-row:hover { background: #f1f5f9; }
+.prov-file-row .nm {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.prov-file-row .sz {
+  color: var(--muted);
+  font-size: 10.5px;
+}
+.prov-file-row.dir .ic { color: #830051; }
+.prov-file-msg {
+  padding: 12px;
+  color: var(--muted);
+  font: 11px/1.4 var(--mono);
 }
 
 /* Directory picker modal */

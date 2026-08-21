@@ -231,11 +231,12 @@
     var data = event.clipboardData;
     if (!data) return;
     var html = data.getData('text/html') || '';
-    if (!html || html.indexOf('data-gusnb-viz="1"') === -1) return;
+    if (!html || (html.indexOf('data-gusnb-viz="1"') === -1 &&
+                  html.indexOf('data-gusnb-provenance="1"') === -1)) return;
     var template = document.createElement('template');
     template.innerHTML = html;
     var fragment = scrubVizFragment(template.content);
-    if (!fragment.querySelector('[data-gusnb-viz="1"]')) return;
+    if (!fragment.querySelector('[data-gusnb-viz="1"], [data-gusnb-provenance="1"]')) return;
     event.preventDefault();
     event.stopImmediatePropagation();
     if (!insertFragmentAtSelection(fragment)) return;

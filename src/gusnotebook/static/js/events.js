@@ -6,10 +6,10 @@
 
 // ---------- Load + live events ----------
 /** Reload the active notebook tab's cells from the server. */
-async function load() {
+async function load(force = false) {
   if (!isNotebookTab() || !active) return;
   const key = active;
-  const data = await api('/api/notebook' + nbq());
+  const data = await api('/api/notebook' + nbq(force ? {force: '1'} : undefined));
   if (key !== active) return;          // the user switched tabs mid-request
 
   const t = activeTab();
@@ -53,6 +53,28 @@ async function load() {
       ed.focus();
       try { ed.setSelectionRange(caret[0], caret[1]); } catch (e) {}
     }
+  }
+}
+
+async function reloadNotebookFromDisk() {
+  const t = activeTab();
+  if (!t || t.kind !== 'notebook') return;
+  if (unsaved.size) {
+    const ok = await askConfirm(`${t.name} has unsaved cell edits.`,
+      'Reloading keeps the notebook on disk and discards edits not saved from this browser.',
+      'Reload');
+    if (!ok) return;
+    unsaved.clear();
+    for (const id of Object.keys(saveTimers)) {
+      clearTimeout(saveTimers[id]);
+      delete saveTimers[id];
+    }
+  }
+  try {
+    await load(true);
+    flash(`${t.name} reloaded from disk`);
+  } catch (err) {
+    flash('Reload failed: ' + errText(err));
   }
 }
 

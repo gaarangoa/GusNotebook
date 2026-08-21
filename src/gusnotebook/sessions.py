@@ -282,6 +282,28 @@ class SessionStore:
                 self._save()
             return hit
 
+    def rename_tab(self, old_path, new_path):
+        """Replace a tab path everywhere it appears after a file rename."""
+        with self._lock:
+            old_path, new_path = str(old_path), str(new_path)
+            changed = False
+            for s in self._sessions.values():
+                if old_path in s.tabs:
+                    s.tabs = [new_path if p == old_path else p for p in s.tabs]
+                    # If the new path was already present, keep the first copy.
+                    deduped = []
+                    for p in s.tabs:
+                        if p not in deduped:
+                            deduped.append(p)
+                    s.tabs = deduped
+                    changed = True
+                if s.active == old_path:
+                    s.active = new_path
+                    changed = True
+            if changed:
+                self._save()
+            return changed
+
     def add_terminal(self, sid_of_term, sid=None):
         with self._lock:
             s = self._sessions.get(sid or self._current)

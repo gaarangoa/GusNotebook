@@ -273,6 +273,12 @@ function showActive() {
   const pathEl = document.getElementById('nb-path');
   pathEl.textContent = t ? t.name : '';
   pathEl.title = t ? t.path : '';
+  pathEl.dataset.path = t ? t.path : '';
+  pathEl.dataset.name = t ? t.name : '';
+  pathEl.contentEditable = kind === 'notebook' ? 'true' : 'false';
+  pathEl.classList.toggle('editable', kind === 'notebook');
+  const nbReload = document.getElementById('nb-reload');
+  if (nbReload) nbReload.style.display = kind === 'notebook' ? '' : 'none';
 
   if (kind === 'notebook') {
     render();
@@ -291,6 +297,69 @@ function showActive() {
   } else {
     document.getElementById('notebook').innerHTML =
       '<div class="files-msg">No file open — pick one in the browser on the left.</div>';
+  }
+}
+
+function notebookNameKey(event) {
+  const t = activeTab();
+  if (!t || t.kind !== 'notebook') return;
+  if (event.key === 'Enter') {
+    event.preventDefault();
+    event.currentTarget.blur();
+  } else if (event.key === 'Escape') {
+    event.preventDefault();
+    event.currentTarget.textContent = event.currentTarget.dataset.name || t.name;
+    event.currentTarget.blur();
+  }
+}
+
+async function commitNotebookNameEdit() {
+  const el = document.getElementById('nb-path');
+  const t = activeTab();
+  if (!el || !t || t.kind !== 'notebook') return;
+  const oldPath = t.path;
+  const oldName = t.name;
+  let name = el.textContent.trim();
+  if (!name || name === oldName) {
+    el.textContent = oldName;
+    return;
+  }
+  if (!name.endsWith('.ipynb')) name += '.ipynb';
+  if (name.includes('/') || name.includes('\\')) {
+    flash('Notebook name must not contain slashes');
+    el.textContent = oldName;
+    return;
+  }
+  try {
+    await Promise.all([...unsaved].map(id => saveCell(id)));
+    const data = await api('/api/files/rename', {method: 'POST',
+      body: JSON.stringify({path: oldPath, name})});
+    const newPath = data.path;
+    const oldView = notebookViewState.get(oldPath);
+    if (oldView) {
+      notebookViewState.delete(oldPath);
+      notebookViewState.set(newPath, oldView);
+      try {
+        sessionStorage.removeItem('gusnotebook:view:' + oldPath);
+        sessionStorage.setItem('gusnotebook:view:' + newPath, JSON.stringify({
+          codeOpen: [...oldView.codeOpen],
+          outsHidden: [...oldView.outsHidden],
+          headingsCollapsed: [...oldView.headingsCollapsed],
+        }));
+      } catch (e) {}
+    }
+    t.path = newPath;
+    t.name = name;
+    active = newPath;
+    rememberActive(newPath);
+    renderTabs();
+    showActive();
+    if (fileState.path) browse(fileState.path);
+    loadSessions();
+    flash(`Renamed notebook to ${name}`);
+  } catch (err) {
+    el.textContent = oldName;
+    flash('Rename failed: ' + errText(err));
   }
 }
 
@@ -963,21 +1032,200 @@ function jsonForHtml(value) {
 }
 
 function provenanceSummary(payload) {
-  return [
+  const lines = [
     `Notebook: ${payload.notebook || '(unsaved)'}`,
     `Cell: ${payload.cell_index} (${payload.cell_id})`,
     `Executed: ${payload.execution_count == null ? 'not recorded' : payload.execution_count}`,
     `Captured: ${payload.timestamp}`,
-    `Output: ${payload.output_mime}`,
-    '',
-    payload.code || ''
-  ].join('\n');
+  ];
+  if (payload.output_mime) lines.push(`Output: ${payload.output_mime}`);
+  if (!payload.output_mime) lines.push('Output: none captured');
+  if (payload.comment) {
+    lines.push('Comment:');
+    lines.push(payload.comment);
+  }
+  if (payload.attachments && payload.attachments.length) {
+    lines.push('Attachments:');
+    for (const attachment of payload.attachments) {
+      lines.push(`- ${attachment.role || 'file'}: ${attachment.path}`);
+    }
+  }
+  return lines.join('\n');
 }
 
-function provenanceHtml(c, visual) {
+let provenanceResolve = null;
+let provenancePicker = {path: null, parent: null, entries: []};
+
+function askProvenanceDetails(defaultPath, hint) {
+  const back = document.getElementById('prov-back');
+  const path = document.getElementById('prov-path');
+  const comment = document.getElementById('prov-comment');
+  const hintEl = document.getElementById('prov-hint');
+  if (!back || !path || !comment) return Promise.resolve(null);
+  path.value = defaultPath || '';
+  comment.value = '';
+  if (hintEl) hintEl.textContent = hint || '';
+  back.classList.add('on');
+  provenanceClosePicker();
+  path.focus();
+  path.setSelectionRange(path.value.length, path.value.length);
+  return new Promise(resolve => { provenanceResolve = resolve; });
+}
+
+function provenanceDone(ok) {
+  const back = document.getElementById('prov-back');
+  const path = document.getElementById('prov-path');
+  const comment = document.getElementById('prov-comment');
+  if (back) back.classList.remove('on');
+  provenanceClosePicker();
+  const resolve = provenanceResolve;
+  provenanceResolve = null;
+  if (!resolve) return;
+  resolve(ok ? {
+    path: path ? path.value.trim() : '',
+    comment: comment ? comment.value.trim() : '',
+  } : null);
+}
+
+function provenancePickerStartPath() {
+  if (active) {
+    const parts = active.split('/');
+    parts.pop();
+    return parts.join('/') || '/';
+  }
+  return fileState.path || '/';
+}
+
+function provenanceClosePicker() {
+  const picker = document.getElementById('prov-picker');
+  if (picker) picker.classList.remove('on');
+}
+
+async function provenanceTogglePicker() {
+  const picker = document.getElementById('prov-picker');
+  if (!picker) return;
+  if (picker.classList.contains('on')) {
+    provenanceClosePicker();
+    return;
+  }
+  picker.classList.add('on');
+  await provenanceBrowse(provenancePicker.path || provenancePickerStartPath());
+}
+
+async function provenanceBrowse(path) {
+  const files = document.getElementById('prov-files');
+  if (files) files.innerHTML = '<div class="prov-file-msg">loading...</div>';
+  try {
+    const q = new URLSearchParams();
+    if (path) q.set('path', path);
+    q.set('hidden', fileState.hidden ? '1' : '0');
+    const data = await api('/api/files?' + q);
+    provenancePicker = {path: data.path, parent: data.parent, entries: data.entries || []};
+    const search = document.getElementById('prov-search');
+    if (search) search.value = '';
+    provenanceRenderPicker();
+  } catch (err) {
+    if (files) files.innerHTML =
+      `<div class="prov-file-msg">Cannot list files: ${escapeHtml(errText(err))}</div>`;
+  }
+}
+
+function provenanceRenderCrumbs(path) {
+  const el = document.getElementById('prov-crumbs');
+  if (!el) return;
+  const parts = String(path || '/').split('/').filter(Boolean);
+  let html = `<span class="prov-crumb" onclick="provenanceBrowse('/')">/</span>`;
+  let cur = '';
+  const start = Math.max(0, parts.length - 3);
+  if (start > 0) {
+    cur = '/' + parts.slice(0, start).join('/');
+    html += ` <span class="prov-crumb" onclick="provenanceBrowse('${escapeAttr(cur)}')">...</span>`;
+  }
+  for (let i = start; i < parts.length; i++) {
+    cur = '/' + parts.slice(0, i + 1).join('/');
+    html += ` / <span class="prov-crumb" onclick="provenanceBrowse('${escapeAttr(cur)}')">${escapeHtml(parts[i])}</span>`;
+  }
+  el.innerHTML = html;
+  el.title = path || '/';
+}
+
+function provenanceRenderPicker() {
+  provenanceRenderCrumbs(provenancePicker.path);
+  const files = document.getElementById('prov-files');
+  if (!files) return;
+  const q = (document.getElementById('prov-search') || {}).value || '';
+  const needle = q.trim().toLowerCase();
+  let entries = provenancePicker.entries || [];
+  if (needle) entries = entries.filter(e =>
+    String(e.name || '').toLowerCase().includes(needle) ||
+    String(e.path || '').toLowerCase().includes(needle));
+  const rows = [];
+  if (provenancePicker.parent && !needle) {
+    rows.push(`<div class="prov-file-row dir" onclick="provenanceBrowse('${escapeAttr(provenancePicker.parent)}')">
+      <span class="ic">↰</span><span class="nm">..</span><span class="sz"></span>
+    </div>`);
+  }
+  for (const e of entries) {
+    const isDir = e.kind === 'dir';
+    const action = isDir
+      ? `provenanceBrowse('${escapeAttr(e.path)}')`
+      : `provenancePickFile('${escapeAttr(e.path)}')`;
+    rows.push(`<div class="prov-file-row ${isDir ? 'dir' : ''}" onclick="${action}" title="${escapeAttr(e.path)}">
+      <span class="ic">${isDir ? '▸' : '·'}</span>
+      <span class="nm">${escapeHtml(e.name)}</span>
+      <span class="sz">${isDir ? '' : fmtSize(e.size)}</span>
+    </div>`);
+  }
+  files.innerHTML = rows.length ? rows.join('') : '<div class="prov-file-msg">No matches</div>';
+}
+
+function provenancePickFile(path) {
+  const input = document.getElementById('prov-path');
+  if (input) input.value = path;
+  provenanceClosePicker();
+  const comment = document.getElementById('prov-comment');
+  if (comment) comment.focus();
+}
+
+function provenanceKey(event) {
+  if (event.key === 'Escape') {
+    event.preventDefault();
+    provenanceDone(false);
+  } else if (event.key === 'Enter' && event.target && event.target.id === 'prov-path') {
+    event.preventDefault();
+    provenanceDone(true);
+  }
+}
+
+function attachmentFromPath(path) {
+  const clean = String(path || '').trim();
+  if (!clean) return [];
+  return [{
+    path: clean,
+    name: notebookName(clean),
+    role: 'data',
+    timestamp: new Date().toISOString(),
+    source: 'notebook-linked',
+  }];
+}
+
+function provenancePlaceholder(payload) {
+  const title = payload.attachments && payload.attachments.length
+    ? 'Notebook-linked data source' : 'Notebook provenance source';
+  const detail = payload.attachments && payload.attachments.length
+    ? payload.attachments.map(a => a.path).join(', ')
+    : payload.comment || `${payload.notebook_name || 'Notebook'} cell ${payload.cell_index}`;
+  return `<div class="gusnb-viz-placeholder" data-gusnb-viz-placeholder>
+    <strong>${escapeHtml(title)}</strong>
+    <span>${escapeHtml(detail)}</span>
+  </div>`;
+}
+
+function provenanceHtml(c, visual, details) {
+  details = details || {};
   const payload = {
-    kind: 'gusnotebook-viz-snapshot',
-    version: 1,
+    kind: 'gusnotebook-provenance-snapshot',
+    version: 2,
     notebook: active || '',
     notebook_name: notebookName(active),
     cell_id: c.id,
@@ -985,9 +1233,11 @@ function provenanceHtml(c, visual) {
     execution_count: c.execution_count == null ? null : c.execution_count,
     timestamp: new Date().toISOString(),
     code: c.source || '',
-    output_mime: visual.mime,
-    output_source: visual.source,
-    output_data_url: visual.dataUrl || null,
+    output_mime: visual ? visual.mime : null,
+    output_source: visual ? visual.source : null,
+    output_data_url: visual ? visual.dataUrl || null : null,
+    attachments: attachmentFromPath(details.path),
+    comment: details.comment || '',
   };
   const summary = provenanceSummary(payload);
   const onclick = "var p=this.parentElement.querySelector('[data-gusnb-viz-panel]');if(p)p.hidden=!p.hidden;return false;";
@@ -997,11 +1247,14 @@ function provenanceHtml(c, visual) {
 .gusnb-viz [data-gusnb-viz-info]{position:absolute;top:6px;right:6px;opacity:0;pointer-events:none;font:11px/1.25 system-ui,-apple-system,Segoe UI,sans-serif;border:1px solid rgba(15,23,42,.18);background:rgba(255,255,255,.92);color:#0f172a;border-radius:4px;padding:3px 6px;cursor:pointer;box-shadow:0 2px 8px rgba(15,23,42,.12);}
 .gusnb-viz:hover [data-gusnb-viz-info],.gusnb-viz [data-gusnb-viz-info]:focus{opacity:1;pointer-events:auto;}
 .gusnb-viz [data-gusnb-viz-panel]{white-space:pre-wrap;margin:8px 0 0;padding:10px;border:1px solid #cbd5e1;border-radius:4px;background:#f8fafc;color:#0f172a;font:12px/1.45 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;}
+.gusnb-viz-placeholder{display:flex;flex-direction:column;gap:3px;padding:14px;border:1px dashed #94a3b8;border-radius:6px;background:#f8fafc;color:#0f172a;font:13px/1.35 system-ui,-apple-system,Segoe UI,sans-serif;}
+.gusnb-viz-placeholder span{color:#475569;font-size:12px;}
 </style>`;
+  const render = visual ? visual.render : provenancePlaceholder(payload);
   return {
     html: `${style}
-<figure class="gusnb-viz" data-gusnb-viz="1" data-gusnb-notebook="${escapeAttr(payload.notebook)}" data-gusnb-cell-id="${escapeAttr(c.id)}">
-  <div class="gusnb-viz-render" data-gusnb-viz-render>${visual.render}</div>
+<figure class="gusnb-viz" data-gusnb-viz="1" data-gusnb-provenance="1" data-gusnb-notebook="${escapeAttr(payload.notebook)}" data-gusnb-cell-id="${escapeAttr(c.id)}">
+  <div class="gusnb-viz-render" data-gusnb-viz-render>${render}</div>
   <button type="button" data-gusnb-viz-info contenteditable="false" onclick="${escapeAttr(onclick)}">Source</button>
   <pre data-gusnb-viz-panel contenteditable="false" hidden>${escapeHtml(summary)}</pre>
   <script type="application/json" data-gusnb-viz-source>${jsonForHtml(payload)}</script>
@@ -1038,17 +1291,22 @@ async function copyRichHtml(html, plain) {
   if (!ok) throw new Error('clipboard unavailable');
 }
 
-async function copyCellProvenance(id) {
+async function copyCellProvenance(id, event) {
   const c = getCell(id);
+  if (!c) return;
   const visual = visualOutput(c);
-  if (!c || !visual) {
-    flash('No HTML, SVG, PNG, or JPEG output to copy');
-    return;
-  }
-  const block = provenanceHtml(c, visual);
+  const wantsAttachment = !visual || (event && (event.altKey || event.metaKey || event.ctrlKey));
+  const defaultPath = active ? active.split('/').slice(0, -1).join('/') + '/' : '';
+  const details = wantsAttachment
+    ? await askProvenanceDetails(defaultPath, visual
+      ? 'Attach a file and/or comment to this visual snapshot.'
+      : 'No rendered output was found. Link a data or figure file, add context, or copy as source-only.')
+    : {};
+  if (details == null) return;
+  const block = provenanceHtml(c, visual, details);
   try {
     await copyRichHtml(block.html, block.plain);
-    flash('Copied output snapshot');
+    flash(visual ? 'Copied provenance snapshot' : 'Copied source provenance');
   } catch (err) {
     flash('Copy failed: ' + errText(err));
   }
@@ -1300,8 +1558,8 @@ function cellHtml(c) {
                   onclick="event.stopPropagation();addCell('code', '${c.id}')">+</button>
         </div>
         <div class="act-row">
-          <button class="act-btn" title="Copy visual output with source"
-                  onclick="event.stopPropagation();copyCellProvenance('${c.id}')">⧉</button>
+          <button class="act-btn" title="Copy provenance snapshot (⌥/Ctrl/⌘ click to attach file)"
+                  onclick="event.stopPropagation();copyCellProvenance('${c.id}', event)">⧉</button>
           <button class="act-btn danger" title="Delete this cell"
                   onclick="event.stopPropagation();deleteCell('${c.id}')">✕</button>
         </div>
