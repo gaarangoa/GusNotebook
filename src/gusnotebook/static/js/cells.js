@@ -917,6 +917,143 @@ function renderOutputs(outputs, cellId) {
   return html + '</div>';
 }
 
+function mimeText(value) {
+  return Array.isArray(value) ? value.join('\n') : String(value == null ? '' : value);
+}
+
+function visualOutput(c) {
+  for (const o of (c && c.outputs) || []) {
+    if (o.output_type !== 'execute_result' && o.output_type !== 'display_data') continue;
+    const d = o.data || {};
+    if (d['image/svg+xml']) {
+      const source = mimeText(d['image/svg+xml']);
+      return {mime: 'image/svg+xml', source,
+              render: DOMPurify.sanitize(source)};
+    }
+    if (d['text/html']) {
+      const source = mimeText(d['text/html']);
+      return {mime: 'text/html', source,
+              render: DOMPurify.sanitize(source)};
+    }
+    if (d['image/png']) {
+      const source = mimeText(d['image/png']).replace(/\s+/g, '');
+      return {mime: 'image/png', source, dataUrl: `data:image/png;base64,${source}`,
+              render: `<img src="data:image/png;base64,${source}" alt="">`};
+    }
+    if (d['image/jpeg']) {
+      const source = mimeText(d['image/jpeg']).replace(/\s+/g, '');
+      return {mime: 'image/jpeg', source, dataUrl: `data:image/jpeg;base64,${source}`,
+              render: `<img src="data:image/jpeg;base64,${source}" alt="">`};
+    }
+  }
+  return null;
+}
+
+function notebookName(path) {
+  return String(path || '').split('/').filter(Boolean).pop() || String(path || '');
+}
+
+function jsonForHtml(value) {
+  return JSON.stringify(value, null, 2)
+    .replace(/</g, '\\u003c')
+    .replace(/>/g, '\\u003e')
+    .replace(/&/g, '\\u0026')
+    .replace(/\u2028/g, '\\u2028')
+    .replace(/\u2029/g, '\\u2029');
+}
+
+function provenanceSummary(payload) {
+  return [
+    `Notebook: ${payload.notebook || '(unsaved)'}`,
+    `Cell: ${payload.cell_index} (${payload.cell_id})`,
+    `Executed: ${payload.execution_count == null ? 'not recorded' : payload.execution_count}`,
+    `Captured: ${payload.timestamp}`,
+    `Output: ${payload.output_mime}`,
+    '',
+    payload.code || ''
+  ].join('\n');
+}
+
+function provenanceHtml(c, visual) {
+  const payload = {
+    kind: 'gusnotebook-viz-snapshot',
+    version: 1,
+    notebook: active || '',
+    notebook_name: notebookName(active),
+    cell_id: c.id,
+    cell_index: cells.findIndex(x => x.id === c.id) + 1,
+    execution_count: c.execution_count == null ? null : c.execution_count,
+    timestamp: new Date().toISOString(),
+    code: c.source || '',
+    output_mime: visual.mime,
+    output_source: visual.source,
+    output_data_url: visual.dataUrl || null,
+  };
+  const summary = provenanceSummary(payload);
+  const onclick = "var p=this.parentElement.querySelector('[data-gusnb-viz-panel]');if(p)p.hidden=!p.hidden;return false;";
+  const style = `<style data-gusnb-viz-style>
+.gusnb-viz{position:relative;margin:16px 0;}
+.gusnb-viz-render{max-width:100%;overflow:auto;}
+.gusnb-viz [data-gusnb-viz-info]{position:absolute;top:6px;right:6px;opacity:0;pointer-events:none;font:11px/1.25 system-ui,-apple-system,Segoe UI,sans-serif;border:1px solid rgba(15,23,42,.18);background:rgba(255,255,255,.92);color:#0f172a;border-radius:4px;padding:3px 6px;cursor:pointer;box-shadow:0 2px 8px rgba(15,23,42,.12);}
+.gusnb-viz:hover [data-gusnb-viz-info],.gusnb-viz [data-gusnb-viz-info]:focus{opacity:1;pointer-events:auto;}
+.gusnb-viz [data-gusnb-viz-panel]{white-space:pre-wrap;margin:8px 0 0;padding:10px;border:1px solid #cbd5e1;border-radius:4px;background:#f8fafc;color:#0f172a;font:12px/1.45 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;}
+</style>`;
+  return {
+    html: `${style}
+<figure class="gusnb-viz" data-gusnb-viz="1" data-gusnb-notebook="${escapeAttr(payload.notebook)}" data-gusnb-cell-id="${escapeAttr(c.id)}">
+  <div class="gusnb-viz-render" data-gusnb-viz-render>${visual.render}</div>
+  <button type="button" data-gusnb-viz-info contenteditable="false" onclick="${escapeAttr(onclick)}">Source</button>
+  <pre data-gusnb-viz-panel contenteditable="false" hidden>${escapeHtml(summary)}</pre>
+  <script type="application/json" data-gusnb-viz-source>${jsonForHtml(payload)}</script>
+</figure>`,
+    plain: summary,
+    payload,
+  };
+}
+
+async function copyRichHtml(html, plain) {
+  if (navigator.clipboard && window.ClipboardItem && window.isSecureContext) {
+    await navigator.clipboard.write([
+      new ClipboardItem({
+        'text/html': new Blob([html], {type: 'text/html'}),
+        'text/plain': new Blob([plain], {type: 'text/plain'}),
+      })
+    ]);
+    return;
+  }
+  const div = document.createElement('div');
+  div.contentEditable = 'true';
+  div.style.position = 'fixed';
+  div.style.left = '-9999px';
+  div.innerHTML = html;
+  document.body.appendChild(div);
+  const range = document.createRange();
+  range.selectNodeContents(div);
+  const sel = window.getSelection();
+  sel.removeAllRanges();
+  sel.addRange(range);
+  const ok = document.execCommand('copy');
+  sel.removeAllRanges();
+  div.remove();
+  if (!ok) throw new Error('clipboard unavailable');
+}
+
+async function copyCellProvenance(id) {
+  const c = getCell(id);
+  const visual = visualOutput(c);
+  if (!c || !visual) {
+    flash('No HTML, SVG, PNG, or JPEG output to copy');
+    return;
+  }
+  const block = provenanceHtml(c, visual);
+  try {
+    await copyRichHtml(block.html, block.plain);
+    flash('Copied output snapshot');
+  } catch (err) {
+    flash('Copy failed: ' + errText(err));
+  }
+}
+
 /** The execution state stays separate from output so a streamed message cannot
  * replace it. It deliberately comes after the output: on a long run the newest
  * lines and the still-running signal remain together at the bottom of the cell. */
@@ -1163,6 +1300,8 @@ function cellHtml(c) {
                   onclick="event.stopPropagation();addCell('code', '${c.id}')">+</button>
         </div>
         <div class="act-row">
+          <button class="act-btn" title="Copy visual output with source"
+                  onclick="event.stopPropagation();copyCellProvenance('${c.id}')">⧉</button>
           <button class="act-btn danger" title="Delete this cell"
                   onclick="event.stopPropagation();deleteCell('${c.id}')">✕</button>
         </div>

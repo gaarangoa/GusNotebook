@@ -177,6 +177,73 @@
                   text: (changed || forceText) ? serialize() : null});
   }
 
+  function wireVizSource(root) {
+    (root || document).querySelectorAll('[data-gusnb-viz-info]').forEach(function (button) {
+      if (button.getAttribute('onclick')) return;
+      if (button._gusnbVizInfoWired) return;
+      button._gusnbVizInfoWired = true;
+      button.addEventListener('click', function (event) {
+        event.preventDefault();
+        event.stopPropagation();
+        var block = button.closest('[data-gusnb-viz]');
+        var panel = block && block.querySelector('[data-gusnb-viz-panel]');
+        if (panel) panel.hidden = !panel.hidden;
+      });
+    });
+  }
+
+  function scrubVizFragment(fragment) {
+    fragment.querySelectorAll('script').forEach(function (script) {
+      if (script.matches('[type="application/json"][data-gusnb-viz-source]')) return;
+      script.remove();
+    });
+    fragment.querySelectorAll('*').forEach(function (el) {
+      Array.from(el.attributes).forEach(function (attr) {
+        var name = attr.name.toLowerCase();
+        if (name.startsWith('on') &&
+            !(name === 'onclick' && el.matches('[data-gusnb-viz-info]'))) {
+          el.removeAttribute(attr.name);
+        }
+      });
+    });
+    return fragment;
+  }
+
+  function insertFragmentAtSelection(fragment) {
+    var selection = document.getSelection();
+    if (!selection || !selection.rangeCount) return false;
+    var range = selection.getRangeAt(0);
+    if (!document.body || !document.body.contains(range.commonAncestorContainer)) return false;
+    range.deleteContents();
+    var marker = document.createTextNode('');
+    fragment.appendChild(marker);
+    range.insertNode(fragment);
+    range = document.createRange();
+    range.setStartAfter(marker);
+    range.collapse(true);
+    selection.removeAllRanges();
+    selection.addRange(range);
+    marker.remove();
+    return true;
+  }
+
+  function handleVizPaste(event) {
+    var data = event.clipboardData;
+    if (!data) return;
+    var html = data.getData('text/html') || '';
+    if (!html || html.indexOf('data-gusnb-viz="1"') === -1) return;
+    var template = document.createElement('template');
+    template.innerHTML = html;
+    var fragment = scrubVizFragment(template.content);
+    if (!fragment.querySelector('[data-gusnb-viz="1"]')) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    if (!insertFragmentAtSelection(fragment)) return;
+    wireVizSource(document);
+    changed = true;
+    send('change', true);
+  }
+
   function svgTextTarget(node) {
     while (node && node !== document) {
       if (node.namespaceURI === 'http://www.w3.org/2000/svg' &&
@@ -251,6 +318,7 @@
     send('change', true);
     queueViewReport();
   }, true);
+  document.addEventListener('paste', handleVizPaste, true);
   document.addEventListener('keydown', function (event) {
     if (event.key.toLowerCase() !== 's' || (!event.metaKey && !event.ctrlKey)) return;
     event.preventDefault();
@@ -292,6 +360,7 @@
       document.body.spellcheck = true;
       document.body.setAttribute('data-gusnotebook-edit-root', '');
     }
+    wireVizSource(document);
     sendToParent({channel: config.channel, nonce: config.nonce, kind: 'ready'});
   }
   if (document.readyState === 'loading')
