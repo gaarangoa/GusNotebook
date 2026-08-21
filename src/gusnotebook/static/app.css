@@ -33,7 +33,7 @@ body {
 
 .app {
   display: grid;
-  grid-template-columns: 230px 1fr 6px 440px;
+  grid-template-columns: 230px 1fr 6px 220px;
   height: 100vh;
   overflow: hidden;
   /* Grid rows default to auto (content height); pin to the viewport so the
@@ -42,7 +42,7 @@ body {
 }
 /* Collapsed to zero width rather than display:none — a hidden grid item stops
    occupying its column, which would slide every later pane one column left. */
-.app.files-hidden { grid-template-columns: 0 1fr 6px 440px; }
+.app.files-hidden { grid-template-columns: 0 1fr 6px 220px; }
 .app.files-hidden .files { visibility: hidden; }
 
 /* ---------- Far left: file browser ---------- */
@@ -243,6 +243,7 @@ body {
 .file-row:hover { background: #eef2f7; }
 .file-row.drop { background: #dcfce7; color: #166534; }
 .file-row.open { background: #fce4ef; color: var(--accent); font-weight: 600; }
+.file-row.located { outline: 1px solid #e9c7d9; outline-offset: -1px; }
 .file-row .ic { flex: 0 0 14px; text-align: center; font-size: 11px; opacity: .85; }
 .file-row .nm {
   flex: 1 1 auto; min-width: 0;
@@ -331,6 +332,9 @@ body {
   flex: 0 0 auto;
 }
 .tab:hover { background: #e8ebf0; }
+.tab.dragging { opacity: .55; }
+.tab.drop-left { box-shadow: inset 2px 0 0 var(--accent); }
+.tab.drop-right { box-shadow: inset -2px 0 0 var(--accent); }
 .tab.active {
   background: var(--panel);
   color: #1e293b;
@@ -1171,7 +1175,7 @@ button.tb.primary:hover { background: #fdf4f8; }
 }
 .right .bar {
   display: flex; align-items: center; gap: 6px;
-  padding: 0 8px 0 12px; height: 40px;
+  padding: 0 6px; height: 40px;
   background: #fafbfc; border-bottom: 1px solid var(--border);
   flex: 0 0 40px;
   overflow: hidden;
@@ -1180,13 +1184,17 @@ button.tb.primary:hover { background: #fdf4f8; }
   font-size: 11px; font-weight: 600; color: #475569; letter-spacing: .03em;
   flex: 0 0 auto;
 }
-.status { margin-left: auto; font-size: 10px; padding: 3px 8px; border-radius: 4px; flex: 0 0 auto; }
+.status {
+  margin-left: auto; font-size: 10px; padding: 3px 6px; border-radius: 4px;
+  flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; text-align: center;
+}
 .status.connected { background: #dcfce7; color: #15803d; }
 .status.disconnected { background: #fee2e2; color: #b91c1c; }
 
 .term-btn {
   font: inherit; font-size: 11px;
-  padding: 3px 8px;
+  padding: 3px 6px;
   background: #fff; color: #475569;
   border: 1px solid var(--border); border-radius: 5px;
   cursor: pointer; flex: 0 0 auto;
@@ -1195,12 +1203,18 @@ button.tb.primary:hover { background: #fdf4f8; }
 
 .agent-select {
   font: inherit; font-size: 11px;
-  padding: 3px 22px 3px 7px;
+  padding: 3px 18px 3px 6px;
   background: #fff; color: #475569;
   border: 1px solid var(--border); border-radius: 5px;
   cursor: pointer; flex: 0 0 auto;
 }
 .agent-select:hover { background: #f1f5f9; border-color: #cbd5e1; }
+
+@media (max-width: 980px) {
+  .right .bar { gap: 4px; }
+  .term-btn { padding: 3px 5px; }
+  .status { display: none; }
+}
 
 /* One row of session tabs — several agents, each rooted somewhere. */
 .term-tabs {

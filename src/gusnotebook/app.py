@@ -818,6 +818,8 @@ def api_update_session(sid):
             store.set_instructions(sid, body["instructions"])
         if "restrictions" in body:
             store.set_restrictions(sid, body["restrictions"])
+        if "tabs" in body:
+            store.set_tabs(sid, body["tabs"])
         if "active" in body:
             store.set_active(sid, body["active"])
         if body.get("switch"):

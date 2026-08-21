@@ -230,6 +230,27 @@ class SessionStore:
             self._save()
             return s
 
+    def set_tabs(self, sid, paths):
+        """Persist a reordered tab list without adding or removing membership."""
+        with self._lock:
+            s = self._sessions.get(sid)
+            if s is None:
+                raise ValueError(f"no such session: {sid}")
+            current = list(s.tabs)
+            requested = [str(p) for p in paths]
+            ordered = []
+            for p in requested:
+                if p in current and p not in ordered:
+                    ordered.append(p)
+            for p in current:
+                if p not in ordered:
+                    ordered.append(p)
+            s.tabs = ordered
+            if s.active and s.active not in s.tabs:
+                s.active = s.tabs[-1] if s.tabs else None
+            self._save()
+            return s
+
     def delete(self, sid):
         """Remove a session and report what it owned, for the caller to release.
 

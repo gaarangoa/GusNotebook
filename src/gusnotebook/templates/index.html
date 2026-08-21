@@ -94,7 +94,8 @@
       <span id="nb-label">GusNotebook</span>
       <span class="path" id="nb-path" spellcheck="false"
             onkeydown="notebookNameKey(event)"
-            onblur="commitNotebookNameEdit()"></span>
+            onblur="commitNotebookNameEdit()"
+            oncontextmenu="activeFileCtx(event)"></span>
       <!-- The one way into settings: here rather than the toolbar, which hides
            on text and image tabs, and settings aren't notebook-specific. -->
       <span class="grow"></span>

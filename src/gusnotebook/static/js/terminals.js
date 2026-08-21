@@ -197,7 +197,8 @@ else window.addEventListener('workspace-ready', bootTerminals, {once: true});
 
 // ---------- Layout (file column | notebook | splitter | terminal) ----------
 const FILES_WIDTH = 230;
-let termWidth = 440;
+const TERM_MIN_WIDTH = 220;
+let termWidth = TERM_MIN_WIDTH;
 
 function filesVisible() {
   return !document.getElementById('app').classList.contains('files-hidden');
@@ -219,7 +220,7 @@ splitter.addEventListener('mousedown', () => {
 window.addEventListener('mousemove', (e) => {
   if (!dragging) return;
   const filesW = filesVisible() ? FILES_WIDTH : 0;
-  termWidth = Math.min(Math.max(window.innerWidth - e.clientX, 280),
+  termWidth = Math.min(Math.max(window.innerWidth - e.clientX, TERM_MIN_WIDTH),
                        window.innerWidth - 360 - filesW);
   applyLayout();
 });

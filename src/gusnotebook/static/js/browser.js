@@ -188,6 +188,46 @@ function showFileCtx(x, y, items) {
   menu.style.top  = Math.min(y, window.innerHeight - mh - 8) + 'px';
 }
 
+function activeFileCtx(e) {
+  const t = activeTab();
+  if (!t || !t.path) return;
+  e.preventDefault();
+  e.stopPropagation();
+  showPathCtx(e.clientX, e.clientY, t.path);
+}
+
+function tabFileCtx(e, path) {
+  e.preventDefault();
+  e.stopPropagation();
+  showPathCtx(e.clientX, e.clientY, path);
+}
+
+function showPathCtx(x, y, path) {
+  showFileCtx(x, y, [
+    {label: 'Show in file tree', action: () => showInFileTree(path)},
+    {label: 'Copy path', action: () => copyText(path, 'Path copied')},
+    {label: 'Copy full name', action: () => copyText(baseName(path), 'Name copied')},
+  ]);
+}
+
+async function showInFileTree(path) {
+  const app = document.getElementById('app');
+  if (app && app.classList.contains('files-hidden')) {
+    app.classList.remove('files-hidden');
+    applyLayout();
+  }
+  const directory = String(path || '').split('/').slice(0, -1).join('/') || '/';
+  const ok = await browse(directory);
+  if (!ok) return;
+  const row = [...document.querySelectorAll('.file-row')]
+    .find(el => el.title === path);
+  if (row) {
+    row.scrollIntoView({block: 'nearest'});
+    row.classList.add('located');
+    setTimeout(() => row.classList.remove('located'), 1600);
+  }
+}
+
 function closeFileCtx() {
   const m = document.getElementById('file-ctx');
   if (m) m.remove();
@@ -597,7 +637,15 @@ function stashActive() {
 function renderTabs() {
   document.getElementById('tabs').innerHTML = tabs.map(t => `
     <div class="tab ${t.path === active ? 'active' : ''} ${t.dirty ? 'dirty' : ''}"
-         onclick="switchTab('${escapeAttr(t.path)}')" title="${escapeAttr(t.path)}">
+         onclick="switchTab('${escapeAttr(t.path)}')"
+         oncontextmenu="tabFileCtx(event,'${escapeAttr(t.path)}')"
+         draggable="true"
+         ondragstart="tabDragStart(event,'${escapeAttr(t.path)}')"
+         ondragover="tabDragOver(event,'${escapeAttr(t.path)}')"
+         ondragleave="tabDragLeave(event)"
+         ondrop="tabDrop(event,'${escapeAttr(t.path)}')"
+         ondragend="tabDragEnd(event)"
+         title="${escapeAttr(t.path)}">
       <span class="ti">${tabIcon(t)}</span>
       <span class="tn">${escapeHtml(t.name)}</span>
       <span class="tx" onclick="closeTab('${escapeAttr(t.path)}', event)">✕</span>
@@ -605,6 +653,60 @@ function renderTabs() {
     // Always last, so "new" sits where the next tab would appear.
     `<div class="tab-new" id="tab-new" onclick="toggleNewMenu(event)"
           title="New notebook, file, folder, agent or terminal">+</div>`;
+}
+
+let tabDragPath = null;
+
+function tabDragStart(event, path) {
+  tabDragPath = path;
+  event.dataTransfer.effectAllowed = 'move';
+  event.dataTransfer.setData('text/plain', path);
+  event.currentTarget.classList.add('dragging');
+}
+
+function tabDragOver(event, path) {
+  if (!tabDragPath || tabDragPath === path) return;
+  event.preventDefault();
+  event.dataTransfer.dropEffect = 'move';
+  document.querySelectorAll('.tab.drop-left,.tab.drop-right')
+    .forEach(el => el.classList.remove('drop-left', 'drop-right'));
+  const rect = event.currentTarget.getBoundingClientRect();
+  event.currentTarget.classList.add(
+    event.clientX < rect.left + rect.width / 2 ? 'drop-left' : 'drop-right');
+}
+
+function tabDragLeave(event) {
+  event.currentTarget.classList.remove('drop-left', 'drop-right');
+}
+
+function tabDragEnd(event) {
+  tabDragPath = null;
+  event.currentTarget.classList.remove('dragging');
+  document.querySelectorAll('.tab.drop-left,.tab.drop-right')
+    .forEach(el => el.classList.remove('drop-left', 'drop-right'));
+}
+
+function tabDrop(event, path) {
+  if (!tabDragPath || tabDragPath === path) return;
+  event.preventDefault();
+  const rect = event.currentTarget.getBoundingClientRect();
+  reorderTab(tabDragPath, path, event.clientX >= rect.left + rect.width / 2);
+  tabDragEnd(event);
+}
+
+function reorderTab(fromPath, toPath, after) {
+  const from = tabs.findIndex(t => t.path === fromPath);
+  const to = tabs.findIndex(t => t.path === toPath);
+  if (from < 0 || to < 0 || from === to) return;
+  const [moved] = tabs.splice(from, 1);
+  let insert = tabs.findIndex(t => t.path === toPath);
+  if (after) insert += 1;
+  tabs.splice(insert, 0, moved);
+  renderTabs();
+  if (currentSession) {
+    api('/api/sessions/' + encodeURIComponent(currentSession), {method: 'POST',
+      body: JSON.stringify({tabs: tabs.map(t => t.path), active})}).catch(() => {});
+  }
 }
 
 // ---------- The + tab's menu ----------
