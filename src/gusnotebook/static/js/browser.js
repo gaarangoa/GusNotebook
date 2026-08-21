@@ -124,7 +124,15 @@ let fileCtxTarget = null;
 function fileCtxDir(e) {
   e.preventDefault();
   fileCtxTarget = null;
+  const items = [];
+  if (fileState.path) {
+    items.push(
+      {label: 'Copy path', action: () => copyText(fileState.path, 'Path copied')},
+      {label: 'Copy full name', action: () => copyText(baseName(fileState.path), 'Name copied')},
+    );
+  }
   showFileCtx(e.clientX, e.clientY, [
+    ...items,
     {label: 'Upload files', action: () => chooseUploads()},
     {label: '+ New file',   action: () => newFile()},
     {label: '+ New folder', action: () => newFolder()},
@@ -136,6 +144,8 @@ function fileCtxEntry(e, path, kind) {
   e.stopPropagation();
   fileCtxTarget = {path, kind};
   const items = [
+    {label: 'Copy path', action: () => copyText(path, 'Path copied')},
+    {label: 'Copy full name', action: () => copyText(baseName(path), 'Name copied')},
     {label: 'Rename', action: () => renameEntry(path)},
     {label: 'Delete', action: () => deleteEntry(path, kind), danger: true},
   ];
@@ -167,6 +177,33 @@ function showFileCtx(x, y, items) {
 function closeFileCtx() {
   const m = document.getElementById('file-ctx');
   if (m) m.remove();
+}
+
+function baseName(path) {
+  const parts = String(path || '').split('/').filter(Boolean);
+  return parts.length ? parts[parts.length - 1] : '/';
+}
+
+async function copyText(text, message) {
+  text = String(text || '');
+  try {
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(text);
+    } else {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.left = '-9999px';
+      document.body.appendChild(ta);
+      ta.focus();
+      ta.select();
+      document.execCommand('copy');
+      ta.remove();
+    }
+    flash(message || 'Copied');
+  } catch (err) {
+    flash('Copy failed: ' + errText(err));
+  }
 }
 
 async function renameEntry(path) {
