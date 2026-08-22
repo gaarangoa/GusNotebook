@@ -73,8 +73,9 @@ async function openTerminal(cwd, kind) {
     flash('Cannot open a terminal: ' + errText(err));
     return;
   }
-  attachTerm(data);
+  const t = attachTerm(data);
   loadSessions();          // it belongs to this session now; show the count
+  return t;
 }
 
 /** From the + menu — rooted in the folder you're browsing. */
@@ -145,6 +146,48 @@ function focusTerm(id) {
   renderTermTabs();
   fitTerm();
   t.term.focus();
+}
+
+function activeAgentTerm() {
+  const t = findTerm(activeTerm);
+  return t && (t.kind === 'claude' || t.kind === 'codex') ? t : null;
+}
+
+function waitForTermSocket(t) {
+  if (!t || !t.ws) return Promise.reject(new Error('No agent terminal is open'));
+  if (t.ws.readyState === WebSocket.OPEN) return Promise.resolve(t);
+  return new Promise((resolve, reject) => {
+    const done = () => {
+      cleanup();
+      resolve(t);
+    };
+    const fail = () => {
+      cleanup();
+      reject(new Error('Agent terminal is not connected'));
+    };
+    const cleanup = () => {
+      clearTimeout(timer);
+      t.ws.removeEventListener('open', done);
+      t.ws.removeEventListener('close', fail);
+      t.ws.removeEventListener('error', fail);
+    };
+    const timer = setTimeout(fail, 8000);
+    t.ws.addEventListener('open', done);
+    t.ws.addEventListener('close', fail);
+    t.ws.addEventListener('error', fail);
+  });
+}
+
+async function sendPromptToAgent(text) {
+  let t = activeAgentTerm();
+  if (!t) {
+    const kind = document.getElementById('agent-kind').value || 'claude';
+    t = await openTerminal(null, kind);
+  }
+  await waitForTermSocket(t);
+  focusTerm(t.id);
+  t.ws.send('\x1b[200~' + text + '\x1b[201~\r');
+  return t;
 }
 
 /** Close a session for good — this one does kill the Claude running in it. */

@@ -17,6 +17,7 @@ _lock = threading.RLock()
 
 # Marks a raw cell that is really an unfilled inline-LLM prompt. See _new_cell.
 AI_ROLE = "ai-prompt"
+VIS_ROLE = "vis-prompt"
 
 # Per-cell undo, for sources replaced by something other than the user's own
 # typing — Claude via `gusnb here`, or a skill's snippet. Kept in the
@@ -224,6 +225,8 @@ class Notebook:
         cell_type = cell.get("cell_type", "code")
         if cell_type == "raw" and meta.get("cell_role") == AI_ROLE:
             cell_type = "ai"          # a prompt awaiting generation
+        elif cell_type == "raw" and meta.get("cell_role") == VIS_ROLE:
+            cell_type = "vis"         # a prompt sent to an agent for HTML viz
         return {
             "id": cell.get("id"),
             "cell_type": cell_type,
@@ -268,6 +271,10 @@ class Notebook:
             cell = nbformat.v4.new_raw_cell(source)
             cell["metadata"]["cell_role"] = AI_ROLE
             return cell
+        if cell_type == "vis":
+            cell = nbformat.v4.new_raw_cell(source)
+            cell["metadata"]["cell_role"] = VIS_ROLE
+            return cell
         return nbformat.v4.new_code_cell(source)
 
     def add_cell(self, cell_type="code", source="", index=None, after=None):
@@ -310,11 +317,13 @@ class Notebook:
                 # Carry metadata over — a type switch shouldn't lose the
                 # inline-LLM prompt or anything else attached to the cell.
                 carried = dict(cell.get("metadata") or {})
-                if cell_type != "ai":
+                if cell_type not in ("ai", "vis"):
                     carried.pop("cell_role", None)   # no longer a pending prompt
                 new["metadata"].update(carried)
                 if cell_type == "ai":
                     new["metadata"]["cell_role"] = AI_ROLE
+                elif cell_type == "vis":
+                    new["metadata"]["cell_role"] = VIS_ROLE
                 self.nb.cells[i] = new
                 cell = new
             self._save()

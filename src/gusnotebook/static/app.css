@@ -1007,6 +1007,49 @@ button.tb.primary:hover { background: #fdf4f8; }
 .output table th { background: #f8fafc; color: #475569; font-weight: 600; }
 .output .dataframe tbody tr:hover { background: #f8fafc; }
 .output-html { padding: 5px 11px; font-size: 12.5px; overflow-x: auto; }
+.output-html-frame {
+  position: relative;
+  padding: 5px 11px;
+}
+.output-html-frame iframe {
+  display: block;
+  width: 100%;
+  min-height: 24px;
+  border: 0;
+  background: transparent;
+}
+.output-view-btn {
+  position: absolute;
+  top: 6px;
+  right: 12px;
+  opacity: 0;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: rgba(255,255,255,.92);
+  color: #64748b;
+  font: 10.5px/1.2 var(--mono);
+  padding: 2px 5px;
+  cursor: pointer;
+}
+.output-html-frame:hover .output-view-btn,
+.output-view-btn:focus {
+  opacity: 1;
+}
+.output-html-frame .output-raw {
+  display: none;
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: #f8fafc;
+  color: #0f172a;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-x: auto;
+  font: 11.5px/1.45 var(--mono);
+}
+.output-html-frame.show-raw iframe { display: none; }
+.output-html-frame.show-raw .output-raw { display: block; }
 
 /* pandas ships its own minimal markup — style it to match the app. */
 .output-html table {

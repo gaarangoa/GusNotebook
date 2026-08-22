@@ -184,9 +184,13 @@ async function runCell(id, advance = false) {
     if (advance) await advanceFrom(id);
     return;
   }
-  // ⇧⏎ on an AI cell generates the code — that's its "run".
+  // ⇧⏎ on prompt cells dispatches them to their generator.
   if (c.cell_type === 'ai') {
     await generateCell(id);
+    return;
+  }
+  if (c.cell_type === 'vis') {
+    await generateVisCell(id);
     return;
   }
   if (c.cell_type === 'raw') {
@@ -354,6 +358,55 @@ async function regenerate(id) {
   } catch (err) {
     if (outEl) outEl.innerHTML = '';
     flash('Inline LLM: ' + errText(err));
+  }
+}
+
+function visAgentPrompt(cell, promptText) {
+  return `Create a notebook visualization from this Vis cell request.
+
+Notebook: ${active}
+Vis cell id: ${cell.id}
+
+User request:
+${promptText}
+
+Implement it in the notebook as a Python code cell near this Vis cell, using:
+
+from IPython.display import HTML
+HTML(r'''...''')
+
+Requirements:
+- The output must use rich text/html so GusNotebook renders it as sandboxed live HTML.
+- Prefer D3 v7 for custom interactive charts when appropriate.
+- Use a unique root element id in the HTML.
+- Keep all JavaScript scoped inside an IIFE.
+- Make the visualization responsive to the output width.
+- Do not put the long HTML code into the Vis cell. Leave the Vis cell as the human-readable request.
+- The generated code cell should be reviewable and runnable by the user.
+- If data from earlier notebook cells or attached files is needed, inspect the notebook/project and wire the visualization to that source.
+- Use the existing GusNotebook notebook-editing tools/workflow available to you.`;
+}
+
+async function generateVisCell(id) {
+  const c = getCell(id);
+  if (!c) return;
+  const ed = document.getElementById('ed-' + id);
+  const promptText = (ed ? ed.value : c.source || '').trim();
+  if (!promptText) {
+    flash('Describe the visualization first.');
+    if (ed) ed.focus();
+    return;
+  }
+  await saveCell(id);
+  const btn = document.getElementById('visgo-' + id);
+  if (btn) { btn.disabled = true; btn.textContent = 'Sending...'; }
+  try {
+    const t = await sendPromptToAgent(visAgentPrompt(c, promptText));
+    flash(`Sent visualization request to ${t.kind}`);
+  } catch (err) {
+    flash('Vis agent: ' + errText(err));
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Generate'; }
   }
 }
 

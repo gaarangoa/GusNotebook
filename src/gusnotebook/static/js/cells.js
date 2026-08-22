@@ -948,10 +948,67 @@ function handoffOutputScroll(event) {
 document.addEventListener('wheel', handoffOutputScroll,
                           {passive: false, capture: true});
 
+function richMimeText(value) {
+  return Array.isArray(value) ? value.join('\n') : String(value == null ? '' : value);
+}
+
+function htmlOutputSrcdoc(body, outputId) {
+  const safeId = JSON.stringify(outputId);
+  const resize = `<script>
+(() => {
+  const send = () => parent.postMessage({
+    type: 'gusnotebook-html-output-height',
+    id: ${safeId},
+    height: Math.max(
+      document.body ? document.body.scrollHeight : 0,
+      document.documentElement ? document.documentElement.scrollHeight : 0
+    )
+  }, '*');
+  addEventListener('load', send);
+  addEventListener('resize', send);
+  if (window.ResizeObserver) new ResizeObserver(send).observe(document.documentElement);
+  setTimeout(send, 0);
+  setTimeout(send, 250);
+})();
+</script>`;
+  return `<!doctype html><html><head><base target="_blank">
+<style>html,body{margin:0;padding:0;background:transparent;color:#1e293b;font:13px/1.45 -apple-system,BlinkMacSystemFont,"Inter",sans-serif;}body{overflow:hidden;}img,svg,canvas,video{max-width:100%;}table{border-collapse:collapse;}</style>
+</head><body>${body}${resize}</body></html>`;
+}
+
+function htmlOutputFrame(source, outputId, plain) {
+  const raw = plain ? `
+    <button class="output-view-btn" onclick="event.stopPropagation();toggleHtmlOutputRaw('${outputId}')"
+            title="Show raw text output">raw</button>
+    <pre class="output-raw" id="${outputId}-raw">${escapeHtml(plain)}</pre>` : '';
+  return `<div class="output-html-frame" id="${outputId}">
+    <iframe sandbox="allow-scripts" referrerpolicy="no-referrer"
+            data-output-frame="${outputId}"
+            srcdoc="${escapeAttr(htmlOutputSrcdoc(source, outputId))}"></iframe>
+    ${raw}
+  </div>`;
+}
+
+function toggleHtmlOutputRaw(id) {
+  const box = document.getElementById(id);
+  if (!box) return;
+  box.classList.toggle('show-raw');
+  const btn = box.querySelector('.output-view-btn');
+  if (btn) btn.textContent = box.classList.contains('show-raw') ? 'html' : 'raw';
+}
+
+window.addEventListener('message', (event) => {
+  const data = event.data || {};
+  if (data.type !== 'gusnotebook-html-output-height') return;
+  const frame = document.querySelector(`iframe[data-output-frame="${CSS.escape(data.id || '')}"]`);
+  const height = Math.max(24, Math.min(4000, Number(data.height) || 0));
+  if (frame && height) frame.style.height = height + 'px';
+});
+
 function renderOutputs(outputs, cellId) {
   if (!outputs || !outputs.length) return '';
   let html = '<div class="outputs">';
-  for (const o of outputs) {
+  outputs.forEach((o, outputIndex) => {
     const t = o.output_type;
     if (t === 'stream') {
       // Terminal-style box: capped height, ANSI colours, \r frames collapsed.
@@ -968,21 +1025,23 @@ function renderOutputs(outputs, cellId) {
       html += `</div>`;
     } else if (t === 'execute_result' || t === 'display_data') {
       const d = o.data || {};
-      if (d['image/png']) {
-        html += `<div class="output"><img src="data:image/png;base64,${d['image/png']}"></div>`;
-      } else if (d['image/jpeg']) {
-        html += `<div class="output"><img src="data:image/jpeg;base64,${d['image/jpeg']}"></div>`;
+      const outputId = `htmlout-${cellId || 'cell'}-${outputIndex}`;
+      if (d['text/html']) {
+        html += htmlOutputFrame(richMimeText(d['text/html']), outputId,
+                                d['text/plain'] ? richMimeText(d['text/plain']) : '');
+      } else if (d['image/png']) {
+        html += `<div class="output"><img src="data:image/png;base64,${richMimeText(d['image/png']).replace(/\s+/g, '')}"></div>`;
       } else if (d['image/svg+xml']) {
-        html += `<div class="output">${DOMPurify.sanitize(d['image/svg+xml'])}</div>`;
-      } else if (d['text/html']) {
-        html += `<div class="output-html">${DOMPurify.sanitize(d['text/html'])}</div>`;
+        html += `<div class="output"><img src="data:image/svg+xml;charset=utf-8,${encodeURIComponent(richMimeText(d['image/svg+xml']))}"></div>`;
+      } else if (d['image/jpeg']) {
+        html += `<div class="output"><img src="data:image/jpeg;base64,${richMimeText(d['image/jpeg']).replace(/\s+/g, '')}"></div>`;
       } else if (d['text/markdown']) {
-        html += `<div class="output-html">${DOMPurify.sanitize(marked.parse(d['text/markdown']))}</div>`;
+        html += `<div class="output-html">${DOMPurify.sanitize(marked.parse(richMimeText(d['text/markdown'])))}</div>`;
       } else if (d['text/plain']) {
-        html += `<div class="output result">${escapeHtml(d['text/plain'])}</div>`;
+        html += `<div class="output result">${escapeHtml(richMimeText(d['text/plain']))}</div>`;
       }
     }
-  }
+  });
   return html + '</div>';
 }
 
@@ -1436,11 +1495,12 @@ function cellHtml(c) {
   const isMd = c.cell_type === 'markdown';
   const isCode = c.cell_type === 'code';
   const isAi = c.cell_type === 'ai';
+  const isVis = c.cell_type === 'vis';
   const isEditing = editing.has(c.id) || !c.source.trim();
-  // Code cells show [n]; markdown/raw/ai show a marker instead.
+  // Code cells show [n]; markdown/raw/ai/vis show a marker instead.
   const label = isCode
     ? executionLabel(c)
-    : (isAi ? 'AI' : '');
+    : (isAi ? 'AI' : (isVis ? 'VIS' : ''));
   const labelHtml = isCode && c._running ? runningLabelHtml() : escapeHtml(label);
 
   let bodyInner = '';
@@ -1461,6 +1521,8 @@ function cellHtml(c) {
   } else {
     const placeholder = isAi
       ? 'Describe what you want in plain English, then press ⇧⏎'
+      : isVis
+      ? 'Describe the visualization you want, then press ⇧⏎'
       : '';
     // A host for CodeMirror, with the textarea inside it as the fallback. The
     // textarea is what's in the DOM until mountEditor() replaces it, so a cell
@@ -1496,6 +1558,13 @@ function cellHtml(c) {
           Generate</button>
         <span class="ai-hint">⇧⏎ generates · becomes a code cell</span>
         <span class="ai-model" id="aimodel-${c.id}"></span>
+      </div>`;
+  } else if (isVis) {
+    bodyInner += `
+      <div class="ai-bar vis-bar">
+        <button class="ai-go" id="visgo-${c.id}" onclick="event.stopPropagation();generateVisCell('${c.id}')">
+          Generate</button>
+        <span class="ai-hint">⇧⏎ sends to the active agent · HTML output stays sandboxed</span>
       </div>`;
   }
   const promptStrip = (!isAi && c.prompt) ? `
