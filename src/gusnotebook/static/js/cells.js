@@ -1059,6 +1059,36 @@ function mimeText(value) {
   return Array.isArray(value) ? value.join('\n') : String(value == null ? '' : value);
 }
 
+function htmlFromDisplaySource(source) {
+  const text = String(source || '');
+  const marker = 'HTML(';
+  const start = text.indexOf(marker);
+  if (start < 0) return '';
+  let i = start + marker.length;
+  while (/\s/.test(text[i] || '')) i++;
+  if ((text[i] === 'r' || text[i] === 'R') && /['"]/.test(text[i + 1] || '')) i++;
+  const quote = text.slice(i, i + 3);
+  if (quote === "'''" || quote === '"""') {
+    const end = text.indexOf(quote, i + 3);
+    return end > i ? text.slice(i + 3, end) : '';
+  }
+  if (text[i] === "'" || text[i] === '"') {
+    const q = text[i];
+    let out = '';
+    for (let j = i + 1; j < text.length; j++) {
+      if (text[j] === '\\') {
+        out += text[j] + (text[j + 1] || '');
+        j++;
+      } else if (text[j] === q) {
+        return out;
+      } else {
+        out += text[j];
+      }
+    }
+  }
+  return '';
+}
+
 function visualOutput(c) {
   for (const o of (c && c.outputs) || []) {
     if (o.output_type !== 'execute_result' && o.output_type !== 'display_data') continue;
@@ -1071,7 +1101,7 @@ function visualOutput(c) {
     if (d['text/html']) {
       const source = mimeText(d['text/html']);
       return {mime: 'text/html', source,
-              render: DOMPurify.sanitize(source)};
+              render: source};
     }
     if (d['image/png']) {
       const source = mimeText(d['image/png']).replace(/\s+/g, '');
@@ -1083,6 +1113,10 @@ function visualOutput(c) {
       return {mime: 'image/jpeg', source, dataUrl: `data:image/jpeg;base64,${source}`,
               render: `<img src="data:image/jpeg;base64,${source}" alt="">`};
     }
+  }
+  const sourceHtml = htmlFromDisplaySource(c && c.source);
+  if (sourceHtml) {
+    return {mime: 'text/html', source: sourceHtml, render: sourceHtml};
   }
   return null;
 }
@@ -1290,6 +1324,16 @@ function provenancePlaceholder(payload) {
   </div>`;
 }
 
+function provenanceRenderHtml(visual) {
+  if (!visual) return '';
+  if (visual.mime === 'text/html') {
+    return `<iframe class="gusnb-viz-frame" title="Notebook visualization"
+      sandbox="allow-scripts" referrerpolicy="no-referrer"
+      srcdoc="${escapeAttr(htmlOutputSrcdoc(visual.source || '', 'gusnb-copied-viz'))}"></iframe>`;
+  }
+  return visual.render || '';
+}
+
 function provenanceHtml(c, visual, details) {
   details = details || {};
   const payload = {
@@ -1313,21 +1357,24 @@ function provenanceHtml(c, visual, details) {
   const style = `<style data-gusnb-viz-style>
 .gusnb-viz{position:relative;margin:16px 0;}
 .gusnb-viz-render{max-width:100%;overflow:auto;}
+.gusnb-viz-frame{display:block;width:100%;min-height:460px;border:0;background:transparent;}
 .gusnb-viz [data-gusnb-viz-info]{position:absolute;top:6px;right:6px;opacity:0;pointer-events:none;font:11px/1.25 system-ui,-apple-system,Segoe UI,sans-serif;border:1px solid rgba(15,23,42,.18);background:rgba(255,255,255,.92);color:#0f172a;border-radius:4px;padding:3px 6px;cursor:pointer;box-shadow:0 2px 8px rgba(15,23,42,.12);}
 .gusnb-viz:hover [data-gusnb-viz-info],.gusnb-viz [data-gusnb-viz-info]:focus{opacity:1;pointer-events:auto;}
 .gusnb-viz [data-gusnb-viz-panel]{white-space:pre-wrap;margin:8px 0 0;padding:10px;border:1px solid #cbd5e1;border-radius:4px;background:#f8fafc;color:#0f172a;font:12px/1.45 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;}
 .gusnb-viz-placeholder{display:flex;flex-direction:column;gap:3px;padding:14px;border:1px dashed #94a3b8;border-radius:6px;background:#f8fafc;color:#0f172a;font:13px/1.35 system-ui,-apple-system,Segoe UI,sans-serif;}
 .gusnb-viz-placeholder span{color:#475569;font-size:12px;}
 </style>`;
-  const render = visual ? visual.render : provenancePlaceholder(payload);
-  return {
-    html: `${style}
+  const render = visual ? provenanceRenderHtml(visual) : provenancePlaceholder(payload);
+  const html = `${style}
 <figure class="gusnb-viz" data-gusnb-viz="1" data-gusnb-provenance="1" data-gusnb-notebook="${escapeAttr(payload.notebook)}" data-gusnb-cell-id="${escapeAttr(c.id)}">
   <div class="gusnb-viz-render" data-gusnb-viz-render>${render}</div>
   <button type="button" data-gusnb-viz-info contenteditable="false" onclick="${escapeAttr(onclick)}">Source</button>
   <pre data-gusnb-viz-panel contenteditable="false" hidden>${escapeHtml(summary)}</pre>
   <script type="application/json" data-gusnb-viz-source>${jsonForHtml(payload)}</script>
-</figure>`,
+</figure>`;
+  return {
+    html,
+    text: html,
     plain: summary,
     payload,
   };
@@ -1374,7 +1421,7 @@ async function copyCellProvenance(id, event) {
   if (details == null) return;
   const block = provenanceHtml(c, visual, details);
   try {
-    await copyRichHtml(block.html, block.plain);
+    await copyRichHtml(block.html, block.text);
     flash(visual ? 'Copied provenance snapshot' : 'Copied source provenance');
   } catch (err) {
     flash('Copy failed: ' + errText(err));
