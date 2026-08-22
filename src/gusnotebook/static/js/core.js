@@ -54,9 +54,35 @@ function setCurrentSession(sid) {
   history.replaceState(null, '', url);
 }
 
-// Where a code cell starts being long enough to fold. About a screenful in this
-// layout: below it, folding hides nothing worth a click to get back.
-const CODE_FOLD_LINES = 10;
+// Where a code cell starts being long enough to fold, and how much stays visible
+// while folded. Display preferences are local to this browser window; they do
+// not belong in the notebook file.
+const FOLD_PREF_KEY = 'gusnotebook.foldPreferences';
+let codeFoldLines = 10;
+let foldOpenOnFocus = false;
+
+function readFoldPreferences() {
+  try {
+    const p = JSON.parse(localStorage.getItem(FOLD_PREF_KEY) || '{}');
+    const lines = parseInt(p.preview_lines, 10);
+    codeFoldLines = Number.isFinite(lines) ? Math.min(60, Math.max(1, lines)) : 10;
+    foldOpenOnFocus = !!p.open_on_focus;
+  } catch (err) {
+    codeFoldLines = 10;
+    foldOpenOnFocus = false;
+  }
+}
+
+function writeFoldPreferences() {
+  try {
+    localStorage.setItem(FOLD_PREF_KEY, JSON.stringify({
+      preview_lines: codeFoldLines,
+      open_on_focus: foldOpenOnFocus,
+    }));
+  } catch (err) {}
+}
+
+readFoldPreferences();
 
 function tab(path) { return tabs.find(t => t.path === path); }
 function activeTab() { return tab(active); }

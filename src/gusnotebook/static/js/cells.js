@@ -972,7 +972,17 @@ function htmlOutputSrcdoc(body, outputId) {
 })();
 </script>`;
   return `<!doctype html><html><head><base target="_blank">
-<style>html,body{margin:0;padding:0;background:transparent;color:#1e293b;font:13px/1.45 -apple-system,BlinkMacSystemFont,"Inter",sans-serif;}body{overflow:hidden;}img,svg,canvas,video{max-width:100%;}table{border-collapse:collapse;}</style>
+<style>
+html,body{margin:0;padding:0;background:transparent;color:#1e293b;font:13px/1.45 -apple-system,BlinkMacSystemFont,"Inter",sans-serif;}
+body{overflow-x:auto;overflow-y:hidden;}
+img,svg,canvas,video{max-width:100%;}
+table{border-collapse:collapse;font:11.5px/1.45 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;margin:3px 0;}
+th,td{border:1px solid #e2e8f0;padding:4px 7px;text-align:right;vertical-align:top;white-space:nowrap;}
+th{background:#f8fafc;color:#475569;font-weight:600;}
+tbody th{text-align:left;background:#fff;color:#64748b;font-weight:500;}
+tbody tr:hover td,tbody tr:hover th{background:#f8fafc;}
+table[border]{border:none;}
+</style>
 </head><body>${body}${resize}</body></html>`;
 }
 
@@ -1412,10 +1422,15 @@ function renderCellOutput(c) {
 /* How many lines a folded cell shows, as a max-height for the clip. In em so it
  * tracks the editor's line-height rather than a pixel count that breaks when the
  * font size changes; the extra covers the editor's vertical padding. */
-function foldHeight() { return (CODE_FOLD_LINES * 1.55 + 1.4).toFixed(2) + 'em'; }
+function foldHeight() { return (codeFoldLines * 1.55 + 1.4).toFixed(2) + 'em'; }
 
 function cellLines(c) { return (c.source || '').split('\n').length; }
-function isFoldable(c) { return c.cell_type === 'code' && cellLines(c) > CODE_FOLD_LINES; }
+function isVisGeneratedCode(c) {
+  return c && c.cell_type === 'code' && /GusNotebook Vis cell|User visualization request|Replace this exact GusNotebook Vis cell/.test(c.claude_prompt || '');
+}
+function isFoldable(c) {
+  return c.cell_type === 'code' && (isVisGeneratedCode(c) || cellLines(c) > codeFoldLines);
+}
 
 /** Is the caret inside this cell's editor right now? */
 function hasCaret(id) {
@@ -1427,21 +1442,26 @@ function hasCaret(id) {
 /**
  * Whether a long cell should be drawn clipped.
  *
- * The caret check is what keeps this from being infuriating: a cell grows past
- * CODE_FOLD_LINES *while you are typing in it*, and the next re-render — a run
- * finishing elsewhere, a kernel event — would otherwise fold the code out from
- * under you with your caret in the hidden part.
+ * The focus exemption is optional. By default a click on folded code keeps it
+ * folded, so the user opens it deliberately from the "N more lines" veil.
  */
 function isFolded(c) {
-  return isFoldable(c) && !codeOpen.has(c.id) && !hasCaret(c.id);
+  if (isVisGeneratedCode(c)) return !codeOpen.has(c.id);
+  return isFoldable(c) && !codeOpen.has(c.id) && !(foldOpenOnFocus && hasCaret(c.id));
 }
 
-/** The click target over clipped code, with the count of what's behind it. */
+/** The clipped-code veil, with a small explicit click target to open it. */
 function veilHtml(c) {
-  const hidden = cellLines(c) - CODE_FOLD_LINES;
-  return `<div class="fold-veil" onclick="event.stopPropagation();toggleFold('${c.id}')"
-      title="Show the whole cell"><span>⌄ ${hidden} more line${
-        hidden > 1 ? 's' : ''}</span></div>`;
+  if (isVisGeneratedCode(c)) {
+    return `<div class="fold-veil vis">
+      <span onclick="event.stopPropagation();toggleFold('${c.id}')"
+            title="Show the generated HTML code">Show HTML code</span></div>`;
+  }
+  const hidden = cellLines(c) - codeFoldLines;
+  return `<div class="fold-veil">
+      <span onclick="event.stopPropagation();toggleFold('${c.id}')"
+            title="Show the whole cell">⌄ ${hidden} more line${
+              hidden > 1 ? 's' : ''}</span></div>`;
 }
 
 /**
@@ -1461,7 +1481,7 @@ function viewBtnsHtml(c) {
   const folded = wrap ? wrap.classList.contains('folded') : isFolded(c);
   return `<div class="gutter-out">${long ? `
         <button class="out-btn" id="foldb-${c.id}"
-                title="${folded ? 'Show the whole cell' : "Fold this cell's code"}"
+                title="${folded ? (isVisGeneratedCode(c) ? 'Show generated HTML code' : 'Show the whole cell') : "Fold this cell's code"}"
                 onclick="event.stopPropagation();toggleFold('${c.id}')">${
                   folded ? '⌄' : '⌃'}</button>` : ''}
       </div>`;
@@ -1542,10 +1562,11 @@ function cellHtml(c) {
     // actively wrong.
     if (isFoldable(c)) {
       const folded = isFolded(c);
+      const visCode = isVisGeneratedCode(c);
       // The wrapper is there either way, so folding again is a class toggle on a
       // node already in the DOM rather than a re-render.
-      bodyInner = `<div class="fold ${folded ? 'folded' : ''}" id="fold-${c.id}"
-        style="--fold-h:${foldHeight()}">${bodyInner}${folded ? veilHtml(c) : ''}</div>`;
+      bodyInner = `<div class="fold ${visCode ? 'vis-code' : ''} ${folded ? 'folded' : ''}" id="fold-${c.id}"
+        style="--fold-h:${visCode ? '30px' : foldHeight()}">${bodyInner}${folded ? veilHtml(c) : ''}</div>`;
     }
   }
 
@@ -1564,7 +1585,7 @@ function cellHtml(c) {
       <div class="ai-bar vis-bar">
         <button class="ai-go" id="visgo-${c.id}" onclick="event.stopPropagation();generateVisCell('${c.id}')">
           Generate</button>
-        <span class="ai-hint">⇧⏎ sends to the active agent · HTML output stays sandboxed</span>
+        <span class="ai-hint">⇧⏎ sends to the active agent · replaces this cell</span>
       </div>`;
   }
   const promptStrip = (!isAi && c.prompt) ? `

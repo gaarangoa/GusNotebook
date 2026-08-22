@@ -362,29 +362,38 @@ async function regenerate(id) {
 }
 
 function visAgentPrompt(cell, promptText) {
-  return `Create a notebook visualization from this Vis cell request.
+  return `Replace this exact GusNotebook Vis cell with a runnable Python visualization cell.
 
 Notebook: ${active}
-Vis cell id: ${cell.id}
+Cell id to replace: ${cell.id}
 
-User request:
+User visualization request:
 ${promptText}
 
-Implement it in the notebook as a Python code cell near this Vis cell, using:
+Required behavior:
+- Replace cell ${cell.id} itself. Do not create a new cell.
+- Use this exact replacement workflow after writing the Python code:
+
+cat <<'PY' | gusnb set ${cell.id} - --run
+# generated Python visualization code here
+PY
+
+- The replacement cell must be a normal Python code cell.
+- The code must produce rich text/html output, normally with:
 
 from IPython.display import HTML
 HTML(r'''...''')
 
-Requirements:
-- The output must use rich text/html so GusNotebook renders it as sandboxed live HTML.
 - Prefer D3 v7 for custom interactive charts when appropriate.
+- Keep visualizations static on initial render: do not use D3 transitions,
+  delayed reveals, animated loading effects, CSS animations, or timed entrance
+  effects unless the user explicitly asks for animation.
 - Use a unique root element id in the HTML.
 - Keep all JavaScript scoped inside an IIFE.
 - Make the visualization responsive to the output width.
-- Do not put the long HTML code into the Vis cell. Leave the Vis cell as the human-readable request.
-- The generated code cell should be reviewable and runnable by the user.
-- If data from earlier notebook cells or attached files is needed, inspect the notebook/project and wire the visualization to that source.
-- Use the existing GusNotebook notebook-editing tools/workflow available to you.`;
+- Reuse variables, DataFrames, and files from earlier notebook cells when the request refers to existing notebook data.
+- Do not report done until the command above succeeds and the same cell has rendered output.
+- The command above automatically preserves undo metadata and the agent prompt in GusNotebook.`;
 }
 
 async function generateVisCell(id) {
@@ -402,8 +411,9 @@ async function generateVisCell(id) {
   if (btn) { btn.disabled = true; btn.textContent = 'Sending...'; }
   try {
     const t = await sendPromptToAgent(visAgentPrompt(c, promptText));
-    flash(`Sent visualization request to ${t.kind}`);
+    flash(`Sent visualization replacement request to ${t.kind}`);
   } catch (err) {
+    if (btn) { btn.disabled = false; btn.textContent = 'Generate'; }
     flash('Vis agent: ' + errText(err));
   } finally {
     if (btn) { btn.disabled = false; btn.textContent = 'Generate'; }
@@ -486,6 +496,8 @@ async function openSettings() {
   document.getElementById('set-model-custom').value = known ? '' : (s.inline_llm_model || '');
   document.getElementById('set-instructions').value = s.inline_llm_instructions || '';
   document.getElementById('set-max-tokens').value = s.inline_llm_max_tokens || 1200;
+  document.getElementById('set-fold-focus').checked = foldOpenOnFocus;
+  document.getElementById('set-fold-lines').value = codeFoldLines;
   document.getElementById('set-claude').value = s.claude_instructions || '';
 
   // The presets come on this same response, so no second round trip here.
@@ -540,6 +552,10 @@ function closeSettings() {
 
 async function saveSettings() {
   const custom = document.getElementById('set-model-custom').value.trim();
+  const foldLines = parseInt(document.getElementById('set-fold-lines').value, 10);
+  codeFoldLines = Number.isFinite(foldLines) ? Math.min(60, Math.max(1, foldLines)) : 10;
+  foldOpenOnFocus = document.getElementById('set-fold-focus').checked;
+  writeFoldPreferences();
   const body = {
     inline_llm_model: custom || document.getElementById('set-model').value,
     inline_llm_instructions: document.getElementById('set-instructions').value,
@@ -562,6 +578,7 @@ async function saveSettings() {
     settingsData = await api('/api/settings',
                              {method: 'POST', body: JSON.stringify(body)});
     closeSettings();
+    if (isNotebookTab()) render();
     // Say out loud that a restriction isn't retroactive. A user who thinks a
     // guardrail is live on a terminal already running is the failure mode.
     flash(hasRestrictions(body.claude_restrictions)

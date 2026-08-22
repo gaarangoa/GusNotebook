@@ -375,6 +375,21 @@
         <input type="number" id="set-max-tokens" min="100" max="16000" step="100">
       </div>
 
+      <div class="field">
+        <label>Code folding</label>
+        <label class="check-row">
+          <input type="checkbox" id="set-fold-focus">
+          <span>Open folded code when the cell gets focus</span>
+        </label>
+        <div class="row" style="margin-top:6px">
+          <input type="number" id="set-fold-lines" min="1" max="60" step="1">
+        </div>
+        <div class="fhelp">
+          Number of code lines shown before the folded overlay. Leave focus
+          opening off to open folded code only from the "more lines" control.
+        </div>
+      </div>
+
       <!-- A separate field, not shared with the inline LLM's: different job.
            That one writes one cell; an agent has tools and edits files, so its
            guardrails read nothing like a code-style note. -->
