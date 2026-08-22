@@ -287,7 +287,35 @@
       return;
     }
     selectedViz.classList.add('gusnb-viz-selected');
+    requestVizHeight(selectedViz);
     ensureVizToolbar();
+    positionVizToolbar();
+  }
+
+  function requestVizHeight(block) {
+    var frame = block && block.querySelector('.gusnb-viz-frame');
+    if (!frame || !frame.contentWindow) return;
+    frame.contentWindow.postMessage({type: 'gusnotebook-viz-report-height'}, '*');
+  }
+
+  function applyVizFrameHeight(frame, height) {
+    height = Math.max(24, Math.min(4000, Number(height) || 0));
+    if (!frame || !height) return;
+    var scale = vizScale(frame);
+    var render = frame.closest('[data-gusnb-viz-render]');
+    frame.style.height = height + 'px';
+    frame.setAttribute('height', String(height));
+    frame.setAttribute('data-gusnb-base-height', String(height));
+    if (render) {
+      render.style.height = Math.round(height * scale) + 'px';
+      render.style.minHeight = '0';
+      render.style.overflow = 'visible';
+    }
+    var block = frame.closest('[data-gusnb-viz]');
+    if (block) {
+      block.style.minHeight = '0';
+      block.style.overflow = 'visible';
+    }
     positionVizToolbar();
   }
 
@@ -540,6 +568,13 @@
   }, true);
   window.addEventListener('message', function (event) {
     var data = event.data || {};
+    if (data.type === 'gusnotebook-html-output-height') {
+      var frame = document.querySelector(
+        'iframe.gusnb-viz-frame[data-output-frame="' +
+        String(data.id || '').replace(/["\\]/g, '\\$&') + '"]');
+      applyVizFrameHeight(frame, data.height);
+      return;
+    }
     if (data.type === 'gusnotebook-viz-srcdoc-updated') {
       var frames = document.querySelectorAll('.gusnb-viz-frame');
       for (var i = 0; i < frames.length; i++) {

@@ -997,13 +997,45 @@ function htmlOutputSrcdoc(body, outputId) {
 (() => {
   let textEdit = false;
   let editor = null;
+  const measuredHeight = () => {
+    const root = document.body || document.documentElement;
+    if (!root) return 24;
+    const selectors = [
+      '.viz-root', '[data-gusnb-viz-root]', 'svg', 'canvas', 'img', 'video', 'table'
+    ];
+    const targets = Array.from(root.querySelectorAll(selectors.join(','))).filter(el => {
+      const rect = el.getBoundingClientRect();
+      const style = getComputedStyle(el);
+      return rect.width > 0 && rect.height > 0 && style.display !== 'none' &&
+        style.visibility !== 'hidden';
+    });
+    const nodes = targets.length ? targets : Array.from(root.children).filter(el => {
+      if (el.matches('script,style,link,base')) return false;
+      const rect = el.getBoundingClientRect();
+      return rect.width > 0 && rect.height > 0;
+    });
+    if (nodes.length) {
+      let top = Infinity;
+      let bottom = -Infinity;
+      nodes.forEach(el => {
+        const rect = el.getBoundingClientRect();
+        top = Math.min(top, rect.top);
+        bottom = Math.max(bottom, rect.bottom);
+      });
+      if (Number.isFinite(top) && Number.isFinite(bottom)) {
+        return Math.ceil(bottom - Math.min(top, 0));
+      }
+    }
+    return Math.max(
+      root.scrollHeight || 0,
+      document.documentElement ? document.documentElement.scrollHeight : 0,
+      24
+    );
+  };
   const send = () => parent.postMessage({
     type: 'gusnotebook-html-output-height',
     id: ${safeId},
-    height: Math.max(
-      document.body ? document.body.scrollHeight : 0,
-      document.documentElement ? document.documentElement.scrollHeight : 0
-    )
+    height: measuredHeight()
   }, '*');
   addEventListener('load', send);
   addEventListener('resize', send);
@@ -1072,6 +1104,10 @@ function htmlOutputSrcdoc(body, outputId) {
   };
   addEventListener('message', event => {
     const data = event.data || {};
+    if (data.type === 'gusnotebook-viz-report-height') {
+      send();
+      return;
+    }
     if (data.type !== 'gusnotebook-viz-text-edit') return;
     textEdit = !!data.enabled;
     document.body.style.cursor = textEdit ? 'text' : '';
@@ -1441,16 +1477,44 @@ function provenancePlaceholder(payload) {
   </div>`;
 }
 
-function provenanceRenderHtml(visual) {
+function provenanceRenderHtml(visual, outputId) {
   if (!visual) return '';
   if (visual.mime === 'text/html') {
     return `<iframe class="gusnb-viz-frame" title="Notebook visualization"
       sandbox="allow-scripts" referrerpolicy="no-referrer"
       data-gusnb-scale="1" data-gusnb-base-height="460"
+      data-output-frame="${escapeAttr(outputId)}"
       height="460" style="display:block;width:100%;height:460px;border:0;background:transparent;"
-      srcdoc="${escapeAttr(htmlOutputSrcdoc(visual.source || '', 'gusnb-copied-viz'))}"></iframe>`;
+      srcdoc="${escapeAttr(htmlOutputSrcdoc(visual.source || '', outputId))}"></iframe>`;
   }
   return visual.render || '';
+}
+
+function provenanceResizeRuntime() {
+  return `<script data-gusnb-viz-runtime>
+(() => {
+  if (window.__gusnbVizResizeRuntime) return;
+  window.__gusnbVizResizeRuntime = true;
+  addEventListener('message', event => {
+    const data = event.data || {};
+    if (data.type !== 'gusnotebook-html-output-height') return;
+    const id = String(data.id || '').replace(/["\\\\]/g, '\\\\$&');
+    const frame = document.querySelector('iframe[data-output-frame="' + id + '"]');
+    if (!frame) return;
+    const height = Math.max(24, Math.min(4000, Number(data.height) || 0));
+    const scale = Math.max(.35, Math.min(1.8, Number(frame.getAttribute('data-gusnb-scale')) || 1));
+    const render = frame.closest('[data-gusnb-viz-render]');
+    frame.style.height = height + 'px';
+    frame.setAttribute('height', String(height));
+    frame.setAttribute('data-gusnb-base-height', String(height));
+    if (render) {
+      render.style.height = Math.round(height * scale) + 'px';
+      render.style.minHeight = '0';
+      render.style.overflow = 'visible';
+    }
+  });
+})();
+</script>`;
 }
 
 function provenanceHtml(c, visual, details) {
@@ -1472,12 +1536,13 @@ function provenanceHtml(c, visual, details) {
     comment: details.comment || '',
   };
   const summary = provenanceSummary(payload);
-  const render = visual ? provenanceRenderHtml(visual) : provenancePlaceholder(payload);
+  const outputId = `gusnb-viz-${c.id}-${Date.now().toString(36)}`;
+  const render = visual ? provenanceRenderHtml(visual, outputId) : provenancePlaceholder(payload);
   const html = `<figure class="gusnb-viz" data-gusnb-viz="1" data-gusnb-provenance="1" data-gusnb-notebook="${escapeAttr(payload.notebook)}" data-gusnb-cell-id="${escapeAttr(c.id)}">
   <div class="gusnb-viz-render" data-gusnb-viz-render>${render}</div>
   <pre data-gusnb-viz-panel contenteditable="false" hidden>${escapeHtml(summary)}</pre>
   <script type="application/json" data-gusnb-viz-source>${jsonForHtml(payload)}</script>
-</figure>`;
+</figure>${visual && visual.mime === 'text/html' ? provenanceResizeRuntime() : ''}`;
   return {
     html,
     text: html,

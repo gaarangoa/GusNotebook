@@ -161,21 +161,12 @@
         <span class="nl">Raw</span>
         <span class="nh">text, never run</span>
       </div>
-      <div class="new-item" onclick="typeFromMenu('vis')">
-        <span class="ni">◈</span>
-        <span class="nl">Vis</span>
-        <span class="nh">agent-built HTML visualization</span>
-      </div>
     </div>
 
     <div class="toolbar" id="toolbar">
       <button class="tb" onclick="addCell('code')">+ Code</button>
       <button class="tb" onclick="addCell('markdown')">+ Markdown</button>
       <button class="tb" onclick="addCell('raw')">+ Raw</button>
-      <button class="tb primary" onclick="addCell('ai')"
-              title="Describe what you want; the inline LLM writes the Python">+ AI</button>
-      <button class="tb primary" onclick="addCell('vis')"
-              title="Describe the visualization; an agent writes HTML display code">+ Vis</button>
       <div class="tb-sep"></div>
       <!-- acts on the cell the caret is in, so cells themselves stay button-free -->
       <button class="tb" onclick="deleteSelected()" title="Delete current cell">Delete</button>
