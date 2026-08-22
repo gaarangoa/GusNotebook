@@ -997,6 +997,7 @@ function htmlOutputSrcdoc(body, outputId) {
 (() => {
   let textEdit = false;
   let editor = null;
+  let draggingViz = false;
   const measuredHeight = () => {
     const root = document.body || document.documentElement;
     if (!root) return 24;
@@ -1069,6 +1070,15 @@ function htmlOutputSrcdoc(body, outputId) {
     }, '*');
     setTimeout(send, 0);
   };
+  const postVizPointer = (phase, event) => {
+    parent.postMessage({
+      type: 'gusnotebook-viz-pointer',
+      phase,
+      id: ${safeId},
+      x: event.clientX,
+      y: event.clientY
+    }, '*');
+  };
   const openEditor = target => {
     commit(false);
     const rect = target.getBoundingClientRect();
@@ -1113,14 +1123,38 @@ function htmlOutputSrcdoc(body, outputId) {
     document.body.style.cursor = textEdit ? 'text' : '';
     if (!textEdit) commit(false);
   });
-  document.addEventListener('dblclick', event => {
-    if (!textEdit) return;
+  document.addEventListener('click', event => {
     const target = svgTextTarget(event.target);
     if (!target) return;
     event.preventDefault();
     event.stopPropagation();
     openEditor(target);
   }, true);
+  document.addEventListener('pointerdown', event => {
+    if (event.button !== 0 || editor || svgTextTarget(event.target)) return;
+    draggingViz = true;
+    if (event.target.setPointerCapture) {
+      try { event.target.setPointerCapture(event.pointerId); } catch (_err) {}
+    }
+    postVizPointer('down', event);
+    event.preventDefault();
+    event.stopPropagation();
+  }, true);
+  document.addEventListener('pointermove', event => {
+    if (!draggingViz) return;
+    postVizPointer('move', event);
+    event.preventDefault();
+    event.stopPropagation();
+  }, true);
+  const endVizPointer = event => {
+    if (!draggingViz) return;
+    draggingViz = false;
+    postVizPointer('up', event);
+    event.preventDefault();
+    event.stopPropagation();
+  };
+  document.addEventListener('pointerup', endVizPointer, true);
+  document.addEventListener('pointercancel', endVizPointer, true);
 })();
 </script>`;
   return `<!doctype html><html><head><base target="_blank">

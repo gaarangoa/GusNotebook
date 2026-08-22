@@ -13,6 +13,10 @@
   var userMovedAfterRestore = false;
   var selectedViz = null;
   var vizToolbar = null;
+  var vizMoveMode = false;
+  var vizDrag = null;
+  var vizResizeHandle = null;
+  var vizResize = null;
 
   function cleanClone(node) {
     var clone = node.cloneNode(true);
@@ -26,6 +30,7 @@
     });
     clone.querySelectorAll('.gusnb-viz-selected').forEach(function (el) {
       el.classList.remove('gusnb-viz-selected');
+      el.classList.remove('gusnb-viz-moving');
     });
     return clone;
   }
@@ -215,12 +220,28 @@
     style.textContent = [
       '.gusnb-viz{position:relative;margin:0;}',
       '.gusnb-viz.gusnb-viz-selected{outline:1px solid rgba(131,0,81,.45);outline-offset:3px;}',
+      '.gusnb-viz.gusnb-viz-moving{cursor:move;}',
       '.gusnb-viz-render{max-width:100%;overflow:visible;}',
       '.gusnb-viz-render svg{max-width:100%;height:auto;}',
-      '.gusnb-viz-frame{display:block;width:100%;min-height:140px;border:0;background:transparent;pointer-events:none;}',
+      '.gusnb-viz-frame{display:block;width:100%;min-height:140px;border:0;background:transparent;pointer-events:auto;}',
       '.gusnb-viz [data-gusnb-viz-panel]{position:absolute;top:14px;left:0;z-index:7;max-width:min(520px,100%);white-space:pre-wrap;margin:0;padding:9px 10px;border:1px solid #cbd5e1;border-radius:6px;background:rgba(255,255,255,.98);color:#0f172a;font:11.5px/1.45 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;box-shadow:0 10px 30px rgba(15,23,42,.16);}'
     ].join('');
     document.head.appendChild(style);
+  }
+
+  function vizIcon(name) {
+    var attrs = ' width="15" height="15" viewBox="0 0 24 24" fill="none" ' +
+      'stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"';
+    if (name === 'source') {
+      return '<svg' + attrs + ' aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>';
+    }
+    if (name === 'move') {
+      return '<svg' + attrs + ' aria-hidden="true"><path d="M12 2v20"/><path d="m15 5-3-3-3 3"/><path d="m15 19-3 3-3-3"/><path d="M2 12h20"/><path d="m5 9-3 3 3 3"/><path d="m19 9 3 3-3 3"/></svg>';
+    }
+    if (name === 'delete') {
+      return '<svg' + attrs + ' aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="m19 6-1 14H6L5 6"/><path d="M10 11v5"/><path d="M14 11v5"/></svg>';
+    }
+    return '';
   }
 
   function ensureVizToolbar() {
@@ -228,13 +249,13 @@
     vizToolbar = document.createElement('div');
     vizToolbar.setAttribute(runtimeAttr, 'viz-toolbar');
     vizToolbar.innerHTML =
-      '<button type="button" data-viz-cmd="source" title="Source">🔗</button>' +
-      '<button type="button" data-viz-cmd="text" title="Edit chart text">T</button>' +
+      '<button type="button" data-viz-cmd="source" title="Source" aria-label="Source">' + vizIcon('source') + '</button>' +
+      '<button type="button" data-viz-cmd="move" title="Move freely" aria-label="Move freely">' + vizIcon('move') + '</button>' +
       '<button type="button" data-viz-cmd="w-">W-</button>' +
       '<button type="button" data-viz-cmd="w+">W+</button>' +
       '<button type="button" data-viz-cmd="h-">H-</button>' +
       '<button type="button" data-viz-cmd="h+">H+</button>' +
-      '<button type="button" data-viz-cmd="delete">Delete</button>';
+      '<button type="button" data-viz-cmd="delete" title="Delete" aria-label="Delete">' + vizIcon('delete') + '</button>';
     Object.assign(vizToolbar.style, {
       position: 'fixed', zIndex: '2147483646', display: 'none',
       alignItems: 'center', gap: '4px', padding: '4px',
@@ -246,6 +267,8 @@
       Object.assign(button.style, {
         border: '1px solid rgba(15,23,42,.14)', borderRadius: '4px',
         background: '#fff', color: '#334155', padding: '3px 6px',
+        minWidth: '28px', height: '28px', display: 'inline-flex',
+        alignItems: 'center', justifyContent: 'center',
         font: '11px/1.2 system-ui,-apple-system,Segoe UI,sans-serif',
         cursor: 'pointer'
       });
@@ -259,8 +282,8 @@
         toggleVizSource();
         return;
       }
-      if (button.getAttribute('data-viz-cmd') === 'text') {
-        toggleVizTextEdit(button);
+      if (button.getAttribute('data-viz-cmd') === 'move') {
+        toggleVizMoveMode();
         return;
       }
       editSelectedViz(button.getAttribute('data-viz-cmd'));
@@ -269,26 +292,65 @@
     return vizToolbar;
   }
 
+  function ensureVizResizeHandle() {
+    if (vizResizeHandle) return vizResizeHandle;
+    vizResizeHandle = document.createElement('div');
+    vizResizeHandle.setAttribute(runtimeAttr, 'viz-resize-handle');
+    vizResizeHandle.setAttribute('title', 'Resize');
+    Object.assign(vizResizeHandle.style, {
+      position: 'fixed',
+      zIndex: '2147483647',
+      display: 'none',
+      width: '13px',
+      height: '13px',
+      borderRadius: '3px',
+      border: '1px solid rgba(131,0,81,.55)',
+      background: '#fff',
+      boxShadow: '0 1px 5px rgba(15,23,42,.25)',
+      cursor: 'nwse-resize'
+    });
+    vizResizeHandle.addEventListener('pointerdown', startVizResize, true);
+    document.body.appendChild(vizResizeHandle);
+    return vizResizeHandle;
+  }
+
   function positionVizToolbar() {
     if (!selectedViz || !vizToolbar) return;
     var rect = selectedViz.getBoundingClientRect();
     vizToolbar.style.left = Math.max(6, Math.min(window.innerWidth - 220, rect.left)) + 'px';
     vizToolbar.style.top = Math.max(6, rect.top - 34) + 'px';
     vizToolbar.style.display = 'flex';
+    positionVizResizeHandle();
+  }
+
+  function positionVizResizeHandle() {
+    if (!selectedViz || !vizResizeHandle) return;
+    var rect = selectedViz.getBoundingClientRect();
+    vizResizeHandle.style.left = Math.round(rect.right - 7) + 'px';
+    vizResizeHandle.style.top = Math.round(rect.bottom - 7) + 'px';
+    vizResizeHandle.style.display = 'block';
   }
 
   function selectViz(block) {
-    if (selectedViz && selectedViz !== block) selectedViz.classList.remove('gusnb-viz-selected');
+    if (selectedViz && selectedViz !== block) {
+      selectedViz.classList.remove('gusnb-viz-selected');
+      selectedViz.classList.remove('gusnb-viz-moving');
+      setVizMoveMode(false);
+    }
     showVizSource(false);
     setVizTextEdit(false);
     selectedViz = block;
     if (!selectedViz) {
+      setVizMoveMode(false);
       if (vizToolbar) vizToolbar.style.display = 'none';
+      if (vizResizeHandle) vizResizeHandle.style.display = 'none';
       return;
     }
     selectedViz.classList.add('gusnb-viz-selected');
     requestVizHeight(selectedViz);
     ensureVizToolbar();
+    ensureVizResizeHandle();
+    setVizMoveMode(true);
     positionVizToolbar();
   }
 
@@ -355,6 +417,182 @@
     setVizTextEdit(!selectedViz.classList.contains('gusnb-viz-text-edit'));
   }
 
+  function setVizMoveMode(enabled) {
+    vizMoveMode = !!enabled;
+    if (selectedViz) selectedViz.classList.toggle('gusnb-viz-moving', vizMoveMode);
+    if (vizToolbar) {
+      var button = vizToolbar.querySelector('[data-viz-cmd="move"]');
+      if (button) button.style.background = vizMoveMode ? '#fdf2f8' : '#fff';
+    }
+  }
+
+  function toggleVizMoveMode() {
+    if (!selectedViz) return;
+    if (!vizMoveMode) prepareVizFreePlacement(selectedViz);
+    setVizMoveMode(!vizMoveMode);
+  }
+
+  function prepareVizFreePlacement(block) {
+    if (!block) return;
+    var rect = block.getBoundingClientRect();
+    var width = parseFloat(block.style.width) || rect.width;
+    var parent = block.parentElement || document.body;
+    if (parent && parent !== document.body && getComputedStyle(parent).position === 'static') {
+      parent.style.position = 'relative';
+    }
+    var parentRect = parent && parent !== document.body
+      ? parent.getBoundingClientRect()
+      : {left: 0, top: 0};
+    var left = rect.left - parentRect.left + (parent ? parent.scrollLeft || 0 : 0);
+    var top = rect.top - parentRect.top + (parent ? parent.scrollTop || 0 : 0);
+    block.style.position = 'absolute';
+    block.style.left = Math.round(left) + 'px';
+    block.style.top = Math.round(top) + 'px';
+    block.style.width = Math.round(width) + 'px';
+    block.style.maxWidth = 'none';
+    block.style.margin = '0';
+    block.style.zIndex = block.style.zIndex || '1';
+    block.setAttribute('data-gusnb-free-placement', '1');
+    changed = true;
+    send('change', true);
+    positionVizToolbar();
+  }
+
+  function startVizDrag(event, block) {
+    if (!vizMoveMode || !block || block !== selectedViz || event.button !== 0) return false;
+    if (event.target.closest && event.target.closest('[data-gusnb-viz-panel]')) return false;
+    startVizDragAt(block, event.clientX, event.clientY);
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    return true;
+  }
+
+  function startVizDragAt(block, clientX, clientY) {
+    prepareVizFreePlacement(block);
+    vizDrag = {
+      block: block,
+      startX: clientX,
+      startY: clientY,
+      left: parseFloat(block.style.left) || 0,
+      top: parseFloat(block.style.top) || 0
+    };
+  }
+
+  function moveVizDragTo(clientX, clientY) {
+    if (!vizDrag) return;
+    var nextLeft = vizDrag.left + clientX - vizDrag.startX;
+    var nextTop = vizDrag.top + clientY - vizDrag.startY;
+    vizDrag.block.style.left = Math.round(nextLeft) + 'px';
+    vizDrag.block.style.top = Math.round(nextTop) + 'px';
+    positionVizToolbar();
+  }
+
+  function moveVizDrag(event) {
+    if (!vizDrag) return;
+    moveVizDragTo(event.clientX, event.clientY);
+    event.preventDefault();
+  }
+
+  function endVizDragAt(clientX, clientY) {
+    if (!vizDrag) return;
+    moveVizDragTo(clientX, clientY);
+    vizDrag = null;
+    changed = true;
+    send('change', true);
+  }
+
+  function endVizDrag(event) {
+    if (!vizDrag) return;
+    endVizDragAt(event.clientX, event.clientY);
+    event.preventDefault();
+  }
+
+  function startVizResize(event) {
+    if (!selectedViz || event.button !== 0) return;
+    var block = selectedViz;
+    var frame = block.querySelector('.gusnb-viz-frame');
+    var render = frame && frame.closest('[data-gusnb-viz-render]');
+    var rect = block.getBoundingClientRect();
+    var baseHeight = frame ? (
+      parseFloat(frame.getAttribute('data-gusnb-base-height')) ||
+      parseFloat(frame.getAttribute('height')) ||
+      parseFloat(frame.style.height) || rect.height || 240
+    ) : rect.height || 240;
+    prepareVizFreePlacement(block);
+    vizResize = {
+      block: block,
+      frame: frame,
+      render: render,
+      startX: event.clientX,
+      startY: event.clientY,
+      width: rect.width,
+      height: rect.height,
+      baseHeight: baseHeight
+    };
+    event.preventDefault();
+    event.stopImmediatePropagation();
+  }
+
+  function moveVizResize(event) {
+    if (!vizResize) return;
+    var width = Math.max(140, vizResize.width + event.clientX - vizResize.startX);
+    var height = Math.max(90, vizResize.height + event.clientY - vizResize.startY);
+    vizResize.block.style.width = Math.round(width) + 'px';
+    vizResize.block.style.maxWidth = 'none';
+    if (vizResize.frame) {
+      applyVizScale(vizResize.frame, height / Math.max(1, vizResize.baseHeight));
+    } else {
+      vizResize.block.style.height = Math.round(height) + 'px';
+    }
+    positionVizToolbar();
+    event.preventDefault();
+  }
+
+  function endVizResize(event) {
+    if (!vizResize) return;
+    moveVizResize(event);
+    vizResize = null;
+    changed = true;
+    send('change', true);
+  }
+
+  function vizFrameForSource(source) {
+    var frames = document.querySelectorAll('.gusnb-viz-frame');
+    for (var i = 0; i < frames.length; i++) {
+      if (frames[i].contentWindow === source) return frames[i];
+    }
+    return null;
+  }
+
+  function iframeVizClientPoint(frame, data) {
+    var rect = frame.getBoundingClientRect();
+    return {
+      x: rect.left + (Number(data.x) || 0),
+      y: rect.top + (Number(data.y) || 0)
+    };
+  }
+
+  function handleIframeVizPointer(event, data) {
+    var frame = vizFrameForSource(event.source);
+    var block = frame && frame.closest('[data-gusnb-viz]');
+    if (!frame || !block) return false;
+    selectViz(block);
+    var point = iframeVizClientPoint(frame, data);
+    if (data.phase === 'down') {
+      startVizDragAt(block, point.x, point.y);
+      return true;
+    }
+    if (data.phase === 'move') {
+      moveVizDragTo(point.x, point.y);
+      return true;
+    }
+    if (data.phase === 'up' || data.phase === 'cancel') {
+      endVizDragAt(point.x, point.y);
+      return true;
+    }
+    return false;
+  }
+
   function vizScale(frame) {
     var scale = parseFloat(frame.getAttribute('data-gusnb-scale')) ||
       parseFloat(String(frame.style.transform || '').replace(/.*scale\(([^)]+)\).*/, '$1')) || 1;
@@ -386,6 +624,7 @@
     if (!block) return;
     if (command === 'delete') {
       block.remove();
+      setVizMoveMode(false);
       selectViz(null);
       changed = true;
       send('change', true);
@@ -540,6 +779,17 @@
     selectViz(block);
   }, true);
 
+  document.addEventListener('pointerdown', function (event) {
+    var block = event.target.closest && event.target.closest('[data-gusnb-viz]');
+    if (startVizDrag(event, block)) return;
+  }, true);
+  document.addEventListener('pointermove', moveVizDrag, true);
+  document.addEventListener('pointerup', endVizDrag, true);
+  document.addEventListener('pointercancel', endVizDrag, true);
+  document.addEventListener('pointermove', moveVizResize, true);
+  document.addEventListener('pointerup', endVizResize, true);
+  document.addEventListener('pointercancel', endVizResize, true);
+
   document.addEventListener('mouseup', function () {
     setTimeout(reportSelection, 0);
   });
@@ -568,6 +818,9 @@
   }, true);
   window.addEventListener('message', function (event) {
     var data = event.data || {};
+    if (data.type === 'gusnotebook-viz-pointer') {
+      if (handleIframeVizPointer(event, data)) return;
+    }
     if (data.type === 'gusnotebook-html-output-height') {
       var frame = document.querySelector(
         'iframe.gusnb-viz-frame[data-output-frame="' +
