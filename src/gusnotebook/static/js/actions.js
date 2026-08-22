@@ -378,7 +378,9 @@ cat <<'PY' | gusnb set ${cell.id} - --run
 # generated Python visualization code here
 PY
 
-- The replacement cell must be a normal Python code cell.
+- The replacement cell must be a normal Python code cell, not a Vis cell and
+  not a hidden/special editor surface. After replacement, it should behave like
+  any other code cell in the notebook.
 - The code must produce rich text/html output, normally with:
 
 from IPython.display import HTML
@@ -391,6 +393,9 @@ HTML(r'''...''')
 - Do not write .transition(), .duration(), .delay(), requestAnimationFrame,
   setInterval, or setTimeout for visual effects. Set all SVG attributes,
   styles, and text directly to their final values.
+- Do not initialize marks to temporary animated states such as bar height 0,
+  radius 0, opacity 0, or off-canvas positions. Create bars, points, paths,
+  labels, and axes directly in their final visible state.
 - Size charts for slide/readout embedding from the start. For a full-width
   single plot, use margins close to {top: 40, right: 160, bottom: 50, left: 60}
   with plot area width 520 and height 340, keeping the total SVG under about

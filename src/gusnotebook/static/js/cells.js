@@ -956,6 +956,7 @@ function htmlOutputSrcdoc(body, outputId) {
   const safeId = JSON.stringify(outputId);
   const d3Patch = `<script data-gusnb-d3-static>
 (() => {
+  const nativeSetTimeout = window.setTimeout.bind(window);
   const patch = d3 => {
     if (!d3 || d3.__gusnbStaticTransitions || !d3.selection) return d3;
     d3.__gusnbStaticTransitions = true;
@@ -964,6 +965,20 @@ function htmlOutputSrcdoc(body, outputId) {
     proto.duration = function () { return this; };
     proto.delay = function () { return this; };
     proto.ease = function () { return this; };
+    proto.interrupt = function () { return this; };
+    d3.transition = function () { return d3.selection(); };
+    d3.timer = function (callback) {
+      if (typeof callback === 'function') nativeSetTimeout(() => callback(Infinity), 0);
+      return {restart() {}, stop() {}};
+    };
+    d3.timeout = function (callback) {
+      if (typeof callback === 'function') nativeSetTimeout(() => callback(Infinity), 0);
+      return {restart() {}, stop() {}};
+    };
+    d3.interval = function (callback) {
+      if (typeof callback === 'function') nativeSetTimeout(() => callback(Infinity), 0);
+      return {restart() {}, stop() {}};
+    };
     return d3;
   };
   let current;
@@ -1563,11 +1578,8 @@ function renderCellOutput(c) {
 function foldHeight() { return (codeFoldLines * 1.55 + 1.4).toFixed(2) + 'em'; }
 
 function cellLines(c) { return (c.source || '').split('\n').length; }
-function isVisGeneratedCode(c) {
-  return c && c.cell_type === 'code' && /GusNotebook Vis cell|User visualization request|Replace this exact GusNotebook Vis cell/.test(c.claude_prompt || '');
-}
 function isFoldable(c) {
-  return c.cell_type === 'code' && (isVisGeneratedCode(c) || cellLines(c) > codeFoldLines);
+  return c.cell_type === 'code' && cellLines(c) > codeFoldLines;
 }
 
 /** Is the caret inside this cell's editor right now? */
@@ -1584,17 +1596,11 @@ function hasCaret(id) {
  * folded, so the user opens it deliberately from the "N more lines" veil.
  */
 function isFolded(c) {
-  if (isVisGeneratedCode(c)) return !codeOpen.has(c.id);
   return isFoldable(c) && !codeOpen.has(c.id) && !(foldOpenOnFocus && hasCaret(c.id));
 }
 
 /** The clipped-code veil, with a small explicit click target to open it. */
 function veilHtml(c) {
-  if (isVisGeneratedCode(c)) {
-    return `<div class="fold-veil vis">
-      <span onclick="event.stopPropagation();toggleFold('${c.id}')"
-            title="Show the generated HTML code">Show HTML code</span></div>`;
-  }
   const hidden = cellLines(c) - codeFoldLines;
   return `<div class="fold-veil">
       <span onclick="event.stopPropagation();toggleFold('${c.id}')"
@@ -1619,7 +1625,7 @@ function viewBtnsHtml(c) {
   const folded = wrap ? wrap.classList.contains('folded') : isFolded(c);
   return `<div class="gutter-out">${long ? `
         <button class="out-btn" id="foldb-${c.id}"
-                title="${folded ? (isVisGeneratedCode(c) ? 'Show generated HTML code' : 'Show the whole cell') : "Fold this cell's code"}"
+                title="${folded ? 'Show the whole cell' : "Fold this cell's code"}"
                 onclick="event.stopPropagation();toggleFold('${c.id}')">${
                   folded ? '⌄' : '⌃'}</button>` : ''}
       </div>`;
@@ -1700,11 +1706,10 @@ function cellHtml(c) {
     // actively wrong.
     if (isFoldable(c)) {
       const folded = isFolded(c);
-      const visCode = isVisGeneratedCode(c);
       // The wrapper is there either way, so folding again is a class toggle on a
       // node already in the DOM rather than a re-render.
-      bodyInner = `<div class="fold ${visCode ? 'vis-code' : ''} ${folded ? 'folded' : ''}" id="fold-${c.id}"
-        style="--fold-h:${visCode ? '30px' : foldHeight()}">${bodyInner}${folded ? veilHtml(c) : ''}</div>`;
+      bodyInner = `<div class="fold ${folded ? 'folded' : ''}" id="fold-${c.id}"
+        style="--fold-h:${foldHeight()}">${bodyInner}${folded ? veilHtml(c) : ''}</div>`;
     }
   }
 

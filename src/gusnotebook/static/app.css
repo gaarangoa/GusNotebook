@@ -736,13 +736,6 @@ button.tb.primary:hover { background: #fdf4f8; }
    here that drifts from it. Only the folded rule reads it, so unfolding is a
    class toggle with no inline style to undo. */
 .fold.folded { overflow: hidden; max-height: var(--fold-h); }
-.fold.vis-code.folded {
-  min-height: 30px;
-  border: 1px dashed var(--border);
-  border-radius: 6px;
-  background: #fafbfc;
-}
-.fold.vis-code.folded .ed-host { visibility: hidden; }
 /* The transparency the fade is made of. Over the editor, not inside it: an
    overlay also means a click lands here rather than placing a caret halfway
    down code the user can't see the end of — opening it first is the only
@@ -770,15 +763,6 @@ button.tb.primary:hover { background: #fdf4f8; }
   pointer-events: auto;
 }
 .fold-veil:hover span { color: var(--accent); border-color: #d9a8c4; }
-.fold-veil.vis {
-  align-items: center;
-  padding: 0;
-  background: transparent;
-}
-.fold-veil.vis span {
-  border-radius: 5px;
-  padding: 3px 8px;
-}
 
 /* Output collapsed away. The note replaces it rather than leaving a gap, so
    "this cell has output" survives hiding it — otherwise a collapsed cell is
