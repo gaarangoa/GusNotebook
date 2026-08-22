@@ -388,6 +388,17 @@ HTML(r'''...''')
 - Keep visualizations static on initial render: do not use D3 transitions,
   delayed reveals, animated loading effects, CSS animations, or timed entrance
   effects unless the user explicitly asks for animation.
+- Do not write .transition(), .duration(), .delay(), requestAnimationFrame,
+  setInterval, or setTimeout for visual effects. Set all SVG attributes,
+  styles, and text directly to their final values.
+- Size charts for slide/readout embedding from the start. For a full-width
+  single plot, use margins close to {top: 40, right: 160, bottom: 50, left: 60}
+  with plot area width 520 and height 340, keeping the total SVG under about
+  700 by 430. For two side-by-side plots, use plot area width 440 and height
+  320, keeping each total under about 600 by 400.
+- Put the generated chart inside a root element with class "viz-root", and
+  include local CSS in the HTML output so .viz-root has background:none,
+  margin:0, and padding:0.
 - Use a unique root element id in the HTML.
 - Keep all JavaScript scoped inside an IIFE.
 - Make the visualization responsive to the output width.

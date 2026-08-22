@@ -954,8 +954,34 @@ function richMimeText(value) {
 
 function htmlOutputSrcdoc(body, outputId) {
   const safeId = JSON.stringify(outputId);
+  const d3Patch = `<script data-gusnb-d3-static>
+(() => {
+  const patch = d3 => {
+    if (!d3 || d3.__gusnbStaticTransitions || !d3.selection) return d3;
+    d3.__gusnbStaticTransitions = true;
+    const proto = d3.selection.prototype;
+    proto.transition = function () { return this; };
+    proto.duration = function () { return this; };
+    proto.delay = function () { return this; };
+    proto.ease = function () { return this; };
+    return d3;
+  };
+  let current;
+  try {
+    Object.defineProperty(window, 'd3', {
+      configurable: true,
+      get: () => current,
+      set: value => { current = patch(value); }
+    });
+  } catch (err) {
+    if (window.d3) patch(window.d3);
+  }
+})();
+</script>`;
   const resize = `<script>
 (() => {
+  let textEdit = false;
+  let editor = null;
   const send = () => parent.postMessage({
     type: 'gusnotebook-html-output-height',
     id: ${safeId},
@@ -969,12 +995,88 @@ function htmlOutputSrcdoc(body, outputId) {
   if (window.ResizeObserver) new ResizeObserver(send).observe(document.documentElement);
   setTimeout(send, 0);
   setTimeout(send, 250);
+  const svgTextTarget = node => {
+    while (node && node !== document) {
+      if (node.namespaceURI === 'http://www.w3.org/2000/svg' &&
+          (node.localName === 'text' || node.localName === 'tspan')) return node;
+      node = node.parentNode;
+    }
+    return null;
+  };
+  const serialized = () => {
+    const clone = document.documentElement.cloneNode(true);
+    clone.querySelectorAll('script:not([data-gusnb-frame-runtime])').forEach(s => s.remove());
+    return '<!doctype html>\\n' + clone.outerHTML;
+  };
+  const commit = cancel => {
+    if (!editor) return;
+    const edit = editor;
+    editor = null;
+    if (cancel) edit.target.textContent = edit.original;
+    else edit.target.textContent = edit.input.value;
+    edit.input.remove();
+    parent.postMessage({
+      type: 'gusnotebook-viz-srcdoc-updated',
+      id: ${safeId},
+      html: serialized()
+    }, '*');
+    setTimeout(send, 0);
+  };
+  const openEditor = target => {
+    commit(false);
+    const rect = target.getBoundingClientRect();
+    const style = getComputedStyle(target);
+    const input = document.createElement('input');
+    input.value = target.textContent || '';
+    input.setAttribute('aria-label', 'Edit chart text');
+    Object.assign(input.style, {
+      position: 'fixed',
+      zIndex: '2147483647',
+      left: Math.max(4, rect.left) + 'px',
+      top: Math.max(4, rect.top) + 'px',
+      width: Math.max(120, rect.width + 48) + 'px',
+      height: Math.max(26, rect.height + 10) + 'px',
+      padding: '3px 6px',
+      border: '2px solid #830051',
+      borderRadius: '4px',
+      background: '#fff',
+      color: style.fill === 'none' ? '#0f172a' : style.fill,
+      font: style.font,
+      boxShadow: '0 3px 14px rgba(15,23,42,.24)'
+    });
+    document.body.appendChild(input);
+    editor = {input, target, original: target.textContent || ''};
+    input.addEventListener('input', () => { target.textContent = input.value; send(); });
+    input.addEventListener('blur', () => commit(false));
+    input.addEventListener('keydown', event => {
+      if (event.key === 'Enter') { event.preventDefault(); commit(false); }
+      if (event.key === 'Escape') { event.preventDefault(); commit(true); }
+    });
+    input.focus();
+    input.select();
+  };
+  addEventListener('message', event => {
+    const data = event.data || {};
+    if (data.type !== 'gusnotebook-viz-text-edit') return;
+    textEdit = !!data.enabled;
+    document.body.style.cursor = textEdit ? 'text' : '';
+    if (!textEdit) commit(false);
+  });
+  document.addEventListener('dblclick', event => {
+    if (!textEdit) return;
+    const target = svgTextTarget(event.target);
+    if (!target) return;
+    event.preventDefault();
+    event.stopPropagation();
+    openEditor(target);
+  }, true);
 })();
 </script>`;
   return `<!doctype html><html><head><base target="_blank">
 <style>
 html,body{margin:0;padding:0;background:transparent;color:#1e293b;font:13px/1.45 -apple-system,BlinkMacSystemFont,"Inter",sans-serif;}
 body{overflow-x:auto;overflow-y:hidden;}
+*,*::before,*::after{animation:none!important;transition:none!important;}
 img,svg,canvas,video{max-width:100%;}
 table{border-collapse:collapse;font:11.5px/1.45 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;margin:3px 0;}
 th,td{border:1px solid #e2e8f0;padding:4px 7px;text-align:right;vertical-align:top;white-space:nowrap;}
@@ -983,7 +1085,7 @@ tbody th{text-align:left;background:#fff;color:#64748b;font-weight:500;}
 tbody tr:hover td,tbody tr:hover th{background:#f8fafc;}
 table[border]{border:none;}
 </style>
-</head><body>${body}${resize}</body></html>`;
+</head><body>${d3Patch}${body}${resize.replace('<script>', '<script data-gusnb-frame-runtime>')}</body></html>`;
 }
 
 function htmlOutputFrame(source, outputId, plain) {
@@ -1329,6 +1431,8 @@ function provenanceRenderHtml(visual) {
   if (visual.mime === 'text/html') {
     return `<iframe class="gusnb-viz-frame" title="Notebook visualization"
       sandbox="allow-scripts" referrerpolicy="no-referrer"
+      data-gusnb-scale="1" data-gusnb-base-height="460"
+      height="460" style="display:block;width:100%;height:460px;border:0;background:transparent;"
       srcdoc="${escapeAttr(htmlOutputSrcdoc(visual.source || '', 'gusnb-copied-viz'))}"></iframe>`;
   }
   return visual.render || '';
@@ -1353,22 +1457,9 @@ function provenanceHtml(c, visual, details) {
     comment: details.comment || '',
   };
   const summary = provenanceSummary(payload);
-  const onclick = "var p=this.parentElement.querySelector('[data-gusnb-viz-panel]');if(p)p.hidden=!p.hidden;return false;";
-  const style = `<style data-gusnb-viz-style>
-.gusnb-viz{position:relative;margin:16px 0;}
-.gusnb-viz-render{max-width:100%;overflow:auto;}
-.gusnb-viz-frame{display:block;width:100%;min-height:460px;border:0;background:transparent;}
-.gusnb-viz [data-gusnb-viz-info]{position:absolute;top:6px;right:6px;opacity:0;pointer-events:none;font:11px/1.25 system-ui,-apple-system,Segoe UI,sans-serif;border:1px solid rgba(15,23,42,.18);background:rgba(255,255,255,.92);color:#0f172a;border-radius:4px;padding:3px 6px;cursor:pointer;box-shadow:0 2px 8px rgba(15,23,42,.12);}
-.gusnb-viz:hover [data-gusnb-viz-info],.gusnb-viz [data-gusnb-viz-info]:focus{opacity:1;pointer-events:auto;}
-.gusnb-viz [data-gusnb-viz-panel]{white-space:pre-wrap;margin:8px 0 0;padding:10px;border:1px solid #cbd5e1;border-radius:4px;background:#f8fafc;color:#0f172a;font:12px/1.45 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;}
-.gusnb-viz-placeholder{display:flex;flex-direction:column;gap:3px;padding:14px;border:1px dashed #94a3b8;border-radius:6px;background:#f8fafc;color:#0f172a;font:13px/1.35 system-ui,-apple-system,Segoe UI,sans-serif;}
-.gusnb-viz-placeholder span{color:#475569;font-size:12px;}
-</style>`;
   const render = visual ? provenanceRenderHtml(visual) : provenancePlaceholder(payload);
-  const html = `${style}
-<figure class="gusnb-viz" data-gusnb-viz="1" data-gusnb-provenance="1" data-gusnb-notebook="${escapeAttr(payload.notebook)}" data-gusnb-cell-id="${escapeAttr(c.id)}">
+  const html = `<figure class="gusnb-viz" data-gusnb-viz="1" data-gusnb-provenance="1" data-gusnb-notebook="${escapeAttr(payload.notebook)}" data-gusnb-cell-id="${escapeAttr(c.id)}">
   <div class="gusnb-viz-render" data-gusnb-viz-render>${render}</div>
-  <button type="button" data-gusnb-viz-info contenteditable="false" onclick="${escapeAttr(onclick)}">Source</button>
   <pre data-gusnb-viz-panel contenteditable="false" hidden>${escapeHtml(summary)}</pre>
   <script type="application/json" data-gusnb-viz-source>${jsonForHtml(payload)}</script>
 </figure>`;

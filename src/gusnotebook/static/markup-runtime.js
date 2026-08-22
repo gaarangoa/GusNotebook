@@ -11,6 +11,8 @@
   var viewFrame = null;
   var pendingView = null;
   var userMovedAfterRestore = false;
+  var selectedViz = null;
+  var vizToolbar = null;
 
   function cleanClone(node) {
     var clone = node.cloneNode(true);
@@ -21,6 +23,9 @@
       el.removeAttribute('data-gusnotebook-edit-root');
       el.removeAttribute('contenteditable');
       el.removeAttribute('spellcheck');
+    });
+    clone.querySelectorAll('.gusnb-viz-selected').forEach(function (el) {
+      el.classList.remove('gusnb-viz-selected');
     });
     return clone;
   }
@@ -179,20 +184,207 @@
 
   function wireVizSource(root) {
     (root || document).querySelectorAll('[data-gusnb-viz-info]').forEach(function (button) {
-      if (button.getAttribute('onclick')) return;
+      if (button.getAttribute('onmouseenter') || button.getAttribute('onclick')) return;
       if (button._gusnbVizInfoWired) return;
       button._gusnbVizInfoWired = true;
-      button.addEventListener('click', function (event) {
+      var show = function (event) {
         event.preventDefault();
         event.stopPropagation();
         var block = button.closest('[data-gusnb-viz]');
         var panel = block && block.querySelector('[data-gusnb-viz-panel]');
-        if (panel) panel.hidden = !panel.hidden;
-      });
+        if (panel) panel.hidden = false;
+      };
+      var hide = function (event) {
+        event.preventDefault();
+        event.stopPropagation();
+        var block = button.closest('[data-gusnb-viz]');
+        var panel = block && block.querySelector('[data-gusnb-viz-panel]');
+        if (panel) panel.hidden = true;
+      };
+      button.addEventListener('mouseenter', show);
+      button.addEventListener('focus', show);
+      button.addEventListener('mouseleave', hide);
+      button.addEventListener('blur', hide);
     });
   }
 
+  function ensureEditorVizStyle() {
+    if (document.querySelector('style[' + runtimeAttr + '="viz-style"]')) return;
+    var style = document.createElement('style');
+    style.setAttribute(runtimeAttr, 'viz-style');
+    style.textContent = [
+      '.gusnb-viz{position:relative;margin:0;}',
+      '.gusnb-viz.gusnb-viz-selected{outline:1px solid rgba(131,0,81,.45);outline-offset:3px;}',
+      '.gusnb-viz-render{max-width:100%;overflow:visible;}',
+      '.gusnb-viz-render svg{max-width:100%;height:auto;}',
+      '.gusnb-viz-frame{display:block;width:100%;min-height:140px;border:0;background:transparent;pointer-events:none;}',
+      '.gusnb-viz [data-gusnb-viz-panel]{position:absolute;top:14px;left:0;z-index:7;max-width:min(520px,100%);white-space:pre-wrap;margin:0;padding:9px 10px;border:1px solid #cbd5e1;border-radius:6px;background:rgba(255,255,255,.98);color:#0f172a;font:11.5px/1.45 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;box-shadow:0 10px 30px rgba(15,23,42,.16);}'
+    ].join('');
+    document.head.appendChild(style);
+  }
+
+  function ensureVizToolbar() {
+    if (vizToolbar) return vizToolbar;
+    vizToolbar = document.createElement('div');
+    vizToolbar.setAttribute(runtimeAttr, 'viz-toolbar');
+    vizToolbar.innerHTML =
+      '<button type="button" data-viz-cmd="source" title="Source">🔗</button>' +
+      '<button type="button" data-viz-cmd="text" title="Edit chart text">T</button>' +
+      '<button type="button" data-viz-cmd="w-">W-</button>' +
+      '<button type="button" data-viz-cmd="w+">W+</button>' +
+      '<button type="button" data-viz-cmd="h-">H-</button>' +
+      '<button type="button" data-viz-cmd="h+">H+</button>' +
+      '<button type="button" data-viz-cmd="delete">Delete</button>';
+    Object.assign(vizToolbar.style, {
+      position: 'fixed', zIndex: '2147483646', display: 'none',
+      alignItems: 'center', gap: '4px', padding: '4px',
+      border: '1px solid rgba(15,23,42,.16)', borderRadius: '6px',
+      background: 'rgba(255,255,255,.96)',
+      boxShadow: '0 8px 24px rgba(15,23,42,.16)'
+    });
+    Array.prototype.forEach.call(vizToolbar.querySelectorAll('button'), function (button) {
+      Object.assign(button.style, {
+        border: '1px solid rgba(15,23,42,.14)', borderRadius: '4px',
+        background: '#fff', color: '#334155', padding: '3px 6px',
+        font: '11px/1.2 system-ui,-apple-system,Segoe UI,sans-serif',
+        cursor: 'pointer'
+      });
+    });
+    vizToolbar.addEventListener('click', function (event) {
+      var button = event.target.closest && event.target.closest('[data-viz-cmd]');
+      if (!button || !selectedViz) return;
+      event.preventDefault();
+      event.stopPropagation();
+      if (button.getAttribute('data-viz-cmd') === 'source') {
+        toggleVizSource();
+        return;
+      }
+      if (button.getAttribute('data-viz-cmd') === 'text') {
+        toggleVizTextEdit(button);
+        return;
+      }
+      editSelectedViz(button.getAttribute('data-viz-cmd'));
+    });
+    document.body.appendChild(vizToolbar);
+    return vizToolbar;
+  }
+
+  function positionVizToolbar() {
+    if (!selectedViz || !vizToolbar) return;
+    var rect = selectedViz.getBoundingClientRect();
+    vizToolbar.style.left = Math.max(6, Math.min(window.innerWidth - 220, rect.left)) + 'px';
+    vizToolbar.style.top = Math.max(6, rect.top - 34) + 'px';
+    vizToolbar.style.display = 'flex';
+  }
+
+  function selectViz(block) {
+    if (selectedViz && selectedViz !== block) selectedViz.classList.remove('gusnb-viz-selected');
+    showVizSource(false);
+    setVizTextEdit(false);
+    selectedViz = block;
+    if (!selectedViz) {
+      if (vizToolbar) vizToolbar.style.display = 'none';
+      return;
+    }
+    selectedViz.classList.add('gusnb-viz-selected');
+    ensureVizToolbar();
+    positionVizToolbar();
+  }
+
+  function showVizSource(show) {
+    if (!selectedViz) return;
+    var panel = selectedViz.querySelector('[data-gusnb-viz-panel]');
+    if (panel) panel.hidden = !show;
+  }
+
+  function toggleVizSource() {
+    if (!selectedViz) return;
+    var panel = selectedViz.querySelector('[data-gusnb-viz-panel]');
+    if (panel) panel.hidden = !panel.hidden;
+  }
+
+  function setVizTextEdit(enabled) {
+    if (!selectedViz) return;
+    var frame = selectedViz.querySelector('.gusnb-viz-frame');
+    selectedViz.classList.toggle('gusnb-viz-text-edit', !!enabled);
+    if (frame) {
+      frame.style.pointerEvents = enabled ? 'auto' : '';
+      if (frame.contentWindow) {
+        frame.contentWindow.postMessage({
+          type: 'gusnotebook-viz-text-edit',
+          enabled: !!enabled
+        }, '*');
+      }
+    }
+    if (vizToolbar) {
+      var button = vizToolbar.querySelector('[data-viz-cmd="text"]');
+      if (button) button.style.background = enabled ? '#fdf2f8' : '#fff';
+    }
+  }
+
+  function toggleVizTextEdit() {
+    if (!selectedViz) return;
+    setVizTextEdit(!selectedViz.classList.contains('gusnb-viz-text-edit'));
+  }
+
+  function vizScale(frame) {
+    var scale = parseFloat(frame.getAttribute('data-gusnb-scale')) ||
+      parseFloat(String(frame.style.transform || '').replace(/.*scale\(([^)]+)\).*/, '$1')) || 1;
+    return Math.max(.35, Math.min(1.8, scale));
+  }
+
+  function applyVizScale(frame, scale) {
+    scale = Math.max(.35, Math.min(1.8, scale));
+    var render = frame.closest('[data-gusnb-viz-render]');
+    var baseHeight = parseFloat(frame.getAttribute('data-gusnb-base-height')) ||
+      parseFloat(frame.getAttribute('height')) ||
+      parseFloat(frame.style.height) || 460;
+    frame.setAttribute('data-gusnb-scale', String(Number(scale.toFixed(3))));
+    frame.setAttribute('data-gusnb-base-height', String(Math.round(baseHeight)));
+    frame.setAttribute('height', String(Math.round(baseHeight)));
+    frame.style.height = Math.round(baseHeight) + 'px';
+    frame.style.width = '100%';
+    frame.style.zoom = '';
+    frame.style.transform = `scale(${Number(scale.toFixed(3))})`;
+    frame.style.transformOrigin = 'top left';
+    if (render) {
+      render.style.height = Math.round(baseHeight * scale) + 'px';
+      render.style.overflow = 'visible';
+    }
+  }
+
+  function editSelectedViz(command) {
+    var block = selectedViz;
+    if (!block) return;
+    if (command === 'delete') {
+      block.remove();
+      selectViz(null);
+      changed = true;
+      send('change', true);
+      return;
+    }
+    var frame = block.querySelector('.gusnb-viz-frame');
+    var rect = block.getBoundingClientRect();
+    if (command === 'w-' || command === 'w+') {
+      var parentWidth = block.parentElement ? block.parentElement.clientWidth : window.innerWidth;
+      var width = parseFloat(block.style.width) || rect.width || parentWidth;
+      width += command === 'w+' ? 40 : -40;
+      width = Math.max(180, Math.min(parentWidth, width));
+      block.style.width = Math.round(width) + 'px';
+      block.style.maxWidth = '100%';
+    } else if (frame && (command === 'h-' || command === 'h+')) {
+      var scale = vizScale(frame) + (command === 'h+' ? .08 : -.08);
+      applyVizScale(frame, scale);
+    }
+    changed = true;
+    send('change', true);
+    positionVizToolbar();
+  }
+
   function scrubVizFragment(fragment) {
+    fragment.querySelectorAll('style[data-gusnb-viz-style]').forEach(function (style) {
+      style.remove();
+    });
     fragment.querySelectorAll('script').forEach(function (script) {
       if (script.matches('[type="application/json"][data-gusnb-viz-source]')) return;
       script.remove();
@@ -200,8 +392,7 @@
     fragment.querySelectorAll('*').forEach(function (el) {
       Array.from(el.attributes).forEach(function (attr) {
         var name = attr.name.toLowerCase();
-        if (name.startsWith('on') &&
-            !(name === 'onclick' && el.matches('[data-gusnb-viz-info]'))) {
+        if (name.startsWith('on')) {
           el.removeAttribute(attr.name);
         }
       });
@@ -306,6 +497,21 @@
     openSvgEditor(target);
   }, true);
 
+  document.addEventListener('click', function (event) {
+    if (vizToolbar && vizToolbar.contains(event.target)) return;
+    var block = event.target.closest && event.target.closest('[data-gusnb-viz]');
+    if (!block) {
+      if (selectedViz) {
+        selectedViz.classList.remove('gusnb-viz-selected');
+        selectViz(null);
+      }
+      return;
+    }
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    selectViz(block);
+  }, true);
+
   document.addEventListener('mouseup', function () {
     setTimeout(reportSelection, 0);
   });
@@ -334,6 +540,18 @@
   }, true);
   window.addEventListener('message', function (event) {
     var data = event.data || {};
+    if (data.type === 'gusnotebook-viz-srcdoc-updated') {
+      var frames = document.querySelectorAll('.gusnb-viz-frame');
+      for (var i = 0; i < frames.length; i++) {
+        if (frames[i].contentWindow !== event.source) continue;
+        frames[i].setAttribute('srcdoc', data.html || '');
+        frames[i].srcdoc = data.html || '';
+        changed = true;
+        send('change', true);
+        break;
+      }
+      return;
+    }
     if (event.source !== parent ||
         (config.parentOrigin !== '*' && event.origin !== config.parentOrigin) ||
         data.channel !== config.channel || data.nonce !== config.nonce) return;
@@ -348,7 +566,9 @@
   });
 
   window.addEventListener('scroll', queueViewReport, {passive: true});
+  window.addEventListener('scroll', positionVizToolbar, {passive: true});
   window.addEventListener('resize', queueViewReport, {passive: true});
+  window.addEventListener('resize', positionVizToolbar, {passive: true});
   ['wheel', 'touchstart', 'pointerdown', 'keydown'].forEach(function (kind) {
     window.addEventListener(kind, function () { userMovedAfterRestore = true; },
                             {passive: true});
@@ -361,6 +581,7 @@
       document.body.spellcheck = true;
       document.body.setAttribute('data-gusnotebook-edit-root', '');
     }
+    ensureEditorVizStyle();
     wireVizSource(document);
     sendToParent({channel: config.channel, nonce: config.nonce, kind: 'ready'});
   }
