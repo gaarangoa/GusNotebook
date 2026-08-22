@@ -362,7 +362,7 @@ async function regenerate(id) {
 }
 
 function visAgentPrompt(cell, promptText) {
-  return `Replace this exact GusNotebook Vis cell with a runnable Python visualization cell.
+  return `Turn this GusNotebook Vis request into a normal runnable Python code cell.
 
 Notebook: ${active}
 Cell id to replace: ${cell.id}
@@ -371,16 +371,18 @@ User visualization request:
 ${promptText}
 
 Required behavior:
-- Replace cell ${cell.id} itself. Do not create a new cell.
-- Use this exact replacement workflow after writing the Python code:
+- Treat the Vis cell as a code cell with an additional visualization prompt.
+- Generate one compact Python code cell. It should contain any Python prep
+  needed, then an IPython HTML(...) display call that renders the D3 figure.
+- Replace cell ${cell.id} itself. Do not create a new cell, scratch file, or
+  alternate attempt.
+- Use this exact workflow once:
 
 cat <<'PY' | gusnb set ${cell.id} - --run
 # generated Python visualization code here
 PY
 
-- The replacement cell must be a normal Python code cell, not a Vis cell and
-  not a hidden/special editor surface. After replacement, it should behave like
-  any other code cell in the notebook.
+- After replacement, the cell must behave like any other normal Python code cell.
 - The code must produce rich text/html output, normally with:
 
 from IPython.display import HTML
@@ -407,8 +409,9 @@ HTML(r'''...''')
 - Use a unique root element id in the HTML.
 - Keep all JavaScript scoped inside an IIFE.
 - Make the visualization responsive to the output width.
-- Reuse variables, DataFrames, and files from earlier notebook cells when the request refers to existing notebook data.
-- Do not report done until the command above succeeds and the same cell has rendered output.
+- If the prompt refers to notebook data, use the obvious nearby variables/files.
+  Otherwise generate the requested visualization directly.
+- Verify only: same cell id exists, cell is normal code, rendered output exists.
 - The command above automatically preserves undo metadata and the agent prompt in GusNotebook.`;
 }
 
