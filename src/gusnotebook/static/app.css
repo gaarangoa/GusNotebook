@@ -877,7 +877,7 @@ button.tb.primary:hover { background: #fdf4f8; }
 /* The cell you're on. A class rather than `.editor:focus`, so it survives focus
    moving into a Claude terminal — which is exactly when you need to know which
    cell Claude is about to act on. */
-.cell.is-current { border-left: 2px solid transparent; margin-left: -2px; }
+.cell.is-current { border-left: 2px solid var(--accent); margin-left: -2px; }
 .cell.is-current .gutter-label { color: var(--accent); font-weight: 600; }
 .cell.is-running .gutter-label { color: #a33a00; font-weight: 600; }
 .run-symbol::before {
@@ -893,7 +893,7 @@ button.tb.primary:hover { background: #fdf4f8; }
   50%, 100% { content: '*'; transform: scale(1.12); opacity: 1; }
 }
 .cell.is-current > .cell-body > .ed-host > .cm-editor,
-.cell.is-current > .cell-body > .editor { border-color: #c9b3c1; }
+.cell.is-current > .cell-body > .editor { border-color: #a85986; }
 
 /* Markdown rendered */
 .md-rendered {

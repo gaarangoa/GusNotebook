@@ -1089,6 +1089,10 @@ function htmlOutputSrcdoc(body, outputId) {
       y: event.clientY
     }, '*');
   };
+  const selectOutputCell = () => parent.postMessage({
+    type: 'gusnotebook-output-interaction',
+    id: ${safeId}
+  }, '*');
   const openEditor = target => {
     commit(false);
     const rect = target.getBoundingClientRect();
@@ -1134,6 +1138,7 @@ function htmlOutputSrcdoc(body, outputId) {
     if (!textEdit) commit(false);
   });
   document.addEventListener('click', event => {
+    selectOutputCell();
     const target = svgTextTarget(event.target);
     if (!target) return;
     event.preventDefault();
@@ -1141,6 +1146,7 @@ function htmlOutputSrcdoc(body, outputId) {
     openEditor(target);
   }, true);
   document.addEventListener('pointerdown', event => {
+    selectOutputCell();
     if (event.button !== 0 || editor || svgTextTarget(event.target)) return;
     draggingViz = true;
     if (event.target.setPointerCapture) {
@@ -1206,6 +1212,12 @@ function toggleHtmlOutputRaw(id) {
 
 window.addEventListener('message', (event) => {
   const data = event.data || {};
+  if (data.type === 'gusnotebook-output-interaction') {
+    const frame = document.querySelector(`iframe[data-output-frame="${CSS.escape(data.id || '')}"]`);
+    const cell = frame && frame.closest('.cell');
+    if (cell && cell.dataset.id) selectCell(cell.dataset.id);
+    return;
+  }
   if (data.type !== 'gusnotebook-html-output-height') return;
   const frame = document.querySelector(`iframe[data-output-frame="${CSS.escape(data.id || '')}"]`);
   const height = Math.max(24, Math.min(4000, Number(data.height) || 0));
