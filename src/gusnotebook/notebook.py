@@ -141,6 +141,8 @@ class Notebook:
     def _ensure_ids(self):
         """A hand-edited notebook may have cells without ids — assign them."""
         seen = set()
+        if not self._nb.cells:
+            self._nb.cells.append(nbformat.v4.new_code_cell(""))
         for cell in self._nb.cells:
             cid = cell.get("id")
             if not cid or cid in seen:

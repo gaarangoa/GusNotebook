@@ -388,13 +388,15 @@ async function openFile(path, options = {}) {
   let t = {path: p, name: p.split('/').pop(), kind: data.kind || 'text', dirty: false};
   if (t.kind === 'notebook') {
     const oldCells = new Map((cached && cached.cells || []).map(c => [c.id, c]));
+    const running = data.running_cells || {};
     const freshCells = (data.cells || []).map(c => {
       const old = oldCells.get(c.id);
       // A server snapshot taken in the middle of execution can lag the SSE
-      // stream. Keep the live output this window already saw until cell_done.
-      return old && old._running
+      // stream. Keep the live output this window already saw only if the server
+      // still says that cell is running.
+      return old && old._running && Object.prototype.hasOwnProperty.call(running, c.id)
         ? {...c, outputs: old.outputs, _running: true}
-        : c;
+        : {...c, _running: Object.prototype.hasOwnProperty.call(running, c.id)};
     });
     Object.assign(t, {cells: freshCells,
                       selected: cached && cached.selected,
@@ -595,9 +597,6 @@ function saveText() {
 
   document.getElementById('text-status').textContent = 'saving…';
   const frame = document.getElementById('html-preview-frame');
-  frame.contentWindow.postMessage(
-    {channel: MARKUP_EDITOR_CHANNEL, nonce: t.previewNonce, command: 'save'},
-    t.previewOrigin || '*');
   // A malformed document can prevent the bridge from starting. Saving the last
   // markup received is still better than leaving the toolbar stuck on saving.
   clearTimeout(t.markupSaveTimer);
@@ -605,6 +604,17 @@ function saveText() {
     t.markupSaveTimer = null;
     persistText(t, t.text || '');
   }, 750);
+  if (!frame || !frame.contentWindow) return;
+  try {
+    frame.contentWindow.postMessage(
+      {channel: MARKUP_EDITOR_CHANNEL, nonce: t.previewNonce, command: 'save'},
+      t.previewOrigin || '*');
+  } catch (err) {
+    clearTimeout(t.markupSaveTimer);
+    t.markupSaveTimer = null;
+    if (active === t.path) document.getElementById('text-status').textContent = 'save failed';
+    flash('Save failed: ' + errText(err));
+  }
 }
 
 function onTextKey(e) {
@@ -1792,7 +1802,7 @@ function cellHtml(c) {
     // is editable from the first paint and stays editable if CM never loads.
     bodyInner = `<div class="ed-host" id="ed-host-${c.id}" data-cell="${c.id}"
       data-lang="${isCode || isAi ? 'python' : 'text'}"><textarea class="editor" id="ed-${c.id}"
-      oninput="autosize(this); queueSave('${c.id}')"
+      oninput="autosize(this); queueSave('${c.id}'); refreshCodeFoldForEdit('${c.id}', this.value)"
       onfocus="selectCell('${c.id}')"
       onkeydown="return onEditorKey(event, '${c.id}')"
       placeholder="${escapeAttr(placeholder)}"

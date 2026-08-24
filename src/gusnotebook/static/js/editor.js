@@ -62,6 +62,46 @@ function refreshHist(id) {
   bar.classList.toggle('on', !!(u || r));
 }
 
+function refreshCodeFoldForEdit(id, source) {
+  const c = getCell(id);
+  if (!c || c.cell_type !== 'code') return;
+  c.source = String(source == null ? '' : source);
+  const cell = document.querySelector(`.cell[data-id="${id}"]`);
+  if (!cell) return;
+  const host = document.getElementById('ed-' + id) ||
+    document.getElementById('ed-host-' + id);
+  let wrap = document.getElementById('fold-' + id);
+  const foldable = isFoldable(c);
+  if (!foldable) {
+    if (wrap) {
+      const veil = wrap.querySelector('.fold-veil');
+      if (veil) veil.remove();
+      const parent = wrap.parentNode;
+      while (wrap.firstChild) parent.insertBefore(wrap.firstChild, wrap);
+      wrap.remove();
+    }
+    codeOpen.delete(id);
+    refreshViewBtns(id);
+    return;
+  }
+  if (!wrap && host) {
+    wrap = document.createElement('div');
+    wrap.className = 'fold';
+    wrap.id = 'fold-' + id;
+    wrap.style.setProperty('--fold-h', foldHeight());
+    host.parentNode.insertBefore(wrap, host);
+    wrap.appendChild(host);
+  }
+  if (!wrap) return;
+  wrap.style.setProperty('--fold-h', foldHeight());
+  const folded = isFolded(c);
+  wrap.classList.toggle('folded', folded);
+  const veil = wrap.querySelector('.fold-veil');
+  if (veil) veil.remove();
+  if (folded) wrap.insertAdjacentHTML('beforeend', veilHtml(c));
+  refreshViewBtns(id);
+}
+
 function cellUndo(id) {
   const view = cmViews.get(id);
   if (!view) return;
@@ -297,6 +337,7 @@ function mountEditor(id) {
       if (u.focusChanged && u.view.hasFocus) selectCell(id);
       if (!u.docChanged) return;
       queueSave(id);
+      refreshCodeFoldForEdit(id, u.view.state.doc.toString());
       refreshHist(id);
     }),
   ];

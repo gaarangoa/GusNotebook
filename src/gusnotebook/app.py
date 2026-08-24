@@ -932,6 +932,7 @@ def api_open():
         data["kind"] = "notebook"
         data["kernel_status"] = kernels.status(str(path))
         data["kernel_python"] = kernel_python(str(path))
+        data["running_cells"] = _running_cell_ids(str(path))
         return jsonify(data)
 
     if kind == "image":
@@ -1064,6 +1065,7 @@ def api_notebook():
     data["kind"] = "notebook"
     data["kernel_status"] = kernels.status(key)
     data["kernel_python"] = kernel_python(key)
+    data["running_cells"] = _running_cell_ids(key)
     data["open"] = notebooks.paths()
     return jsonify(data)
 
@@ -1301,6 +1303,7 @@ LIVE_STREAM_TAIL = 64_000
 # remember that early cancellation and apply it to exactly the intended run.
 _run_control_lock = threading.Lock()
 _cancelled_runs = {}
+_running_cells = {}
 
 
 def _remember_cancel(run_id):
@@ -1313,6 +1316,11 @@ def _remember_cancel(run_id):
     for token, when in list(_cancelled_runs.items()):
         if now - when > 60:
             _cancelled_runs.pop(token, None)
+
+
+def _running_cell_ids(key):
+    with _run_control_lock:
+        return dict(_running_cells.get(key, {}))
 
 
 def _trim_for_live(outputs):
@@ -1347,52 +1355,63 @@ def _run_cell(key, cell_id, run_id=None):
                     outputs=[], notebook=key, run_id=run_id)
         return {"status": "ok", "execution_count": None, "outputs": []}, 200
 
-    with exec_lock(key):
-        k = kernel_for(key)
-        with _run_control_lock:
-            cancelled = bool(run_id and _cancelled_runs.pop(run_id, None))
-            k.prepare_execution(run_id)
+    with _run_control_lock:
+        _running_cells.setdefault(key, {})[cell_id] = run_id or ""
 
-        bus.publish("cell_running", cell_id=cell_id, notebook=key,
-                    run_id=run_id)
+    try:
+        with exec_lock(key):
+            k = kernel_for(key)
+            with _run_control_lock:
+                cancelled = bool(run_id and _cancelled_runs.pop(run_id, None))
+                k.prepare_execution(run_id)
 
-        def on_output(outputs):
-            bus.publish("cell_output", cell_id=cell_id,
-                        outputs=_trim_for_live(outputs), notebook=key,
-                        kernel_status=k.status, python=k.python,
+            bus.publish("cell_running", cell_id=cell_id, notebook=key,
                         run_id=run_id)
 
-        try:
-            if cancelled:
-                k.cancel_prepared_execution(run_id)
-                count, outputs = None, [{
+            def on_output(outputs):
+                bus.publish("cell_output", cell_id=cell_id,
+                            outputs=_trim_for_live(outputs), notebook=key,
+                            kernel_status=k.status, python=k.python,
+                            run_id=run_id)
+
+            try:
+                if cancelled:
+                    k.cancel_prepared_execution(run_id)
+                    count, outputs = None, [{
+                        "output_type": "error",
+                        "ename": "KeyboardInterrupt",
+                        "evalue": "execution stopped before the kernel was ready",
+                        "traceback": [],
+                    }]
+                    bus.publish("kernel_status", status=k.status, notebook=key,
+                                python=k.python)
+                else:
+                    count, outputs = k.execute(source, on_output=on_output)
+            except Exception as e:
+                outputs = [{
                     "output_type": "error",
-                    "ename": "KeyboardInterrupt",
-                    "evalue": "execution stopped before the kernel was ready",
+                    "ename": type(e).__name__,
+                    "evalue": str(e),
                     "traceback": [],
                 }]
-                bus.publish("kernel_status", status=k.status, notebook=key,
-                            python=k.python)
-            else:
-                count, outputs = k.execute(source, on_output=on_output)
-        except Exception as e:
-            outputs = [{
-                "output_type": "error",
-                "ename": type(e).__name__,
-                "evalue": str(e),
-                "traceback": [],
-            }]
-            count = None
-        finally:
-            if run_id:
-                with _run_control_lock:
-                    _cancelled_runs.pop(run_id, None)
+                count = None
+            finally:
+                if run_id:
+                    with _run_control_lock:
+                        _cancelled_runs.pop(run_id, None)
 
         nb.set_outputs(cell_id, outputs, count)
         bus.publish("cell_done", cell_id=cell_id, execution_count=count,
                     outputs=[dict(o) for o in outputs], notebook=key,
                     kernel_status=k.status, python=k.python, run_id=run_id)
         return {"status": "ok", "execution_count": count, "outputs": outputs}, 200
+    finally:
+        with _run_control_lock:
+            running = _running_cells.get(key)
+            if running:
+                running.pop(cell_id, None)
+                if not running:
+                    _running_cells.pop(key, None)
 
 
 def _start_cell_run(key, cell_id, run_id, origin=None):

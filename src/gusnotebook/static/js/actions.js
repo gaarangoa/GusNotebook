@@ -10,6 +10,8 @@ const activeRuns = new Map();
 // cell_done SSE event resolves this promise, preserving Shift+Enter and Run all
 // sequencing without monopolising an HTTP connection for the whole computation.
 const runWaiters = new Map();
+const runContexts = new Map();
+const RUN_RECONCILE_MS = 5000;
 
 // Cells typed into but not yet PATCHed. `cells[].source` lags by up to the save
 // debounce, so it is not the answer to "what is in this editor" — and mountEditor()
@@ -157,6 +159,89 @@ function onEditorKey(e, id) {
 
 // ---------- Actions ----------
 
+function notebookUrl(path, extra = {}) {
+  const q = new URLSearchParams({notebook: path});
+  for (const [k, v] of Object.entries(extra)) q.set(k, v);
+  return '/api/notebook?' + q.toString();
+}
+
+function applyNotebookRunSnapshot(notebook, data) {
+  const target = tab(notebook);
+  const running = data.running_cells || {};
+  const liveCells = notebook === active ? cells : (target && target.cells || []);
+  const live = new Map((liveCells || []).filter(c => c._running).map(c => [c.id, c]));
+  const nextCells = (data.cells || []).map(c => {
+    const previous = live.get(c.id);
+    return previous && Object.prototype.hasOwnProperty.call(running, c.id)
+      ? {...c, outputs: previous.outputs, _running: true}
+      : {...c, _running: Object.prototype.hasOwnProperty.call(running, c.id)};
+  });
+  if (target) {
+    target.cells = nextCells;
+    if (data.kernel_python) target.python = data.kernel_python;
+    if (data.kernel_status) target.status = data.kernel_status;
+  }
+  if (notebook === active) {
+    cells = nextCells;
+    if (data.kernel_status) setKernelStatus(data.kernel_status);
+    render();
+  }
+  return running;
+}
+
+function waitForRunDone(runId, notebook, cellId) {
+  return new Promise(resolve => {
+    let settled = false;
+    let timer = null;
+    const finish = value => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      runWaiters.delete(runId);
+      runContexts.delete(runId);
+      resolve(value || null);
+    };
+    const reconcile = async () => {
+      if (settled || !runWaiters.has(runId)) return;
+      try {
+        const data = await api(notebookUrl(notebook));
+        const running = data.running_cells || {};
+        if (Object.prototype.hasOwnProperty.call(running, cellId)) {
+          timer = setTimeout(reconcile, RUN_RECONCILE_MS);
+          return;
+        }
+        applyNotebookRunSnapshot(notebook, data);
+        finish({type: 'cell_done', notebook, cell_id: cellId,
+                run_id: runId, reconciled: true});
+        return;
+      } catch (err) {
+        // Keep waiting for SSE. A later reconnect or poll can still recover.
+      }
+      timer = setTimeout(reconcile, RUN_RECONCILE_MS);
+    };
+    runWaiters.set(runId, finish);
+    runContexts.set(runId, {notebook, cellId});
+    timer = setTimeout(reconcile, RUN_RECONCILE_MS);
+  });
+}
+
+async function reconcileRunWaiters() {
+  for (const [runId, context] of Array.from(runContexts.entries())) {
+    const finish = runWaiters.get(runId);
+    if (!finish) continue;
+    try {
+      const data = await api(notebookUrl(context.notebook));
+      const running = data.running_cells || {};
+      if (Object.prototype.hasOwnProperty.call(running, context.cellId)) continue;
+      applyNotebookRunSnapshot(context.notebook, data);
+      finish({type: 'cell_done', notebook: context.notebook,
+              cell_id: context.cellId, run_id: runId, reconciled: true});
+    } catch (err) {
+      // EventSource reconnects automatically; this is only a best-effort nudge.
+    }
+  }
+}
+
 /**
  * Move to the cell after `id` — appending a new one only at the end of the
  * notebook. This is what ⇧⏎ does after running.
@@ -204,7 +289,7 @@ async function runCell(id, advance = false) {
   const notebook = active;
   const runId = CLIENT_ID + '-run-' + Date.now().toString(36) +
     Math.random().toString(36).slice(2);
-  const finished = new Promise(resolve => runWaiters.set(runId, resolve));
+  const finished = waitForRunDone(runId, notebook, id);
   activeRuns.set(notebook, runId);
   c.source = source;
   clearTimeout(saveTimers[id]);
@@ -232,9 +317,10 @@ async function runCell(id, advance = false) {
     syncOutputView(id);
   } finally {
     runWaiters.delete(runId);
+    runContexts.delete(runId);
     if (activeRuns.get(notebook) === runId) activeRuns.delete(notebook);
   }
-  if (advance) await advanceFrom(id);
+  if (advance && active === notebook) await advanceFrom(id);
 }
 
 /** Run the cell the caret is in. Reached via ⇧⏎; no toolbar button. */

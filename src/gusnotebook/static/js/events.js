@@ -14,13 +14,16 @@ async function load(force = false) {
 
   const t = activeTab();
   // A reload during execution reads the last completed outputs from disk. Keep
-  // the live SSE state already held in this page until cell_done replaces it.
+  // the live SSE state already held in this page only while the server still
+  // reports that cell as running; otherwise a missed SSE completion would leave
+  // the spinner stranded forever.
   const live = new Map(cells.filter(c => c._running).map(c => [c.id, c]));
+  const running = data.running_cells || {};
   cells = data.cells.map(c => {
     const previous = live.get(c.id);
-    return previous
+    return previous && Object.prototype.hasOwnProperty.call(running, c.id)
       ? {...c, outputs: previous.outputs, _running: true}
-      : c;
+      : {...c, _running: Object.prototype.hasOwnProperty.call(running, c.id)};
   });
   if (t) {
     t.cells = cells;
@@ -79,6 +82,11 @@ async function reloadNotebookFromDisk() {
 }
 
 const es = new EventSource(BASE + '/events');
+es.onerror = () => {
+  if (typeof runContexts !== 'undefined' && runContexts.size) {
+    setTimeout(reconcileRunWaiters, 1000);
+  }
+};
 es.onmessage = (e) => {
   const msg = JSON.parse(e.data);
 
