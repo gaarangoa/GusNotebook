@@ -47,17 +47,36 @@ async function undoCell(id) {
   scrollToCell(id, 'nearest');
 }
 
+function preserveCellViewport(id) {
+  const pane = document.getElementById('notebook-pane');
+  const before = document.querySelector(`.cell[data-id="${id}"]`);
+  if (!pane || !before) return () => {};
+  const paneTop = pane.getBoundingClientRect().top;
+  const offset = before.getBoundingClientRect().top - paneTop;
+  return () => {
+    const after = document.querySelector(`.cell[data-id="${id}"]`);
+    if (!after) return;
+    pane.scrollTop += after.getBoundingClientRect().top - paneTop - offset;
+  };
+}
+
 function editMarkdown(id) {
+  const restore = preserveCellViewport(id);
   editing.add(id);
   render();
   const ed = document.getElementById('ed-' + id);
   if (ed) { ed.focus(); autosize(ed); }
+  restore();
+  requestAnimationFrame(restore);
 }
 
 async function renderMarkdown(id) {
+  const restore = preserveCellViewport(id);
   await saveCell(id);
   editing.delete(id);
   render();
+  restore();
+  requestAnimationFrame(restore);
 }
 
 /**
