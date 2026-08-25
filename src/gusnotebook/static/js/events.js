@@ -274,7 +274,7 @@ es.onmessage = (e) => {
     const pane = document.getElementById('notebook-pane');
     const atBottom = pane.scrollHeight - pane.scrollTop - pane.clientHeight < 120;
     load().then(() => {
-      if (msg.reason === 'add' && msg.cell_id) scrollToCell(msg.cell_id, 'center');
+      if (msg.reason === 'add' && msg.cell_id) scrollToCell(msg.cell_id, 'nearest');
       else if (atBottom) pane.scrollTop = pane.scrollHeight;
     });
   }

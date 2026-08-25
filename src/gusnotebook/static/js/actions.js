@@ -361,15 +361,18 @@ async function runAll() {
 }
 
 async function addCell(type = 'code', after = null) {
+  const anchorId = after || selected;
+  const restore = anchorId ? preserveCellViewport(anchorId) : () => {};
   const body = {cell_type: type};
   if (after) body.after = after;
   else if (selected) body.after = selected;
   const cell = await api('/api/cells' + nbq(), {method: 'POST', body: JSON.stringify(body)});
   await load();
+  restore();
   selectCell(cell.id);
   const ed = document.getElementById('ed-' + cell.id);
   if (ed) ed.focus();
-  scrollToCell(cell.id, 'center');
+  scrollToCell(cell.id, 'nearest');
   return cell;      // insertSkill() needs the id, to fill the cell it just made
 }
 
