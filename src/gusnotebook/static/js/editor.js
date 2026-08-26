@@ -62,6 +62,38 @@ function refreshHist(id) {
   bar.classList.toggle('on', !!(u || r));
 }
 
+function resetFoldPreviewScroll(id) {
+  const wrap = document.getElementById('fold-' + id);
+  if (!wrap || !wrap.classList.contains('folded')) return;
+  const scroller = wrap.querySelector('.cm-scroller');
+  if (scroller) {
+    scroller.scrollTop = 0;
+    scroller.scrollLeft = 0;
+  }
+  const textarea = wrap.querySelector('textarea.editor');
+  if (textarea) {
+    textarea.scrollTop = 0;
+    textarea.scrollLeft = 0;
+  }
+  if (!wrap.querySelector('.fold-veil')) {
+    const c = getCell(id);
+    if (c) wrap.insertAdjacentHTML('beforeend', veilHtml(c));
+  }
+}
+
+function scheduleFoldPreviewReset(id) {
+  resetFoldPreviewScroll(id);
+  requestAnimationFrame(() => resetFoldPreviewScroll(id));
+  setTimeout(() => resetFoldPreviewScroll(id), 50);
+}
+
+function resetFoldedPreviewScrolls() {
+  for (const wrap of document.querySelectorAll('.fold.folded')) {
+    const id = wrap.id && wrap.id.startsWith('fold-') ? wrap.id.slice(5) : null;
+    if (id) scheduleFoldPreviewReset(id);
+  }
+}
+
 function refreshCodeFoldForEdit(id, source) {
   const c = getCell(id);
   if (!c || c.cell_type !== 'code') return;
@@ -98,7 +130,10 @@ function refreshCodeFoldForEdit(id, source) {
   wrap.classList.toggle('folded', folded);
   const veil = wrap.querySelector('.fold-veil');
   if (veil) veil.remove();
-  if (folded) wrap.insertAdjacentHTML('beforeend', veilHtml(c));
+  if (folded) {
+    wrap.insertAdjacentHTML('beforeend', veilHtml(c));
+    scheduleFoldPreviewReset(id);
+  }
   refreshViewBtns(id);
 }
 
@@ -116,6 +151,43 @@ function cellRedo(id) {
   CM.redo(view);
   view.focus();
   queueSave(id);
+}
+
+/** Focus the editable surface for a cell, including empty CodeMirror cells. */
+function focusCellEditor(id, atEnd = true) {
+  const view = cmViews.get(id);
+  if (view) {
+    const pos = atEnd ? view.state.doc.length : view.state.selection.main.head;
+    view.dispatch({selection: {anchor: pos, head: pos}});
+    view.focus();
+    view.contentDOM.focus({preventScroll: true});
+    return true;
+  }
+  const ed = document.getElementById('ed-' + id);
+  if (!ed || typeof ed.focus !== 'function') return false;
+  const pos = atEnd && typeof ed.value === 'string' ? ed.value.length : ed.selectionEnd || 0;
+  if (typeof ed.setSelectionRange === 'function') ed.setSelectionRange(pos, pos);
+  ed.focus();
+  return true;
+}
+
+function requestCellFocus(id, block = 'nearest') {
+  pendingCellFocus = {id, block};
+}
+
+function applyPendingCellFocus(consume = true) {
+  const req = pendingCellFocus;
+  if (!req || !getCell(req.id)) return false;
+  if (consume) pendingCellFocus = null;
+  selectCell(req.id);
+  focusCellEditor(req.id);
+  scrollToCell(req.id, req.block || 'nearest', 'auto');
+  requestAnimationFrame(() => {
+    focusCellEditor(req.id);
+    scrollToCell(req.id, req.block || 'nearest', 'auto');
+  });
+  setTimeout(() => focusCellEditor(req.id), 50);
+  return true;
 }
 
 /* ---------- Path completion ----------
@@ -476,6 +548,7 @@ function toggleFold(id) {
   const veil = wrap.querySelector('.fold-veil');
   if (veil) veil.remove();
   if (fold) wrap.insertAdjacentHTML('beforeend', veilHtml(c));
+  if (fold) scheduleFoldPreviewReset(id);
   refreshViewBtns(id);
 }
 
@@ -563,9 +636,9 @@ function showRunning(id) {
 }
 
 /** Bring a cell into view if it's outside the scroll viewport. */
-function scrollToCell(id, block = 'nearest') {
+function scrollToCell(id, block = 'nearest', behavior = 'smooth') {
   const el = document.querySelector(`.cell[data-id="${id}"]`);
-  if (el) el.scrollIntoView({behavior: 'smooth', block});
+  if (el) el.scrollIntoView({behavior, block});
 }
 
 function getCell(id) { return cells.find(c => c.id === id); }

@@ -1998,6 +1998,7 @@ function render() {
   document.getElementById('notebook').innerHTML = cells.map(cellHtml).join('');
   mountEditors();
   paintSelection();      // innerHTML was replaced, so the class went with it
+  resetFoldedPreviewScrolls();
   document.querySelectorAll('.editor').forEach(autosize);
   pinStreams(document.getElementById('notebook'));
   applyHeadingCollapse();

@@ -47,8 +47,16 @@ async function load(force = false) {
   const focusId = holder
     ? (holder.dataset.cell || holder.id.slice(3)) : null;
   const caret = focusId ? [holder.selectionStart, holder.selectionEnd] : null;
+  const requestedFocus = pendingCellFocus;
+  if (requestedFocus && cells.some(c => c.id === requestedFocus.id)) {
+    selected = requestedFocus.id;
+  }
 
   render();
+
+  if (applyPendingCellFocus(false)) {
+    return;
+  }
 
   if (focusId) {
     const ed = document.getElementById('ed-' + focusId);

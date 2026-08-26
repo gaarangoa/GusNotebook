@@ -269,14 +269,19 @@ async function advanceFrom(id) {
   const i = cells.findIndex(c => c.id === id);
   if (i === -1) return;
 
-  if (i === cells.length - 1) { await addCell('code', id); return; }
+  if (i === cells.length - 1) {
+    await addCell('code', id, {revealBlock: 'center'});
+    return;
+  }
 
   const next = cells[i + 1];
   selectCell(next.id);
-  const ed = document.getElementById('ed-' + next.id);
-  if (ed) { ed.focus(); ed.setSelectionRange(ed.value.length, ed.value.length); }
-  else if (document.activeElement) document.activeElement.blur();
-  scrollToCell(next.id);
+  focusCellEditor(next.id);
+  requestAnimationFrame(() => {
+    focusCellEditor(next.id);
+    scrollToCell(next.id, 'center', 'auto');
+  });
+  scrollToCell(next.id, 'center', 'auto');
 }
 
 async function runCell(id, advance = false) {
@@ -329,6 +334,12 @@ async function runCell(id, advance = false) {
   try {
     await api(`/api/cells/${id}/run${nbq()}`, {
       method: 'POST', body: JSON.stringify({source, run_id: runId})});
+    // JupyterLab's ⇧⏎ starts execution and immediately moves focus to the next
+    // cell. The output continues arriving asynchronously via SSE.
+    if (advance && active === notebook) {
+      await advanceFrom(id);
+      scheduleFoldPreviewReset(id);
+    }
     await finished;
   } catch (err) {
     setCellRunning(id, false);
@@ -338,8 +349,8 @@ async function runCell(id, advance = false) {
     runWaiters.delete(runId);
     runContexts.delete(runId);
     if (activeRuns.get(notebook) === runId) activeRuns.delete(notebook);
+    if (active === notebook) scheduleFoldPreviewReset(id);
   }
-  if (advance && active === notebook) await advanceFrom(id);
 }
 
 /** Run the cell the caret is in. Reached via ⇧⏎; no toolbar button. */
@@ -360,19 +371,22 @@ async function runAll() {
   render();
 }
 
-async function addCell(type = 'code', after = null) {
+async function addCell(type = 'code', after = null, options = {}) {
   const anchorId = after || selected;
   const restore = anchorId ? preserveCellViewport(anchorId) : () => {};
+  const revealBlock = options.revealBlock || 'nearest';
   const body = {cell_type: type};
   if (after) body.after = after;
   else if (selected) body.after = selected;
   const cell = await api('/api/cells' + nbq(), {method: 'POST', body: JSON.stringify(body)});
+  requestCellFocus(cell.id, revealBlock);
   await load();
   restore();
-  selectCell(cell.id);
-  const ed = document.getElementById('ed-' + cell.id);
-  if (ed) ed.focus();
-  scrollToCell(cell.id, 'nearest');
+  if (!applyPendingCellFocus()) {
+    selectCell(cell.id);
+    focusCellEditor(cell.id);
+    scrollToCell(cell.id, revealBlock, 'auto');
+  }
   return cell;      // insertSkill() needs the id, to fill the cell it just made
 }
 

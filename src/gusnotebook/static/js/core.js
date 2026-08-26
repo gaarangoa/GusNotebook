@@ -39,6 +39,7 @@ let codeOpen = new Set();           // long cells you've expanded
 let outsHidden = new Set();         // cells whose output you've collapsed
 let headingsCollapsed = new Set();  // heading cell ids whose section is collapsed
 const notebookViewState = new Map(); // path -> fold/output/section view state
+let pendingCellFocus = null;         // exact cell to focus after the next render
 
 /* The workspace belongs to this browser window, not to the server process.
  * Keeping it in the URL means a reload—and a second window—return to the same
