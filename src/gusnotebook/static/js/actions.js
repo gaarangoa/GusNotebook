@@ -37,6 +37,19 @@ async function saveCell(id) {
             {method: 'PATCH', body: JSON.stringify({source: ed.value})});
 }
 
+async function saveActiveDocument() {
+  const t = activeTab();
+  if (!t) return;
+  if (t.kind === 'notebook') {
+    await Promise.all([...unsaved].map(id => saveCell(id)));
+    flash('Notebook saved');
+    return;
+  }
+  if (t.kind === 'text') {
+    saveText();
+  }
+}
+
 /** Put back the source an agent or a snippet replaced. One step, this cell. */
 async function undoCell(id) {
   const r = await api(`/api/cells/${id}/undo${nbq()}`, {method: 'POST'});
@@ -155,7 +168,7 @@ function onEditorKey(e, id) {
   }
   if (e.key === 's' && (e.metaKey || e.ctrlKey)) {
     e.preventDefault();
-    saveCell(id);
+    saveActiveDocument();
     return false;
   }
   if (e.key === 'Escape') {

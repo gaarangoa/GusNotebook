@@ -288,7 +288,7 @@ function cmKeymap(id) {
       cmToggleComment(view, c ? c.cell_type : 'code');
       queueSave(id);
     })},
-    {key: 'Mod-s', run: stop(() => saveCell(id))},
+    {key: 'Mod-s', run: stop(() => saveActiveDocument())},
     {key: 'Escape', run: stop((view) => {
       view.contentDOM.blur();
       const c = getCell(id);

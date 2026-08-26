@@ -289,6 +289,13 @@ es.onmessage = (e) => {
 };
 
 document.addEventListener('keydown', (e) => {
+  if (e.key && e.key.toLowerCase() === 's' && (e.metaKey || e.ctrlKey)) {
+    e.preventDefault();
+    e.stopPropagation();
+    saveActiveDocument();
+    return;
+  }
+
   if (e.key === 'Escape' && document.activeElement === document.body) selected = null;
   // ⇧⏎ keeps working when focus sits outside an editor — e.g. we just advanced
   // onto a rendered markdown cell, which has no textarea to focus. Never steal
@@ -304,12 +311,7 @@ document.addEventListener('keydown', (e) => {
     e.preventDefault();
     runCell(selected, true);
   }
-  // ⌘S on a text tab saves it even if focus has drifted off the textarea.
-  if (e.key === 's' && (e.metaKey || e.ctrlKey) && !isNotebookTab()) {
-    e.preventDefault();
-    saveText();
-  }
-});
+}, true);
 
 // Closing the browser with unsaved text tabs shouldn't lose the edit silently.
 window.addEventListener('beforeunload', (e) => {
