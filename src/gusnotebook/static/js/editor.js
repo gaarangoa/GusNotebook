@@ -167,7 +167,8 @@ function focusCellEditor(id, atEnd = true) {
   if (!ed || typeof ed.focus !== 'function') return false;
   const pos = atEnd && typeof ed.value === 'string' ? ed.value.length : ed.selectionEnd || 0;
   if (typeof ed.setSelectionRange === 'function') ed.setSelectionRange(pos, pos);
-  ed.focus();
+  try { ed.focus({preventScroll: true}); }
+  catch (err) { ed.focus(); }
   return true;
 }
 

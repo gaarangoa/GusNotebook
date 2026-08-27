@@ -73,6 +73,19 @@ function preserveCellViewport(id) {
   };
 }
 
+function preserveViewportSlot(id) {
+  const pane = document.getElementById('notebook-pane');
+  const before = document.querySelector(`.cell[data-id="${id}"]`);
+  if (!pane || !before) return () => {};
+  const paneTop = pane.getBoundingClientRect().top;
+  const offset = before.getBoundingClientRect().top - paneTop;
+  return targetId => {
+    const after = document.querySelector(`.cell[data-id="${targetId}"]`);
+    if (!after) return;
+    pane.scrollTop += after.getBoundingClientRect().top - paneTop - offset;
+  };
+}
+
 function editMarkdown(id) {
   const restore = preserveCellViewport(id);
   editing.add(id);
@@ -302,7 +315,9 @@ async function runCell(id, advance = false) {
   if (!c) return;
 
   if (c.cell_type === 'markdown') {
-    await renderMarkdown(id);
+    if (editing.has(id) || document.getElementById('ed-' + id)) {
+      await renderMarkdown(id);
+    }
     if (advance) await advanceFrom(id);
     return;
   }
@@ -395,6 +410,7 @@ async function addCell(type = 'code', after = null, options = {}) {
   requestCellFocus(cell.id, revealBlock);
   await load();
   restore();
+  requestAnimationFrame(restore);
   if (!applyPendingCellFocus()) {
     selectCell(cell.id);
     focusCellEditor(cell.id);
@@ -408,24 +424,46 @@ async function deleteCell(id) {
   // deleting the cell you're on should leave you on its neighbour, as it does in
   // JupyterLab, rather than on nothing.
   const i = cells.findIndex(c => c.id === id);
-  const heir = selected === id
-    ? (cells[i + 1] || cells[i - 1] || {}).id || null
-    : selected;
+  const restoreSlot = preserveViewportSlot(id);
+  const heir = (cells[i + 1] || cells[i - 1] || {}).id || null;
   await api(`/api/cells/${id}${nbq()}`, {method: 'DELETE'});
   selected = null;                 // so selectCell() below isn't a no-op
   await load();
   // The notebook is never left empty — the server appends a cell if the last one
   // went — so re-select whatever survived at that position.
-  if (heir && getCell(heir)) selectCell(heir);
-  else if (cells.length) selectCell(cells[Math.min(i, cells.length - 1)].id);
+  const target = heir && getCell(heir)
+    ? heir
+    : (cells.length ? cells[Math.min(i, cells.length - 1)].id : null);
+  if (target) {
+    selectCell(target);
+    focusCellEditor(target);
+    restoreSlot(target);
+    requestAnimationFrame(() => {
+      restoreSlot(target);
+      focusCellEditor(target);
+    });
+  }
 }
 
 async function changeType(id, type) {
+  const restore = preserveCellViewport(id);
+  selected = id;
   await saveCell(id);
   if (type === 'markdown') editing.add(id); else editing.delete(id);
   await api(`/api/cells/${id}${nbq()}`,
             {method: 'PATCH', body: JSON.stringify({cell_type: type})});
   await load();
+  restore();
+  requestAnimationFrame(() => {
+    restore();
+    selectCell(id);
+    focusCellEditor(id, false);
+  });
+  setTimeout(() => {
+    restore();
+    selectCell(id);
+    focusCellEditor(id, false);
+  }, 50);
 }
 
 async function moveCell(id, delta) {
