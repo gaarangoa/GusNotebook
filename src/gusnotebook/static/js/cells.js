@@ -128,10 +128,18 @@ async function renderMarkupEditor() {
 
 function acceptMarkupEdit(t, text) {
   if (typeof text !== 'string' || text === t.text) return;
-  clearMarkupFocus();
+  if (reportedMarkupPath === t.path) clearMarkupFocus();
   t.text = text;
   t.editRevision = (t.editRevision || 0) + 1;
-  document.getElementById('text-editor').value = text;
+  if (active === t.path) {
+    document.getElementById('text-editor').value = text;
+    document.getElementById('text-status').textContent = 'unsaved';
+  }
+  if (!t.dirty) { t.dirty = true; renderTabs(); }
+}
+
+function markMarkupDirty(t) {
+  t.editRevision = (t.editRevision || 0) + 1;
   if (active === t.path) document.getElementById('text-status').textContent = 'unsaved';
   if (!t.dirty) { t.dirty = true; renderTabs(); }
 }
@@ -139,31 +147,42 @@ function acceptMarkupEdit(t, text) {
 window.addEventListener('message', event => {
   const frame = document.getElementById('html-preview-frame');
   const data = event.data || {};
-  const t = activeTab();
-  if (event.source !== frame.contentWindow || !isMarkupTab(t) ||
-      event.origin !== t.previewOrigin ||
+  const t = tabs.find(item => isMarkupTab(item) && item.previewNonce === data.nonce);
+  if (!t || event.origin !== t.previewOrigin ||
       data.channel !== MARKUP_EDITOR_CHANNEL || data.nonce !== t.previewNonce) return;
+  // A final coalesced snapshot can arrive while its iframe is being replaced
+  // during a tab switch. Its unguessable nonce and private preview origin still
+  // identify the old tab; the active iframe additionally gets a source check.
+  if (active === t.path && frame && event.source !== frame.contentWindow) return;
   if (data.kind === 'view-state') {
     if (data.view && typeof data.view.y === 'number') t.markupView = data.view;
     return;
   }
   if (data.kind === 'ready') {
-    if (t.markupView) {
-      frame.contentWindow.postMessage({
+    if (active === t.path && t.markupView && frame) {
+      event.source.postMessage({
         channel: MARKUP_EDITOR_CHANNEL, nonce: t.previewNonce,
         command: 'restore-view', view: t.markupView,
       }, t.previewOrigin);
     }
     return;
   }
+  if (data.kind === 'dirty') {
+    markMarkupDirty(t);
+    return;
+  }
   if (data.kind === 'selection') {
-    publishMarkupFocus(t, data.selection || null);
+    if (data.selection && typeof data.selection.document === 'string') {
+      acceptMarkupEdit(t, data.selection.document);
+    }
+    if (active === t.path) publishMarkupFocus(t, data.selection || null);
     return;
   }
   if (typeof data.text === 'string') acceptMarkupEdit(t, data.text);
   if (data.kind === 'save') {
     clearTimeout(t.markupSaveTimer);
     t.markupSaveTimer = null;
+    t.markupSavePending = false;
     persistText(t, t.text || '');
   }
 });
@@ -596,14 +615,17 @@ function saveText() {
   }
 
   document.getElementById('text-status').textContent = 'saving…';
+  if (t.markupSavePending) return;
+  t.markupSavePending = true;
   const frame = document.getElementById('html-preview-frame');
   // A malformed document can prevent the bridge from starting. Saving the last
   // markup received is still better than leaving the toolbar stuck on saving.
   clearTimeout(t.markupSaveTimer);
   t.markupSaveTimer = setTimeout(() => {
     t.markupSaveTimer = null;
+    t.markupSavePending = false;
     persistText(t, t.text || '');
-  }, 750);
+  }, 3000);
   if (!frame || !frame.contentWindow) return;
   try {
     frame.contentWindow.postMessage(
@@ -612,6 +634,7 @@ function saveText() {
   } catch (err) {
     clearTimeout(t.markupSaveTimer);
     t.markupSaveTimer = null;
+    t.markupSavePending = false;
     if (active === t.path) document.getElementById('text-status').textContent = 'save failed';
     flash('Save failed: ' + errText(err));
   }
@@ -1043,11 +1066,22 @@ function htmlOutputSrcdoc(body, outputId) {
       24
     );
   };
-  const send = () => parent.postMessage({
-    type: 'gusnotebook-html-output-height',
-    id: ${safeId},
-    height: measuredHeight()
-  }, '*');
+  let heightFrame = null;
+  let lastHeight = null;
+  const send = () => {
+    if (heightFrame !== null) return;
+    heightFrame = requestAnimationFrame(() => {
+      heightFrame = null;
+      const height = measuredHeight();
+      if (height === lastHeight) return;
+      lastHeight = height;
+      parent.postMessage({
+        type: 'gusnotebook-html-output-height',
+        id: ${safeId},
+        height
+      }, '*');
+    });
+  };
   addEventListener('load', send);
   addEventListener('resize', send);
   if (window.ResizeObserver) new ResizeObserver(send).observe(document.documentElement);

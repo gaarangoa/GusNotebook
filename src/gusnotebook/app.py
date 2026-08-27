@@ -997,7 +997,7 @@ def api_save_text():
         bus.publish("text_external_changed", path=str(path),
                     disk_version=textfile.disk_version(path))
         return jsonify({"error": str(e), "code": "external_change"}), 409
-    except OSError as e:
+    except (OSError, ValueError) as e:
         return jsonify({"error": str(e)}), 400
 
 

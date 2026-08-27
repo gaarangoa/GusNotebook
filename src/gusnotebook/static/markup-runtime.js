@@ -17,9 +17,189 @@
   var vizDrag = null;
   var vizResizeHandle = null;
   var vizResize = null;
+  var snapshotTimer = null;
+  var selectionTimer = null;
+  var changeRevision = 0;
+  var snapshotRevision = -1;
+  var lastChangeSentRevision = -1;
+  var lastSnapshot = null;
+
+  // The bridge is injected before the document's own scripts. Remember nodes
+  // those scripts create so saving the editable page does not turn a rendered
+  // chart into source markup as well as retaining the script that renders it.
+  // Authored SVG/HTML and iframe srcdoc are parser-created and remain intact.
+  var generatedNodes = new WeakSet();
+  var generatedContents = new WeakMap();
+  var generatedReplacements = new WeakMap();
+  var authoredMutationDepth = 0;
+
+  function isRuntimeNode(node) {
+    return !!(node && node.nodeType === 1 && node.hasAttribute(runtimeAttr));
+  }
+
+  function markGenerated(node) {
+    if (!node || isRuntimeNode(node)) return;
+    if (node.nodeType === 11) {
+      Array.prototype.forEach.call(node.childNodes, markGenerated);
+      return;
+    }
+    generatedNodes.add(node);
+    Array.prototype.forEach.call(node.childNodes || [], markGenerated);
+  }
+
+  function authoredMutation(callback) {
+    authoredMutationDepth += 1;
+    try { return callback(); }
+    finally { authoredMutationDepth -= 1; }
+  }
+
+  function rememberGeneratedContent(element) {
+    if (authoredMutationDepth || !element || !element.isConnected ||
+        isRuntimeNode(element) || generatedNodes.has(element) ||
+        generatedContents.has(element)) return;
+    generatedContents.set(element,
+      Array.prototype.map.call(element.childNodes, function (node) {
+        return node.cloneNode(true);
+      }));
+  }
+
+  function patchGeneratedDom() {
+    function freshNodes(node) {
+      var nodes = node && node.nodeType === 11
+        ? Array.prototype.slice.call(node.childNodes) : [node];
+      return nodes.filter(function (candidate) {
+        return candidate && !candidate.isConnected;
+      });
+    }
+
+    var appendChild = Node.prototype.appendChild;
+    Node.prototype.appendChild = function (child) {
+      var fresh = freshNodes(child);
+      var result = appendChild.call(this, child);
+      if (!authoredMutationDepth && !isRuntimeNode(this)) fresh.forEach(markGenerated);
+      return result;
+    };
+
+    var insertBefore = Node.prototype.insertBefore;
+    Node.prototype.insertBefore = function (child, reference) {
+      var fresh = freshNodes(child);
+      var result = insertBefore.call(this, child, reference);
+      if (!authoredMutationDepth && !isRuntimeNode(this)) fresh.forEach(markGenerated);
+      return result;
+    };
+
+    var replaceChild = Node.prototype.replaceChild;
+    Node.prototype.replaceChild = function (child, previous) {
+      var fresh = freshNodes(child);
+      var original = !authoredMutationDepth && previous &&
+        !generatedNodes.has(previous) && !isRuntimeNode(previous)
+        ? previous.cloneNode(true) : null;
+      var result = replaceChild.call(this, child, previous);
+      if (!authoredMutationDepth && !isRuntimeNode(this)) {
+        fresh.forEach(markGenerated);
+        if (original && fresh.length) generatedReplacements.set(fresh[0], original);
+      }
+      return result;
+    };
+
+    var replaceWith = Element.prototype.replaceWith;
+    if (replaceWith) {
+      Element.prototype.replaceWith = function () {
+        var nodes = Array.prototype.slice.call(arguments);
+        var fresh = [];
+        nodes.forEach(function (node) {
+          if (node && typeof node === 'object') fresh = fresh.concat(freshNodes(node));
+        });
+        var original = !authoredMutationDepth && !generatedNodes.has(this) &&
+          !isRuntimeNode(this) ? this.cloneNode(true) : null;
+        var result = replaceWith.apply(this, nodes);
+        if (!authoredMutationDepth) {
+          fresh.forEach(markGenerated);
+          if (original && fresh.length) generatedReplacements.set(fresh[0], original);
+        }
+        return result;
+      };
+    }
+
+    var inner = Object.getOwnPropertyDescriptor(Element.prototype, 'innerHTML');
+    if (inner && inner.get && inner.set) {
+      Object.defineProperty(Element.prototype, 'innerHTML', {
+        configurable: inner.configurable,
+        enumerable: inner.enumerable,
+        get: inner.get,
+        set: function (value) {
+          var track = !authoredMutationDepth && !isRuntimeNode(this) &&
+            !generatedNodes.has(this);
+          if (track) rememberGeneratedContent(this);
+          inner.set.call(this, value);
+          if (track) Array.prototype.forEach.call(this.childNodes, markGenerated);
+        }
+      });
+    }
+
+    var insertHtml = Element.prototype.insertAdjacentHTML;
+    if (insertHtml) {
+      Element.prototype.insertAdjacentHTML = function (position, html) {
+        var parent = /beforebegin|afterend/i.test(position) ? this.parentNode : this;
+        var before = parent ? Array.prototype.slice.call(parent.childNodes) : [];
+        var result = insertHtml.call(this, position, html);
+        if (!authoredMutationDepth && parent && !isRuntimeNode(parent)) {
+          Array.prototype.forEach.call(parent.childNodes, function (node) {
+            if (before.indexOf(node) === -1) markGenerated(node);
+          });
+        }
+        return result;
+      };
+    }
+
+    ['append', 'prepend'].forEach(function (name) {
+      var native = Element.prototype[name];
+      if (!native) return;
+      Element.prototype[name] = function () {
+        var nodes = Array.prototype.slice.call(arguments);
+        var before = Array.prototype.slice.call(this.childNodes);
+        var fresh = [];
+        nodes.forEach(function (node) {
+          if (node && typeof node === 'object') fresh = fresh.concat(freshNodes(node));
+        });
+        var result = native.apply(this, nodes);
+        if (!authoredMutationDepth && !isRuntimeNode(this)) {
+          fresh.forEach(markGenerated);
+          Array.prototype.forEach.call(this.childNodes, function (node) {
+            if (before.indexOf(node) === -1 && nodes.indexOf(node) === -1) markGenerated(node);
+          });
+        }
+        return result;
+      };
+    });
+  }
+
+  patchGeneratedDom();
+
+  function scrubGenerated(live, clone) {
+    var original = generatedContents.get(live);
+    if (original) {
+      while (clone.firstChild) clone.removeChild(clone.firstChild);
+      original.forEach(function (node) { clone.appendChild(node.cloneNode(true)); });
+      return;
+    }
+    var liveChildren = Array.prototype.slice.call(live.childNodes || []);
+    var cloneChildren = Array.prototype.slice.call(clone.childNodes || []);
+    liveChildren.forEach(function (child, index) {
+      var copy = cloneChildren[index];
+      if (!copy) return;
+      if (generatedNodes.has(child)) {
+        var replacement = generatedReplacements.get(child);
+        if (replacement) copy.replaceWith(replacement.cloneNode(true));
+        else copy.remove();
+      }
+      else scrubGenerated(child, copy);
+    });
+  }
 
   function cleanClone(node) {
     var clone = node.cloneNode(true);
+    scrubGenerated(node, clone);
     clone.querySelectorAll('[' + runtimeAttr + ']').forEach(function (el) {
       el.remove();
     });
@@ -31,6 +211,9 @@
     clone.querySelectorAll('.gusnb-viz-selected').forEach(function (el) {
       el.classList.remove('gusnb-viz-selected');
       el.classList.remove('gusnb-viz-moving');
+    });
+    clone.querySelectorAll('[data-gusnb-applied-height]').forEach(function (el) {
+      el.removeAttribute('data-gusnb-applied-height');
     });
     return clone;
   }
@@ -45,6 +228,14 @@
       ? new XMLSerializer().serializeToString(document.doctype) + '\n'
       : '';
     return doctype + root.outerHTML;
+  }
+
+  function snapshot() {
+    if (lastSnapshot === null || snapshotRevision !== changeRevision) {
+      lastSnapshot = serialize();
+      snapshotRevision = changeRevision;
+    }
+    return lastSnapshot;
   }
 
   function selectedRange() {
@@ -81,6 +272,8 @@
     var documentText = marked.slice(0, start) +
       marked.slice(start + startToken.length, markerEnd) +
       marked.slice(markerEnd + endToken.length);
+    lastSnapshot = documentText;
+    snapshotRevision = changeRevision;
     return {document: documentText, start: start,
             end: markerEnd - startToken.length, text: plainText};
   }
@@ -182,9 +375,34 @@
                   kind: 'selection', selection: selectedRange()});
   }
 
-  function send(kind, forceText) {
+  function queueSelectionReport() {
+    clearTimeout(selectionTimer);
+    selectionTimer = setTimeout(function () {
+      selectionTimer = null;
+      reportSelection();
+    }, 120);
+  }
+
+  function sendSnapshot(kind) {
+    clearTimeout(snapshotTimer);
+    snapshotTimer = null;
+    if (kind === 'change' && lastChangeSentRevision === changeRevision) return;
     sendToParent({channel: config.channel, nonce: config.nonce, kind: kind,
-                  text: (changed || forceText) ? serialize() : null});
+                  text: snapshot()});
+    if (kind === 'change') lastChangeSentRevision = changeRevision;
+  }
+
+  function markChanged() {
+    changed = true;
+    changeRevision += 1;
+    sendToParent({channel: config.channel, nonce: config.nonce, kind: 'dirty'});
+    clearTimeout(snapshotTimer);
+    snapshotTimer = setTimeout(function () { sendSnapshot('change'); }, 450);
+  }
+
+  function send(kind) {
+    if (kind === 'change') markChanged();
+    else if (kind === 'save') sendSnapshot('save');
   }
 
   function wireVizSource(root) {
@@ -363,6 +581,8 @@
   function applyVizFrameHeight(frame, height) {
     height = Math.max(24, Math.min(4000, Number(height) || 0));
     if (!frame || !height) return;
+    if (frame.getAttribute('data-gusnb-applied-height') === String(height)) return;
+    frame.setAttribute('data-gusnb-applied-height', String(height));
     var scale = vizScale(frame);
     var render = frame.closest('[data-gusnb-viz-render]');
     frame.style.height = height + 'px';
@@ -454,7 +674,7 @@
     block.style.zIndex = block.style.zIndex || '1';
     block.setAttribute('data-gusnb-free-placement', '1');
     changed = true;
-    send('change', true);
+    send('change');
     positionVizToolbar();
   }
 
@@ -498,7 +718,7 @@
     moveVizDragTo(clientX, clientY);
     vizDrag = null;
     changed = true;
-    send('change', true);
+    send('change');
   }
 
   function endVizDrag(event) {
@@ -553,7 +773,7 @@
     moveVizResize(event);
     vizResize = null;
     changed = true;
-    send('change', true);
+    send('change');
   }
 
   function vizFrameForSource(source) {
@@ -627,7 +847,7 @@
       setVizMoveMode(false);
       selectViz(null);
       changed = true;
-      send('change', true);
+      send('change');
       return;
     }
     var frame = block.querySelector('.gusnb-viz-frame');
@@ -644,7 +864,7 @@
       applyVizScale(frame, scale);
     }
     changed = true;
-    send('change', true);
+    send('change');
     positionVizToolbar();
   }
 
@@ -692,15 +912,18 @@
     if (!html || (html.indexOf('data-gusnb-viz="1"') === -1 &&
                   html.indexOf('data-gusnb-provenance="1"') === -1)) return;
     var template = document.createElement('template');
-    template.innerHTML = html;
-    var fragment = scrubVizFragment(template.content);
+    var fragment;
+    authoredMutation(function () {
+      template.innerHTML = html;
+      fragment = scrubVizFragment(template.content);
+    });
     if (!fragment.querySelector('[data-gusnb-viz="1"], [data-gusnb-provenance="1"]')) return;
     event.preventDefault();
     event.stopImmediatePropagation();
-    if (!insertFragmentAtSelection(fragment)) return;
+    if (!authoredMutation(function () { return insertFragmentAtSelection(fragment); })) return;
     wireVizSource(document);
     changed = true;
-    send('change', true);
+    send('change');
   }
 
   function svgTextTarget(node) {
@@ -720,7 +943,7 @@
     else edit.target.textContent = edit.input.value;
     edit.input.remove();
     changed = true;
-    send('change', true);
+    send('change');
   }
 
   function openSvgEditor(target) {
@@ -745,7 +968,7 @@
     input.addEventListener('input', function () {
       target.textContent = input.value;
       changed = true;
-      send('change', true);
+      send('change');
     });
     input.addEventListener('blur', function () { closeSvgEditor(false); });
     input.addEventListener('keydown', function (event) {
@@ -791,16 +1014,15 @@
   document.addEventListener('pointercancel', endVizResize, true);
 
   document.addEventListener('mouseup', function () {
-    setTimeout(reportSelection, 0);
+    queueSelectionReport();
   });
   document.addEventListener('keyup', function (event) {
     if (event.key === 'Meta' || event.key === 'Control') return;
-    setTimeout(reportSelection, 0);
+    queueSelectionReport();
   });
   document.addEventListener('input', function (event) {
     if (svgEditor && event.target === svgEditor.input) return;
-    changed = true;
-    send('change', true);
+    send('change');
     queueViewReport();
   }, true);
   document.addEventListener('paste', handleVizPaste, true);
@@ -809,7 +1031,7 @@
     event.preventDefault();
     event.stopImmediatePropagation();
     if (svgEditor) closeSvgEditor(false);
-    send('save', false);
+    send('save');
   }, true);
 
   document.addEventListener('submit', function (event) { event.preventDefault(); }, true);
@@ -835,7 +1057,7 @@
         frames[i].setAttribute('srcdoc', data.html || '');
         frames[i].srcdoc = data.html || '';
         changed = true;
-        send('change', true);
+        send('change');
         break;
       }
       return;
@@ -845,7 +1067,7 @@
         data.channel !== config.channel || data.nonce !== config.nonce) return;
     if (data.command === 'save') {
       if (svgEditor) closeSvgEditor(false);
-      send('save', false);
+      send('save');
     } else if (data.command === 'saved') {
       changed = false;
     } else if (data.command === 'restore-view') {
@@ -857,6 +1079,12 @@
   window.addEventListener('scroll', positionVizToolbar, {passive: true});
   window.addEventListener('resize', queueViewReport, {passive: true});
   window.addEventListener('resize', positionVizToolbar, {passive: true});
+  window.addEventListener('blur', function () {
+    if (changed) sendSnapshot('change');
+  });
+  window.addEventListener('pagehide', function () {
+    if (changed) sendSnapshot('change');
+  });
   ['wheel', 'touchstart', 'pointerdown', 'keydown'].forEach(function (kind) {
     window.addEventListener(kind, function () { userMovedAfterRestore = true; },
                             {passive: true});

@@ -157,6 +157,20 @@ def make_fixtures():
         "fetch('/preview-data.json').then(r=>r.json()).then("
         "x=>document.body.dataset.fetched=x.status)"
         "</script></body></html>")
+    (FIX / "interactive.html").write_text(
+        "<!doctype html><html><body>"
+        "<h1 id='interactive-title'>Interactive visualization</h1>"
+        "<button id='interactive-button'>Increment</button>"
+        "<svg id='dynamic-chart' width='320' height='80'></svg>"
+        "<script>"
+        "const chart=document.getElementById('dynamic-chart');"
+        "for(let i=0;i<24;i++){const dot=document.createElementNS("
+        "'http://www.w3.org/2000/svg','circle');"
+        "dot.setAttribute('cx',String(8+i*12));dot.setAttribute('cy','30');"
+        "dot.setAttribute('r','4');chart.appendChild(dot)}"
+        "document.getElementById('interactive-button').addEventListener('click',e=>{"
+        "e.currentTarget.dataset.clicks=String(Number(e.currentTarget.dataset.clicks||0)+1)})"
+        "</script></body></html>")
     (FIX / "diagram.svg").write_text(
         "<?xml version=\"1.0\"?><svg xmlns=\"http://www.w3.org/2000/svg\" "
         "width=\"360\" height=\"120\"><rect width=\"360\" height=\"120\" "
@@ -407,6 +421,85 @@ def main():
               (FIX / "preview.html").read_text(), disk_wins)
         check("reload discards rather than overwrites the stale buffer",
               "Unsaved browser edit" in (FIX / "preview.html").read_text(), False)
+
+        print("\n-- interactive visualizations stay live without growing saved HTML")
+        pg.evaluate("path => openFile(path)", str(FIX / "interactive.html"))
+        pg.wait_for_function("activeTab().name === 'interactive.html'", timeout=20000)
+        preview.locator("#interactive-title").wait_for(timeout=20000)
+        check("the visualization script renders its SVG nodes",
+              preview.locator("#dynamic-chart circle").count(), 24)
+        preview.locator("#interactive-title").evaluate("""el => {
+          el.textContent = 'Edited interactive visualization';
+          el.dispatchEvent(new InputEvent('input', {bubbles: true}));
+        }""")
+        pg.wait_for_function("activeTab().dirty", timeout=15000)
+        pg.evaluate("saveText(); saveText(); saveText()")
+        pg.wait_for_function("!activeTab().dirty", timeout=15000)
+        interactive_saved = (FIX / "interactive.html").read_text()
+        check("the authored edit is saved",
+              "Edited interactive visualization" in interactive_saved, True)
+        check("the rendering script remains in the saved document",
+              "addEventListener('click'" in interactive_saved, True)
+        check("script-generated SVG is not duplicated into source",
+              "<circle" in interactive_saved, False)
+        pg.evaluate("reloadTextFromDisk(activeTab(), true)")
+        preview.locator("#interactive-title").wait_for(timeout=20000)
+        check("reload renders one fresh visualization, not two copies",
+              preview.locator("#dynamic-chart circle").count(), 24)
+        preview.locator("#interactive-button").click()
+        check("the visualization remains interactive after save and reload",
+              preview.locator("#interactive-button").get_attribute("data-clicks"), "1")
+        interactive_path = pg.evaluate("active")
+        preview.locator("#interactive-title").evaluate("""el => {
+          el.textContent = 'Edit immediately before switching tabs';
+          el.dispatchEvent(new InputEvent('input', {bubbles: true}));
+        }""")
+        pg.evaluate("switchTab(tabs.find(t => t.name === 'preview.html').path)")
+        pg.wait_for_function("activeTab().name === 'preview.html'", timeout=20000)
+        pg.wait_for_function(
+            "path => tab(path).text.includes('Edit immediately before switching tabs')",
+            arg=interactive_path, timeout=10000)
+        pg.evaluate("path => switchTab(path)", interactive_path)
+        preview.locator("#interactive-title").wait_for(timeout=20000)
+        check("an immediate tab switch keeps the coalesced visual edit",
+              preview.locator("#interactive-title").inner_text(),
+              "Edit immediately before switching tabs")
+        pg.evaluate("saveText()")
+        pg.wait_for_function("!activeTab().dirty", timeout=15000)
+        pasted_viz = """<figure class="gusnb-viz" data-gusnb-viz="1"
+          data-gusnb-provenance="1"><div data-gusnb-viz-render>
+          <iframe id="pasted-viz-frame" class="gusnb-viz-frame"
+          srcdoc='<button id="pasted-action">Run interaction</button>
+          <script>document.getElementById("pasted-action").onclick=()=>
+          document.body.dataset.clicked="yes"</script>'></iframe></div>
+          <pre data-gusnb-viz-panel hidden>pasted interactive source</pre>
+          <script type="application/json" data-gusnb-viz-source>{"kind":"html"}</script>
+          </figure>"""
+        preview.locator("body").evaluate("""(body, html) => {
+          const range = body.ownerDocument.createRange();
+          range.selectNodeContents(body); range.collapse(false);
+          const selection = body.ownerDocument.getSelection();
+          selection.removeAllRanges(); selection.addRange(range);
+          const transfer = new DataTransfer(); transfer.setData('text/html', html);
+          body.dispatchEvent(new ClipboardEvent('paste', {
+            bubbles: true, cancelable: true, clipboardData: transfer
+          }));
+        }""", pasted_viz)
+        preview.locator("#pasted-viz-frame").wait_for(timeout=10000)
+        pg.wait_for_function("activeTab().dirty", timeout=15000)
+        pg.evaluate("saveText()")
+        pg.wait_for_function("!activeTab().dirty", timeout=15000)
+        pg.evaluate("reloadTextFromDisk(activeTab(), true)")
+        pasted_frame = preview.frame_locator("#pasted-viz-frame")
+        pasted_frame.locator("#pasted-action").wait_for(timeout=15000)
+        pasted_frame.locator("#pasted-action").click()
+        check("a pasted interactive visualization stays interactive after save",
+              pasted_frame.locator("body").get_attribute("data-clicked"), "yes")
+        pasted_saved = (FIX / "interactive.html").read_text()
+        check("pasted iframe source and script are preserved",
+              ("data-gusnb-viz=\"1\"" in pasted_saved,
+               "pasted-action" in pasted_saved,
+               "data-gusnb-viz-source" in pasted_saved), (True, True, True))
 
         pg.evaluate("path => openFile(path)", str(FIX / "diagram.svg"))
         pg.wait_for_function("activeTab().language === 'svg'", timeout=20000)

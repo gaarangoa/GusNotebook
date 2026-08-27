@@ -669,7 +669,7 @@ function stashActive() {
     t.headingsCollapsed = headingsCollapsed;
     t.scroll = document.getElementById('notebook-pane').scrollTop;
     rememberNotebookView(t);
-  } else if (t.kind === 'text') {
+  } else if (t.kind === 'text' && !isMarkupTab(t)) {
     t.text = document.getElementById('text-editor').value;
   }
 }

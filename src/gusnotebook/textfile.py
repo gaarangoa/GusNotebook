@@ -102,6 +102,13 @@ class TextFile:
 
     def save(self, text, expected_version=_NO_EXPECTATION):
         """Atomic write, matching Notebook._save."""
+        if not isinstance(text, str):
+            raise ValueError("text must be a string")
+        size = len(text.encode("utf-8"))
+        if size > MAX_BYTES:
+            raise ValueError(
+                f"edited document is {size // 1024} KB — maximum is "
+                f"{MAX_BYTES // 1024} KB")
         with _lock:
             actual = self.disk_version()
             if expected_version is not _NO_EXPECTATION and actual != expected_version:
