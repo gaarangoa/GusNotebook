@@ -954,7 +954,7 @@ def api_open():
             server = previews.open(path)
         except OSError as e:
             return jsonify({"error": f"could not start preview server: {e}"}), 400
-        data["preview_origin"] = server.origin
+        data["preview_origin"] = server.origin_for(request.host.split(":")[0])
         data["preview_version"] = server.version()
     if remember:
         store.add_tab(str(path), session.id if session else None)
@@ -1008,9 +1008,10 @@ def api_text_version():
     if textfile.kind_of(path) != "text" or not path.is_file():
         return jsonify({"error": "no such text file"}), 404
     server = previews.peek(path)
+    host = request.host.split(":")[0]
     return jsonify({"path": str(path),
                     "disk_version": textfile.disk_version(path),
-                    "preview_origin": server.origin if server else None,
+                    "preview_origin": server.origin_for(host) if server else None,
                     "preview_version": server.version() if server else None})
 
 
@@ -1033,7 +1034,8 @@ def api_preview():
         return jsonify({"error": "valid parent origin is required"}), 400
     try:
         server = previews.open(path)
-        return jsonify(server.render(source, nonce, parent_origin))
+        host = request.host.split(":")[0]
+        return jsonify(server.render(source, nonce, parent_origin, host))
     except (OSError, UnicodeError) as e:
         return jsonify({"error": f"could not render preview: {e}"}), 400
 
@@ -1041,7 +1043,7 @@ def api_preview():
 @app.route("/api/previews")
 def api_previews():
     """Live preview origins, primarily for lifecycle/status UI and tests."""
-    return jsonify({"previews": previews.info()})
+    return jsonify({"previews": previews.info(request.host.split(":")[0])})
 
 
 @app.route("/api/raw")
@@ -1892,6 +1894,7 @@ def main(argv=None):
                    help="don't open a browser window")
     args = p.parse_args(argv)
 
+    previews.set_bind_host(args.host)
     terminals.set_url(f"http://127.0.0.1:{args.port}")
     print(f"GusNotebook — http://127.0.0.1:{args.port}\n"
           f"  working in {WORK_DIR}\n"

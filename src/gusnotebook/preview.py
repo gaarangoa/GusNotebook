@@ -101,7 +101,7 @@ class _Handler(BaseHTTPRequestHandler):
 class PreviewServer:
     """One localhost origin rooted at one visual document's directory."""
 
-    def __init__(self, path):
+    def __init__(self, path, bind_host="127.0.0.1"):
         self.path = Path(path).resolve()
         self.root = self.path.parent
         self._lock = threading.RLock()
@@ -114,16 +114,23 @@ class PreviewServer:
         self._observed = {self.path: disk_version(self.path)}
         self._runtime = (paths.static_dir() / "markup-runtime.js").read_bytes()
 
-        self._httpd = _Server(("127.0.0.1", 0), _Handler)
+        self._httpd = _Server((bind_host, 0), _Handler)
         self._httpd.preview = self
         self.port = self._httpd.server_address[1]
+        # Informational fallback only — never a real bind_host like "0.0.0.0".
+        # Callers with a request in hand should use origin_for() instead, so
+        # the origin matches whatever host the browser used to reach us.
         self.origin = f"http://127.0.0.1:{self.port}"
         self._thread = threading.Thread(
             target=self._httpd.serve_forever,
             name=f"gusnb-preview-{self.port}", daemon=True)
         self._thread.start()
 
-    def render(self, source, nonce, parent_origin):
+    def origin_for(self, host):
+        """The origin as reached from `host` — the browser's own Host header."""
+        return f"http://{host}:{self.port}"
+
+    def render(self, source, nonce, parent_origin, host=None):
         """Set the transient browser buffer and return a cache-busted URL."""
         with self._lock:
             self._source = source
@@ -133,9 +140,10 @@ class PreviewServer:
             self._render_serial += 1
             self._observed[self.path] = disk_version(self.path)
             relative = quote(self.path.name, safe="")
+            origin = self.origin_for(host) if host else self.origin
             return {
-                "url": f"{self.origin}/{relative}?gusnb={self._render_serial}",
-                "origin": self.origin,
+                "url": f"{origin}/{relative}?gusnb={self._render_serial}",
+                "origin": origin,
                 "preview_version": self.version(),
             }
 
@@ -158,8 +166,9 @@ class PreviewServer:
                 self._asset_generation += 1
             return str(self._asset_generation)
 
-    def info(self):
-        return {"path": str(self.path), "origin": self.origin,
+    def info(self, host=None):
+        origin = self.origin_for(host) if host else self.origin
+        return {"path": str(self.path), "origin": origin,
                 "port": self.port, "preview_version": self.version()}
 
     def _resolve(self, raw_path):
@@ -238,14 +247,19 @@ class PreviewPool:
     def __init__(self):
         self._servers = {}
         self._lock = threading.RLock()
+        self._bind_host = "127.0.0.1"
         atexit.register(self.close_all)
+
+    def set_bind_host(self, host):
+        """Match the interface the main app was told to listen on."""
+        self._bind_host = host
 
     def open(self, path):
         key = str(Path(path).resolve())
         with self._lock:
             server = self._servers.get(key)
             if server is None:
-                server = PreviewServer(key)
+                server = PreviewServer(key, bind_host=self._bind_host)
                 self._servers[key] = server
             return server
 
@@ -267,7 +281,7 @@ class PreviewPool:
         for server in servers:
             server.close()
 
-    def info(self):
+    def info(self, host=None):
         with self._lock:
             servers = list(self._servers.values())
-        return [server.info() for server in servers]
+        return [server.info(host) for server in servers]
