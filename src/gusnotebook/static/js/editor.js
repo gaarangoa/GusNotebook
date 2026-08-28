@@ -278,6 +278,8 @@ function cmKeymap(id) {
   const stop = (fn) => (view) => { fn(view); return true; };
   return [
     {key: 'Shift-Enter', run: stop(() => runCell(id, true))},
+    {key: 'Ctrl-Enter', run: stop(() => runCell(id, false))},
+    {key: 'Meta-Enter', run: stop(() => runCell(id, false))},
     {key: 'Mod-Shift-ArrowUp', run: stop(() => moveCell(id, -1))},
     {key: 'Mod-Shift-ArrowDown', run: stop(() => moveCell(id, 1))},
     {key: 'Mod-Shift-m', run: stop(() => {

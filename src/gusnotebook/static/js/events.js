@@ -304,12 +304,24 @@ document.addEventListener('keydown', (e) => {
   // `.cm-content` as well as `.editor`: with CodeMirror mounted the focused
   // element is CM's own content div, and treating that as unclaimed would run
   // the cell twice — once from CM's keymap and once from here.
-  const claimed = a && (a.classList.contains('editor') ||
-                        a.closest('.cm-editor') ||
-                        a.closest('#terminal-stack'));
-  if (e.key === 'Enter' && e.shiftKey && !claimed && selected && isNotebookTab()) {
-    e.preventDefault();
-    runCell(selected, true);
+  const focusedCell = a && a.closest ? a.closest('.cell') : null;
+  const focusedCellId = focusedCell && focusedCell.dataset.id;
+  const claimed = a && (a.closest('#terminal-stack') ||
+                        ((a.classList.contains('editor') || a.closest('.cm-editor')) &&
+                         focusedCellId === selected));
+  if (e.key === 'Enter' && !claimed && selected && isNotebookTab()) {
+    if ((e.ctrlKey || e.metaKey) && !e.shiftKey) {
+      e.preventDefault();
+      e.stopPropagation();
+      runCell(selected, false);
+      return;
+    }
+    if (e.shiftKey) {
+      e.preventDefault();
+      e.stopPropagation();
+      runCell(selected, true);
+      return;
+    }
   }
 }, true);
 

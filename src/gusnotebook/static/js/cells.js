@@ -1961,7 +1961,7 @@ function cellHtml(c) {
     </div>
     <div class="cell-body">
       ${promptStrip}${claudeStrip}${undoStrip}${bodyInner}
-      <div class="output-area">
+      <div class="output-area" onpointerdown="selectCell('${c.id}')">
         <div id="out-${c.id}" class="${outHidden ? 'output-hidden' : ''}">${
           outputSlotHtml(c)}</div>
       </div>
