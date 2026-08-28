@@ -1070,6 +1070,8 @@
       send('save');
     } else if (data.command === 'saved') {
       changed = false;
+    } else if (data.command === 'report-view') {
+      reportView();
     } else if (data.command === 'restore-view') {
       restoreView(data.view);
     }
@@ -1080,9 +1082,11 @@
   window.addEventListener('resize', queueViewReport, {passive: true});
   window.addEventListener('resize', positionVizToolbar, {passive: true});
   window.addEventListener('blur', function () {
+    reportView();
     if (changed) sendSnapshot('change');
   });
   window.addEventListener('pagehide', function () {
+    reportView();
     if (changed) sendSnapshot('change');
   });
   ['wheel', 'touchstart', 'pointerdown', 'keydown'].forEach(function (kind) {

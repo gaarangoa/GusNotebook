@@ -671,6 +671,8 @@ function stashActive() {
     rememberNotebookView(t);
   } else if (t.kind === 'text' && !isMarkupTab(t)) {
     t.text = document.getElementById('text-editor').value;
+  } else if (isMarkupTab(t)) {
+    requestMarkupViewState(t);
   }
 }
 

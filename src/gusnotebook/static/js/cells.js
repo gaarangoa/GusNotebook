@@ -144,6 +144,19 @@ function markMarkupDirty(t) {
   if (!t.dirty) { t.dirty = true; renderTabs(); }
 }
 
+function requestMarkupViewState(t) {
+  if (!isMarkupTab(t) || !t.previewNonce || !t.previewOrigin) return;
+  const frame = document.getElementById('html-preview-frame');
+  if (!frame || !frame.contentWindow || frame.src !== (t.previewUrl || '')) return;
+  try {
+    frame.contentWindow.postMessage({
+      channel: MARKUP_EDITOR_CHANNEL,
+      nonce: t.previewNonce,
+      command: 'report-view',
+    }, t.previewOrigin);
+  } catch (err) {}
+}
+
 window.addEventListener('message', event => {
   const frame = document.getElementById('html-preview-frame');
   const data = event.data || {};
@@ -279,10 +292,6 @@ function showActive() {
   document.getElementById('imgpane').classList.toggle('on', kind === 'image');
   if (!isMarkupTab(t)) {
     clearMarkupFocus();
-    // Stop animations, timers and media belonging to a preview that is no
-    // longer visible. It is rebuilt from the tab's source when the user returns.
-    const frame = document.getElementById('html-preview-frame');
-    frame.src = 'about:blank';
   }
 
   // The app's name on a notebook tab — the same text the markup ships with, so
@@ -310,7 +319,10 @@ function showActive() {
     document.getElementById('text-lang').textContent = t.language || 'text';
     document.getElementById('text-status').textContent = t.externalConflict
       ? 'changed on disk · reload' : (t.dirty ? 'unsaved' : 'saved');
-    if (isMarkupTab(t)) renderMarkupEditor();
+    if (isMarkupTab(t)) {
+      const frame = document.getElementById('html-preview-frame');
+      if (!t.previewUrl || frame.src !== t.previewUrl) renderMarkupEditor();
+    }
   } else if (kind === 'image') {
     document.getElementById('imgview').src = BASE + t.url;
   } else {
