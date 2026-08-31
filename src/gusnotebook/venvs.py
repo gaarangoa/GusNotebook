@@ -44,8 +44,14 @@ def python_bin(prefix):
     p = Path(prefix)
     for rel in ("bin/python3", "bin/python", "Scripts/python.exe"):
         cand = p / rel
-        if cand.is_file() and os.access(cand, os.X_OK):
-            return cand
+        try:
+            if cand.is_file() and os.access(cand, os.X_OK):
+                return cand
+        except OSError:
+            # A directory picker can encounter protected siblings (mounted
+            # trash folders are a common Linux example). One unreadable entry
+            # is not evidence that the directory containing it is unreadable.
+            continue
     return None
 
 

@@ -595,12 +595,18 @@ def api_dirlist():
             return jsonify({"error": f"Permission denied: {p}"}), 403
         entries = []
         for child in children:
-            if not child.is_dir():
+            try:
+                if not child.is_dir():
+                    continue
+                python = venvs.python_bin(child)
+                is_venv = bool(python and (
+                    (child / "pyvenv.cfg").is_file() or
+                    (child / "conda-meta").is_dir()))
+            except OSError:
+                # Listing a parent should not fail because one child cannot be
+                # inspected. This happens on Linux with protected entries such
+                # as .Trash-*/bin/python3; simply omit that entry.
                 continue
-            python = venvs.python_bin(child)
-            is_venv = bool(python and (
-                (child / "pyvenv.cfg").is_file() or
-                (child / "conda-meta").is_dir()))
             # Hidden directories are normally picker noise, but a structurally
             # valid environment remains useful whatever it happens to be named.
             if child.name.startswith(".") and not is_venv:
