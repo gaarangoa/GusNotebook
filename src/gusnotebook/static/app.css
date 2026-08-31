@@ -1551,6 +1551,13 @@ button.tb.primary:hover { background: #fdf4f8; }
   display: block; font-size: 11px; font-weight: 650;
   color: #475569; margin-bottom: 4px;
 }
+/* Inline LLM and gateway settings, hidden while no API is in use. The
+   wrappers keep the fields in the DOM on purpose — openSettings fills them
+   and saveSettings round-trips their values, so saved settings survive the
+   hide. To restore: drop the class from the two wrappers in
+   templates/index.html and set LLM_SETTINGS_HIDDEN to false in
+   static/js/actions.js. */
+.llm-hidden { display: none; }
 .field .fhelp { font-size: 10.5px; color: var(--muted); margin-top: 4px; line-height: 1.5; }
 .field input[type="text"], .field input[type="number"],
 .field input[type="password"], .field select, .field textarea {

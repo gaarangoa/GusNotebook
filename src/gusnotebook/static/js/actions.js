@@ -660,6 +660,13 @@ function hasRestrictions(r) {
   return !!r && Object.keys(r).some(k => k === 'deny_extra' ? !!r[k] : r[k]);
 }
 
+// The inline LLM and gateway fields are hidden in the settings modal — no API
+// is in use right now. They stay in the DOM (see the .llm-hidden wrappers in
+// templates/index.html), so their values still round-trip on save; this flag
+// only keeps the (now unreachable) model picker from blocking a save of the
+// visible fields.
+const LLM_SETTINGS_HIDDEN = true;
+
 async function openSettings() {
   const back = document.getElementById('settings-back');
   // Cleared first so "are the fields filled in yet?" has one honest answer,
@@ -762,7 +769,7 @@ async function saveSettings() {
     gateway_key: document.getElementById('set-gw-key').value.trim(),
     gateway_key_store: document.getElementById('set-gw-store').value,
   };
-  if (!body.inline_llm_model) {
+  if (!body.inline_llm_model && !LLM_SETTINGS_HIDDEN) {
     flash('Pick a model, or type a deployment name.');
     return;
   }
@@ -777,7 +784,9 @@ async function saveSettings() {
       ? 'Saved — restrictions apply to new Claude terminals, not ones already open'
       : body.claude_instructions.trim()
         ? 'Saved — new Claude and Codex agents will use these instructions'
-        : 'Inline LLM → ' + body.inline_llm_model);
+        : LLM_SETTINGS_HIDDEN
+          ? 'Saved'
+          : 'Inline LLM → ' + body.inline_llm_model);
   } catch (err) {
     flash('Cannot save settings: ' + errText(err));
   }

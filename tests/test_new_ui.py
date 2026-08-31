@@ -739,16 +739,31 @@ def main():
         pg.click(".nb-title button[onclick='openSettings()']")
         pg.wait_for_function("!!settingsData", timeout=20000)
         check("modal open", pg.locator("#settings-back").is_visible(), True)
+        # No API in use right now: the inline LLM and gateway fields are
+        # hidden, not removed — still in the DOM, so their values round-trip.
+        # offsetParent is null for display:none elements and their contents.
+        check("llm model field hidden",
+              pg.evaluate("!document.getElementById('set-model').offsetParent"),
+              True)
+        check("gateway status hidden",
+              pg.evaluate("!document.getElementById('set-gateway').offsetParent"),
+              True)
+        check("agent instructions still visible",
+              pg.evaluate("!!document.getElementById('set-claude').offsetParent"),
+              True)
         check("model list populated",
               pg.locator("#set-model option").count() > 1, True)
         # Against what the API reports, not a hostname literal: the gateway is
         # site-specific and comes from the user's own .env, so a name written into
         # this file would both fail elsewhere and publish where it came from.
+        # textContent rather than inner_text: the status field is hidden, and
+        # Playwright's inner_text of a display:none element is empty.
+        status_text = pg.evaluate(
+            "document.getElementById('set-gateway').textContent")
         check("shows the gateway it resolved",
-              pg.evaluate("settingsData.gateway") in
-              pg.locator("#set-gateway").inner_text(), True)
+              pg.evaluate("settingsData.gateway") in status_text, True)
         check("knows a key is present",
-              "API key found" in pg.locator("#set-gateway").inner_text(), True)
+              "API key found" in status_text, True)
 
         original = pg.evaluate("settingsData.settings.inline_llm_model")
         original_instr = pg.evaluate("settingsData.settings.inline_llm_instructions")
@@ -756,8 +771,11 @@ def main():
         # answered "yes" by the value that was already there when the modal opened.
         target = pg.evaluate(
             "settingsData.models.find(m => m !== settingsData.settings.inline_llm_model)")
-        pg.select_option("#set-model", target)
-        pg.fill("#set-instructions", "prefer polars")
+        # The fields are hidden, so Playwright's fill/select_option would time
+        # out — drive the DOM directly; saveSettings reads the same .value.
+        pg.evaluate("(t) => document.getElementById('set-model').value = t", target)
+        pg.evaluate(
+            "document.getElementById('set-instructions').value = 'prefer polars'")
         pg.click("button.btn.primary")
         # The modal closing is what saveSettings does last, so it's the honest
         # signal that the round trip finished.
@@ -783,8 +801,9 @@ def main():
         was_source = pg.evaluate("settingsData.key_source")
 
         # "This session" must keep the key out of settings.json entirely.
-        pg.fill("#set-gw-key", "sk-SUITE-SESSION-KEY")
-        pg.select_option("#set-gw-store", "session")
+        pg.evaluate(
+            "document.getElementById('set-gw-key').value = 'sk-SUITE-SESSION-KEY'")
+        pg.evaluate("document.getElementById('set-gw-store').value = 'session'")
         pg.click("button.btn.primary")
         pg.wait_for_function(
             "settingsData.key_source === 'session'", timeout=20000)
@@ -809,7 +828,7 @@ def main():
               pg.evaluate("settingsData.key_source"), "session")
 
         # Clear it again: the app falls back to the environment / .env.
-        pg.fill("#set-gw-key", "")
+        pg.evaluate("document.getElementById('set-gw-key').value = ''")
         pg.click("button.btn.primary")
         pg.wait_for_function(
             "settingsData.key_source !== 'session'", timeout=20000)
@@ -820,7 +839,8 @@ def main():
         # A model typed by hand wins over the dropdown.
         pg.click(".nb-title button[onclick='openSettings()']")
         pg.wait_for_function("!!settingsData", timeout=20000)
-        pg.fill("#set-model-custom", "some-custom-deployment")
+        pg.evaluate(
+            "document.getElementById('set-model-custom').value = 'some-custom-deployment'")
         pg.click("button.btn.primary")
         pg.wait_for_function(
             "settingsData.settings.inline_llm_model === 'some-custom-deployment'",
@@ -833,8 +853,10 @@ def main():
         # writes to the real settings.json, so it has to leave it as it found it.
         pg.click(".nb-title button[onclick='openSettings()']")
         pg.wait_for_function("!!settingsData", timeout=20000)
-        pg.fill("#set-model-custom", original)
-        pg.fill("#set-instructions", original_instr or "")
+        pg.evaluate("(v) => document.getElementById('set-model-custom').value = v",
+                    original)
+        pg.evaluate("(v) => document.getElementById('set-instructions').value = v || ''",
+                    original_instr)
         pg.click("button.btn.primary")
         pg.wait_for_function(
             f"settingsData.settings.inline_llm_model === {json.dumps(original)}",
