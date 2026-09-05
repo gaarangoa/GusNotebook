@@ -53,8 +53,8 @@ def main():
         file_row = page.locator('.file-row').first
         expect(file_row).to_have_css('font-size', '12px')
         assert file_row.bounding_box()['height'] == 24
-        # Name-only Skills/Sessions keep creation and secondary actions accessible.
-        assert page.locator('#skills svg, #sessions svg').count() == 0
+        # Compact Skills/Sessions keep creation and secondary actions accessible.
+        assert page.locator('#skills svg').count() == 0
         for section in ['skills', 'sessions']:
             assert page.locator('#' + section + ' .strip-head').bounding_box()['height'] == 26
         page.locator('#skills .strip-new').click()
@@ -77,6 +77,20 @@ def main():
         page.locator('#sessions .strip-head').press('Enter')
         session = page.locator('.session-row.current')
         assert session.bounding_box()['height'] == 26
+        session_name = session.locator('.nm').inner_text()
+        session.get_by_role('button', name='Session agent settings', exact=True).click()
+        expect(page.locator('#sinstr-back')).to_be_visible()
+        page.keyboard.press('Escape')
+        session.get_by_role('button', name='Close session', exact=True).click()
+        expect(page.locator('#ask-back')).to_be_visible()
+        page.keyboard.press('Escape')
+        expect(session.locator('.nm')).to_have_text(session_name)
+        with page.expect_popup() as opened:
+            session.get_by_role('button', name='Open session in new window', exact=True).click()
+        popup = opened.value
+        popup.wait_for_url('**/?session=*')
+        assert 'session=' + page.evaluate('currentSession') in popup.url
+        popup.close()
         session.press('Shift+F10')
         page.get_by_role('menu', name='Session actions').get_by_role('menuitem', name='Agent settings…').click()
         expect(page.locator('#sinstr-back')).to_be_visible()
@@ -89,7 +103,7 @@ def main():
         page.locator('#sessions .strip-new').click()
         expect(page.locator('#ask-back')).to_be_visible()
         page.keyboard.press('Escape')
-        print('PASS: compact name-only lists retain creation, editing and keyboard context actions', flush=True)
+        print('PASS: compact lists retain session action buttons, creation, editing and keyboard context actions', flush=True)
         page.evaluate('selectCell(cells[1].id)')
         expect(page.locator('.cell.is-current')).to_have_css('border-left-width', '2px')
         expect(page.locator('.cell.is-current .cell-body')).to_have_css('border-left-width', '0px')

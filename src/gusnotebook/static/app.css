@@ -93,6 +93,12 @@ body {
 .session-row:hover, .skill-row:hover { background: var(--hover); }
 .session-row.current { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
 .session-row .nm, .skill-row .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.session-row { padding-top: 1px; padding-bottom: 1px; gap: 2px; }
+.session-action { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 24px; width: 24px; height: 24px; padding: 0; border: 0; border-radius: 3px; background: transparent; color: var(--muted); cursor: pointer; }
+.session-action .icon { width: 12px; height: 12px; }
+.session-action:hover { background: var(--hover); color: var(--accent); }
+.session-action.note.set { color: var(--accent); }
+.session-action.x:hover { color: var(--red); }
 .skill-empty { padding: 6px 10px; font-size: 12px; color: var(--muted); line-height: 1.5; }
 .files-btn {
   border: 1px solid var(--border);

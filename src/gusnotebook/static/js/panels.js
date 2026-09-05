@@ -255,6 +255,13 @@ function renderSessions() {
          oncontextmenu="sessionContext(event, this.dataset.session)"
          title="${escapeAttr(s.root)}&#10;${escapeAttr(status + instructions + restrictions)}&#10;Right-click for actions; F2 to rename.">
       <span class="nm">${escapeHtml(s.name)}</span>
+      <button class="session-action pop" aria-label="Open session in new window" title="Open session in new window"
+              onclick="openSessionWindow(this.closest('.session-row').dataset.session, event)">${icon('external')}</button>
+      <button class="session-action note ${instructions || restrictions ? 'set' : ''}" aria-label="Session agent settings"
+              title="Session agent settings${escapeAttr(instructions + restrictions)}"
+              onclick="openSessionInstr(this.closest('.session-row').dataset.session, event)">${icon('edit')}</button>
+      <button class="session-action x" aria-label="Close session" title="Close session"
+              onclick="deleteSession(this.closest('.session-row').dataset.session, event)">${icon('close')}</button>
     </div>`;
   }).join('') || '<div class="files-msg">No sessions</div>';
 }

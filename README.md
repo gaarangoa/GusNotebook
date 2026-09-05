@@ -100,10 +100,11 @@ buttons open drawers that close with Escape or a click outside.
 settings. Tabs support arrow-key navigation, the **+** menu works with the
 keyboard, and dialogs keep keyboard focus inside until closed.
 
-Skills and Sessions use compact name-only lists. Click a section heading to
-expand it, or **New** to add an entry. Right-click a skill to insert or edit it;
-right-click a session to rename it, edit agent settings, open it in a new window,
-or close it. F2 edits a focused skill or renames a focused session. Descriptions,
+Sessions appear above Skills in compact lists. Session rows include small buttons
+for opening a new window, editing agent settings, and closing the session; Skills
+show names only. Click a section heading to expand it, or **New** to add an entry.
+Right-click a skill to insert or edit it, or a session for additional actions.
+F2 edits a focused skill or renames a focused session. Descriptions,
 activity counts, and session instruction status are available in tooltips.
 
 ## Python environments
