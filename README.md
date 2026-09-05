@@ -45,12 +45,25 @@ does. It opens on the first `.ipynb` it finds there, or creates
 Options: `--port`, `--host`, `--no-browser`. `NOTEBOOK=/path/to/x.ipynb` picks
 the launch document.
 
-The launch link includes a fresh access token. Opening it unlocks that browser;
-the token is removed from the address bar. API and terminal connections require
+By default, the launch link includes a fresh access token. Opening it unlocks
+that browser; the token is removed from the address bar. API and terminal connections require
 authentication, and requests from another website are rejected. Embedded
 terminals receive authentication automatically. An external `gusnb` command
 finds the current local connection in the app state directory, or accepts
 `NB_URL` and `NB_TOKEN` explicitly.
+
+To open directly without a token or password, pass `--no-auth`, or set
+`GUSNOTEBOOK_NO_AUTH=1` in your service environment. For remote access:
+
+```bash
+uv run gusnotebook --host 0.0.0.0 --port 4477 \
+  --allowed-host YOUR_SERVER_IP --no-auth --no-browser
+```
+
+Replace `YOUR_SERVER_IP` with the IP you use in the browser and open
+`http://YOUR_SERVER_IP:4477/`. Anyone who can reach the server can then read or
+modify files and run notebook or terminal commands, so use this mode on a
+trusted, access-controlled network. Host and browser-origin checks still apply.
 
 For a reverse proxy, pass `--trust-proxy` and `--allowed-host your-hostname`.
 Forwarded headers are otherwise ignored. The proxy must also route WebSockets;

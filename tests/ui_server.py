@@ -24,7 +24,7 @@ def isolated_server():
         env = {**os.environ, "GUSNOTEBOOK_HOME": str(state),
                "GUSNOTEBOOK_TOKEN": token, "NO_LLM": "1",
                "GUSNOTEBOOK_TEST_ROOT": str(root), "NB_TOKEN": token}
-        for key in ("NOTEBOOK", "AI_GATEWAY_KEY", "AI_GATEWAY_URL",
+        for key in ("NOTEBOOK", "GUSNOTEBOOK_NO_AUTH", "AI_GATEWAY_KEY", "AI_GATEWAY_URL",
                     "AWS_BEARER_TOKEN_BEDROCK", "NB_URL"):
             env.pop(key, None)
         env.update(AI_GATEWAY_URL="http://127.0.0.1:9", AI_GATEWAY_KEY="test-gateway-key")

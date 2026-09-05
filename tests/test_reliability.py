@@ -104,6 +104,9 @@ class PersistenceTests(unittest.TestCase):
 
 class ApplicationTests(unittest.TestCase):
     def setUp(self):
+        environment = patch.dict(os.environ, {"GUSNOTEBOOK_NO_AUTH": "0"})
+        environment.start()
+        self.addCleanup(environment.stop)
         self.temp = tempfile.TemporaryDirectory()
         self.root = Path(self.temp.name).resolve()
         self.app = self.make_app(self.root)
@@ -134,6 +137,55 @@ class ApplicationTests(unittest.TestCase):
                                                 "X-Forwarded-Prefix": "/evil"})
         self.assertEqual(response.status_code, 200)
         self.assertNotIn(b'/evil/static', response.data)
+
+    def test_no_auth_allows_browser_and_api_without_cookies_but_checks_host_and_origin(self):
+        for prefix in ("", "/tools/notebook"):
+            with self.subTest(prefix=prefix):
+                app = self.make_app(self.root / ("prefixed-open" if prefix else "open"),
+                                    AUTH_REQUIRED=False, APP_BASE_URL=prefix,
+                                    ALLOWED_HOSTS=["100.79.110.127"])
+                try:
+                    client = app.test_client()
+                    base = "http://100.79.110.127:4477"
+                    page = client.get(prefix + "/", base_url=base)
+                    self.assertEqual(page.status_code, 200)
+                    self.assertNotIn(b'id="unlock-form"', page.data)
+                    self.assertIn(b'id="notebook-pane"', page.data)
+                    self.assertEqual(app.config["AUTH_TOKEN"], "")
+                    self.assertEqual(client.get(prefix + "/api/tabs", base_url=base).status_code, 200)
+                    target = Path(app.config["WORK_DIR"]) / "created.py"
+                    body = {"directory": str(target.parent), "name": target.name, "kind": "text"}
+                    denied = client.post(prefix + "/api/files/new", base_url=base, json=body,
+                                         headers={"Origin": "https://unrelated.invalid"})
+                    self.assertEqual(denied.status_code, 403)
+                    self.assertFalse(target.exists())
+                    self.assertEqual(client.get(prefix + "/api/tabs",
+                                     base_url="http://unrecognized.invalid").status_code, 400)
+                    self.assertEqual(client.get(prefix + "/api/tabs", base_url=base,
+                                     headers={"Sec-Fetch-Site": "cross-site"}).status_code, 403)
+                    allowed = client.post(prefix + "/api/files/new", base_url=base, json=body,
+                                          headers={"Origin": base})
+                    self.assertEqual(allowed.status_code, 200, allowed.json)
+                    self.assertTrue(target.exists())
+                    login = client.post(prefix + "/auth", base_url=base)
+                    self.assertEqual(login.status_code, 200)
+                    self.assertNotIn("Set-Cookie", login.headers)
+                finally:
+                    close_app(app)
+        self.assertEqual(self.app.test_client().get("/api/tabs").status_code, 401)
+
+    def test_no_auth_environment_setting_is_explicit_and_can_be_overridden(self):
+        for value, override, required in (("1", {}, False), ("0", {}, True),
+                                           ("", {}, True), ("1", {"AUTH_REQUIRED": True}, True)):
+            with self.subTest(value=value, override=override):
+                with patch.dict(os.environ, {"GUSNOTEBOOK_NO_AUTH": value}):
+                    app = self.make_app(self.root / "env-setting", **override)
+                try:
+                    self.assertEqual(app.config["AUTH_REQUIRED"], required)
+                    self.assertEqual(app.test_client().get("/api/tabs").status_code,
+                                     401 if required else 200)
+                finally:
+                    close_app(app)
 
     def test_url_prefix_supports_browser_auth_static_and_api(self):
         for trust_proxy in (False, True):

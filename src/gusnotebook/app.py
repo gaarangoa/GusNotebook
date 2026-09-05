@@ -2052,6 +2052,7 @@ def create_app(config=None):
     application = Flask(__name__, template_folder=str(paths.template_dir()),
                         static_folder=str(paths.static_dir()), static_url_path="/static")
     application.config.update(
+        AUTH_REQUIRED=os.environ.get("GUSNOTEBOOK_NO_AUTH") != "1",
         AUTH_TOKEN=os.environ.get("GUSNOTEBOOK_TOKEN") or secrets.token_urlsafe(32),
         INSTANCE_ID=secrets.token_hex(8),
         ALLOWED_HOSTS=["localhost", "127.0.0.1", "::1"],
@@ -2060,6 +2061,8 @@ def create_app(config=None):
         APP_BASE_URL=os.environ.get("APP_BASE_URL", ""),
     )
     application.config.update(config or {})
+    if not application.config["AUTH_REQUIRED"]:
+        application.config["AUTH_TOKEN"] = ""
     if application.config["TRUST_PROXY"]:
         application.wsgi_app = ProxyFix(application.wsgi_app, x_for=1, x_proto=1,
                                         x_host=1, x_prefix=1)
@@ -2143,6 +2146,9 @@ def main(argv=None):
     parser.add_argument("--host", default=os.environ.get("HOST", "127.0.0.1"))
     parser.add_argument("--debug", action="store_true", default=os.environ.get("FLASK_DEBUG") == "1")
     parser.add_argument("--no-browser", action="store_true")
+    parser.add_argument("--no-auth", action="store_true",
+                        default=os.environ.get("GUSNOTEBOOK_NO_AUTH") == "1",
+                        help="disable token authentication; anyone who can connect can run code")
     parser.add_argument("--trust-proxy", action="store_true",
                         help="trust one explicitly configured reverse proxy")
     parser.add_argument("--allowed-host", action="append", default=[],
@@ -2161,12 +2167,15 @@ def main(argv=None):
     try:
         application = create_app({"APP_URL": base, "PREVIEW_HOST": args.host,
                                   "ALLOWED_HOSTS": allowed, "TRUST_PROXY": args.trust_proxy,
+                                  "AUTH_REQUIRED": not args.no_auth,
                                   "DEBUG": args.debug})
     except BaseException:
         server.server_close()
         raise
     server.app = application
-    url = base + "/#token=" + application.config["AUTH_TOKEN"]
+    url = base + "/"
+    if application.config["AUTH_REQUIRED"]:
+        url += "#token=" + application.config["AUTH_TOKEN"]
     with application.app_context():
         connection = paths.state(f"server-{server.server_port}.json")
         atomic_write(connection, json.dumps({"url": base, "pid": os.getpid(),

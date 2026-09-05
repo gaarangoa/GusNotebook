@@ -7,11 +7,14 @@ from flask import jsonify, request, make_response
 
 
 def install(app):
+    required = app.config.get("AUTH_REQUIRED", True)
     token = app.config["AUTH_TOKEN"]
     cookie = "gusnb_" + app.config["INSTANCE_ID"]
     app.config["AUTH_COOKIE"] = cookie
 
     def authenticated():
+        if not required:
+            return True
         supplied = request.headers.get("Authorization", "")
         if supplied.startswith("Bearer "):
             supplied = supplied[7:]
@@ -42,9 +45,10 @@ def install(app):
         if not authenticated():
             return jsonify(error="Invalid launch token"), 401
         response = make_response(jsonify(status="ok"))
-        response.set_cookie(cookie, token, httponly=True, samesite="Strict",
-                            secure=request.is_secure,
-                            path=request.script_root or "/")
+        if required:
+            response.set_cookie(cookie, token, httponly=True, samesite="Strict",
+                                secure=request.is_secure,
+                                path=request.script_root or "/")
         return response
 
     @app.after_request

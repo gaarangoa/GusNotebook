@@ -14,14 +14,17 @@ from playwright.sync_api import sync_playwright
 from ui_server import rerun_isolated, launch_browser
 
 
-def check_cli_lifecycle():
+def check_cli_lifecycle(no_auth=False):
     with tempfile.TemporaryDirectory(prefix="gusnb-launch-") as temporary:
         root = Path(temporary)
         state = root / "state"
         env = {**os.environ, "GUSNOTEBOOK_HOME": str(state), "HOST": "127.0.0.1"}
-        for key in ("NOTEBOOK", "NB_TOKEN", "GUSNOTEBOOK_TOKEN", "NB_URL", "NB_SESSION", "NB_NOTEBOOK"):
+        for key in ("NOTEBOOK", "NB_TOKEN", "GUSNOTEBOOK_TOKEN", "GUSNOTEBOOK_NO_AUTH",
+                    "NB_URL", "NB_SESSION", "NB_NOTEBOOK", "APP_BASE_URL"):
             env.pop(key, None)
         command = [sys.executable, "-m", "gusnotebook", "--port", "0", "--no-browser"]
+        if no_auth:
+            command.append("--no-auth")
         with (root / "launch.log").open("w+") as log:
             process = subprocess.Popen(command, cwd=root, env=env, stdout=log, stderr=log)
             try:
@@ -34,6 +37,10 @@ def check_cli_lifecycle():
                 connection = next(state.glob("server-*.json"))
                 metadata = json.loads(connection.read_text())
                 assert stat.S_IMODE(connection.stat().st_mode) == 0o600
+                log.seek(0)
+                startup = log.read()
+                assert bool(metadata["token"]) == (not no_auth)
+                assert ("#token=" in startup) == (not no_auth), "Launch URL used the wrong auth mode"
                 cli = subprocess.run([sys.executable, "-m", "gusnotebook.cli", "tabs"],
                     cwd=root, env={**env, "NB_URL": metadata["url"]},
                     capture_output=True, text=True, timeout=30)
@@ -45,6 +52,8 @@ def check_cli_lifecycle():
                 assert duplicate.returncode != 0
                 after = {path: path.read_bytes() for path in state.rglob("*") if path.is_file()}
                 assert before == after, "Failed second launch changed the live app's state"
+                if no_auth:
+                    check_no_auth_browser(metadata["url"])
             finally:
                 process.terminate()
                 try:
@@ -54,12 +63,54 @@ def check_cli_lifecycle():
                     process.wait()
             assert process.returncode == 0
             assert not list(state.glob("server-*.json")), "Connection metadata survived shutdown"
-        print("PASS: CLI launch, private token discovery, occupied port and shutdown", flush=True)
+        mode = "no-auth" if no_auth else "authenticated"
+        print(f"PASS: {mode} CLI launch, connection discovery, occupied port and shutdown", flush=True)
+
+
+def check_no_auth_browser(url):
+    with sync_playwright() as playwright:
+        browser = launch_browser(playwright)
+        try:
+            page = browser.new_page()
+            errors = []
+            page.on("pageerror", lambda error: errors.append(str(error)))
+            page.goto(url + "/", wait_until="domcontentloaded")
+            page.wait_for_function("typeof cells !== 'undefined' && cells.length && window.CM")
+            assert not page.locator("#unlock-form").count()
+            output = page.evaluate("""async () => {
+              const id = cells[0].id;
+              document.getElementById('ed-' + id).value = 'print(6 * 7)';
+              await runCell(id);
+              return document.getElementById('out-' + id).innerText;
+            }""")
+            assert "42" in output, output
+            terminal = page.evaluate("() => api('/api/terminals', {method: 'POST', body: JSON.stringify({kind: 'shell'})})")
+            transcript = page.evaluate("""id => new Promise((resolve, reject) => {
+              const socket = new WebSocket(location.origin.replace(/^http/, 'ws') + '/ws/' + id);
+              const timer = setTimeout(() => {socket.close(); reject(new Error('CLI timed out'));}, 15000);
+              let output = '';
+              socket.onopen = () => socket.send('gusnb tabs\\n');
+              socket.onmessage = async event => {
+                output += typeof event.data === 'string' ? event.data : await event.data.text();
+                if (output.includes('notebook.ipynb')) {
+                  clearTimeout(timer); socket.close(); resolve(output);
+                }
+              };
+              socket.onerror = () => {clearTimeout(timer); reject(new Error('Terminal failed'));};
+            })""", terminal["id"])
+            assert "notebook.ipynb" in transcript
+            page.evaluate("id => api('/api/terminals/' + id, {method: 'DELETE'})", terminal["id"])
+            assert not page.context.cookies(), "No-auth mode required or issued a login cookie"
+            assert not errors, errors
+        finally:
+            browser.close()
+    print("PASS: browser, kernel, terminal WebSocket, and embedded CLI work without tokens or cookies", flush=True)
 
 
 def main():
     if os.environ.get("GUSNOTEBOOK_ISOLATED_TEST") != "1":
         check_cli_lifecycle()
+        check_cli_lifecycle(no_auth=True)
     rerun_isolated(__file__)
     url, token = os.environ["GUSNOTEBOOK_TEST_URL"], os.environ["NB_TOKEN"]
     root = Path(os.environ["GUSNOTEBOOK_TEST_ROOT"])
