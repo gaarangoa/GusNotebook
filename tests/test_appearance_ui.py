@@ -40,14 +40,14 @@ def main():
         page.frame_locator('iframe[data-output-frame]').locator('table').wait_for()
         header = page.locator('.app-header').bounding_box()
         toolbar = page.locator('#toolbar').bounding_box()
-        assert header['height'] == 38
+        assert header['height'] == 32
         assert header['x'] == toolbar['x'] and header['width'] == toolbar['width']
         for selector in ['#app', '#files', '#agent-pane', '.app-header']:
             assert page.locator(selector).bounding_box()['y'] == 0, selector
         for selector in ['#files', '#agent-pane']:
             assert page.locator(selector).bounding_box()['height'] == 960, selector
         assert page.locator('#tabs').bounding_box()['y'] == 0
-        assert page.locator('#toolbar').bounding_box()['y'] == 38
+        assert page.locator('#toolbar').bounding_box()['y'] == 32
         assert page.locator('#notebook-pane').bounding_box()['y'] <= 78
         assert page.locator('#nb-path, #nb-label').count() == 0
         file_row = page.locator('.file-row').first

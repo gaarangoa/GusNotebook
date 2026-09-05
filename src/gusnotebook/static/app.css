@@ -1697,11 +1697,11 @@ button:disabled { opacity: .55; cursor: default; }
 .file-row.active-file { box-shadow: inset 3px 0 var(--accent); font-weight: 600; }
 .app-header .tabs { flex: 1 1 0; min-width: 0; height: 100%; min-height: 0; gap: 1px; padding: 0; border-bottom: 0; background: var(--surface); scrollbar-width: none; }
 .app-header .tabs::-webkit-scrollbar { display: none; }
-.app-header .tab { min-height: 0; max-width: 240px; font-size: 12px; padding: 0 4px 0 10px; border-right: 0; gap: 6px; background: var(--surface); }
+.app-header .tab { min-height: 0; max-width: 240px; font-size: 12px; padding: 0 2px 0 6px; border-right: 0; gap: 4px; background: var(--surface); }
 .tab.active { background: var(--panel); }
 .tab .ti, .tterm .ti { display: inline-flex; }
-.tab .tx, .tterm .tx { width: 26px; height: 26px; display: inline-flex; align-items: center; justify-content: center; padding: 4px; }
-.tab .tx .icon, .tterm .tx .icon { width: 14px; height: 14px; }
+.tab .tx, .tterm .tx { width: 24px; height: 24px; display: inline-flex; align-items: center; justify-content: center; padding: 4px; }
+.tab .icon, .tterm .icon { width: 12px; height: 12px; }
 .tab-new { min-width: 28px; width: 28px; border: 0; border-radius: 5px; background: transparent; color: var(--muted); position: sticky; right: 0; background: var(--surface); }
 .new-menu, .venv-menu, .file-ctx { border-radius: 9px; box-shadow: var(--shadow); max-width: calc(100vw - 16px); max-height: calc(100dvh - 90px); overflow: auto; }
 .new-menu { width: 330px; }
@@ -1762,8 +1762,8 @@ button:disabled { opacity: .55; cursor: default; }
 .term-btn { padding: 2px 6px; gap: 4px; }
 .term-btn .icon { width: 12px; height: 12px; }
 .agent-select { padding: 2px 16px 2px 5px; }
-.term-tabs { min-height: 36px; background: var(--surface); }
-.tterm { min-height: 36px; font-size: var(--small-size); }
+.term-tabs { min-height: 28px; background: var(--surface); }
+.tterm { min-height: 28px; font-size: var(--small-size); padding: 0 2px 0 6px; gap: 4px; }
 .term-empty { color: var(--muted); font-size: var(--ui-size); line-height: 1.6; padding: 24px; }
 .term-empty .big { font-size: 15px; margin-bottom: 8px; }
 .term-empty code { font-size: var(--small-size); }

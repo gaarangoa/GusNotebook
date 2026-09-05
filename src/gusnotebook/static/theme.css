@@ -1,5 +1,5 @@
 :root {
-  --workspace-bar-height: 38px;
+  --workspace-bar-height: 32px;
   color-scheme: light;
   --bg: #f1f3f6; --panel: #ffffff; --surface: #f7f8fa; --hover: #edf0f5;
   --border: #dce1e8; --border-strong: #aab4c4; --text: #202632; --secondary: #445166;
