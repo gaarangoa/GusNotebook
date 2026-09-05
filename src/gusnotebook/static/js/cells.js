@@ -218,6 +218,7 @@ async function reloadTextFromDisk(target, force) {
     t.diskVersion = data.disk_version;
     t.previewOrigin = data.preview_origin || t.previewOrigin;
     t.previewVersion = data.preview_version;
+    t.previewUrl = null;
     t.dirty = false;
     t.externalConflict = false;
     t.editRevision = (t.editRevision || 0) + 1;
@@ -362,7 +363,7 @@ async function commitNotebookNameEdit() {
     return;
   }
   try {
-    await Promise.all([...unsaved].map(id => saveCell(id)));
+    await flushNotebook(t);
     const data = await api('/api/files/rename', {method: 'POST',
       body: JSON.stringify({path: oldPath, name})});
     const newPath = data.path;
@@ -397,8 +398,8 @@ async function commitNotebookNameEdit() {
 /** Open any file in a tab (or focus the tab that already has it).
  *
  * `restore` reads a tab already recorded in the workspace without recording it
- * again. `cached` carries only this window's view state while the authoritative
- * document content still comes from the server. */
+ * again. `cached` carries this window's view state and pending drafts; saved
+ * document content comes from the server. */
 async function openFile(path, options = {}) {
   if (tab(path)) { if (!options.quiet) switchTab(path); return tab(path); }
   let data;
@@ -418,10 +419,13 @@ async function openFile(path, options = {}) {
   const cached = options.cached;
   let t = {path: p, name: p.split('/').pop(), kind: data.kind || 'text', dirty: false};
   if (t.kind === 'notebook') {
+    if (cached) t = cached; // pending requests and timers retain this tab object
     const oldCells = new Map((cached && cached.cells || []).map(c => [c.id, c]));
     const running = data.running_cells || {};
     const freshCells = (data.cells || []).map(c => {
       const old = oldCells.get(c.id);
+      const draft = cached && cached.cellDrafts && cached.cellDrafts.get(c.id);
+      if (draft) c.source = draft.source;
       // A server snapshot taken in the middle of execution can lag the SSE
       // stream. Keep the live output this window already saw only if the server
       // still says that cell is running.
@@ -430,6 +434,8 @@ async function openFile(path, options = {}) {
         : {...c, _running: Object.prototype.hasOwnProperty.call(running, c.id)};
     });
     Object.assign(t, {cells: freshCells,
+                      cellDrafts: cached && cached.cellDrafts,
+                      dirty: !!(cached && cached.cellDrafts && cached.cellDrafts.size),
                       selected: cached && cached.selected,
                       editing: cached && cached.editing || new Set(),
                       codeOpen: cached && cached.codeOpen || new Set(),
@@ -525,6 +531,11 @@ async function closeTab(path, ev) {
                                    'Close anyway')) return;
 
   if (path === active) stashActive();
+  if (t.kind === 'notebook') {
+    t.closing = true;
+    await Promise.allSettled([...notebookDrafts(t).values()].map(d => d.promise).filter(Boolean));
+    discardNotebookDrafts(t);
+  }
   tabs.splice(i, 1);
   try {
     await api('/api/close', {method: 'POST', body: JSON.stringify({path})});
@@ -584,9 +595,9 @@ async function persistText(t, text) {
     const saved = await api('/api/text', {method: 'POST',
       body: JSON.stringify({path: t.path, text, disk_version: t.diskVersion}),
       signal: controller.signal});
+    t.diskVersion = saved.disk_version;
     if ((t.editRevision || 0) === revision) {
       t.text = text;
-      t.diskVersion = saved.disk_version;
       t.dirty = false;
       t.externalConflict = false;
       if (active === t.path) st.textContent = 'saved';
@@ -622,8 +633,7 @@ function saveText() {
   const t = activeTab();
   if (!t || t.kind !== 'text') return;
   if (!isMarkupTab(t)) {
-    persistText(t, document.getElementById('text-editor').value);
-    return;
+    return persistText(t, document.getElementById('text-editor').value);
   }
 
   document.getElementById('text-status').textContent = 'saving…';
@@ -2039,16 +2049,44 @@ function applyHeadingCollapse() {
   });
 }
 
+// Keep unchanged cell nodes, including their live iframe and editor state.
+const renderedCellHtml = new WeakMap();
 function render() {
-  const scroll = document.getElementById('notebook-pane').scrollTop;
-  document.getElementById('notebook').innerHTML = cells.map(cellHtml).join('');
+  const pane = document.getElementById('notebook-pane');
+  const container = document.getElementById('notebook');
+  const scroll = pane.scrollTop;
+  if (container.dataset.notebook !== active) {
+    container.replaceChildren();
+    container.dataset.notebook = active || '';
+  }
+  const existing = new Map([...container.children].map(node => [node.dataset.id, node]));
+  let cursor = container.firstElementChild;
+  for (const cell of cells) {
+    const html = cellHtml(cell);
+    let node = existing.get(cell.id);
+    existing.delete(cell.id);
+    if (!node || renderedCellHtml.get(node) !== html) {
+      const template = document.createElement('template');
+      template.innerHTML = html.trim();
+      const replacement = template.content.firstElementChild;
+      if (node) {
+        if (cursor === node) cursor = replacement;
+        node.replaceWith(replacement);
+      }
+      node = replacement;
+      renderedCellHtml.set(node, html);
+    }
+    if (node !== cursor) container.insertBefore(node, cursor);
+    cursor = node.nextElementSibling;
+  }
+  for (const node of existing.values()) node.remove();
   mountEditors();
-  paintSelection();      // innerHTML was replaced, so the class went with it
+  paintSelection();
   resetFoldedPreviewScrolls();
-  document.querySelectorAll('.editor').forEach(autosize);
-  pinStreams(document.getElementById('notebook'));
+  container.querySelectorAll('.editor').forEach(autosize);
+  pinStreams(container);
   applyHeadingCollapse();
-  document.getElementById('notebook-pane').scrollTop = scroll;
+  pane.scrollTop = scroll;
 }
 
 function autosize(el) {

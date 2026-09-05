@@ -161,6 +161,16 @@ def set_url(url):
     APP_URL = url
 
 
+def app_url():
+    from flask import current_app, has_app_context
+    return current_app.config["APP_URL"] if has_app_context() else APP_URL
+
+
+def app_token():
+    from flask import current_app, has_app_context
+    return current_app.config["AUTH_TOKEN"] if has_app_context() else os.environ.get("NB_TOKEN", "")
+
+
 def nb_command():
     """How to invoke the `gusnb` CLI from a subprocess, as a shell-safe string.
 
@@ -335,19 +345,19 @@ FOCUS_HOOK = """#!/bin/sh
 # HTML/SVG selection as context on every prompt, and tells the app what was asked
 # so a cell an agent rewrites can show it. Claude's copy is deleted when its
 # terminal closes; Codex uses the stable app-state copy described below.
-NB_URL={url}
+NB_URL=${{NB_URL:-{url}}}
 export NB_URL
 # The hook payload, which carries the prompt. Handed to the app as-is rather than
 # picked apart here: the field is `prompt`, and the server can read one key out of
-# JSON far more reliably than sh can. Backgrounded, capped at two seconds and with
-# everything discarded, because this is a courtesy — a prompt must go through at
-# full speed whether or not the app is listening.
+# JSON far more reliably than sh can. Finish the bounded request before handing
+# control to the agent so change history captures the documents before edits.
 payload=$(cat)
 if command -v curl >/dev/null 2>&1; then
   printf '%s' "$payload" | curl -sS -m 2 -X POST \
     -H 'Content-Type: application/json' \
-    -H "X-Session-Id: $NB_SESSION" --data-binary @- \
-    "$NB_URL/api/prompt" >/dev/null 2>&1 &
+    -H "X-Session-Id: $NB_SESSION" -H "Authorization: Bearer $NB_TOKEN" \
+    -H "X-Terminal-Id: $NB_TERMINAL" --data-binary @- \
+    "$NB_URL/api/prompt" >/dev/null 2>&1
 fi
 cell=$({nb} here 2>/dev/null) || exit 0
 [ -n "$cell" ] || exit 0
@@ -373,7 +383,7 @@ def focus_hook_file(stable=False):
     review it once instead of being prompted for every randomly named temp file.
     The stable file is still outside the project and is replaced on app updates.
     """
-    body = FOCUS_HOOK.format(nb=nb_command(), url=shlex.quote(APP_URL))
+    body = FOCUS_HOOK.format(nb=nb_command(), url=shlex.quote(app_url()))
     if stable:
         from . import paths
         script = paths.state("codex-focus-hook.sh")
@@ -532,6 +542,7 @@ class Session:
     def __init__(self, sid, cwd, command=None, label=None, python=None,
                  workspace=None):
         self.id = sid
+        self._publish = bus.publisher()
         self.cwd = str(cwd)
         self.command = list(command or DEFAULT_COMMAND)
         executable = os.path.basename(self.command[0])
@@ -567,7 +578,8 @@ class Session:
         # The gateway token is the opposite — Claude only, because putting a
         # credential in an interactive shell's environment leaks it into every
         # child process and into `env` output.
-        extra_env = {"NB_URL": APP_URL}
+        extra_env = {"NB_URL": app_url(), "NB_TOKEN": app_token(),
+                     "NB_TERMINAL": self.id}
         if self.workspace:
             extra_env["NB_SESSION"] = self.workspace
         is_shell = self.kind == "shell"
@@ -598,7 +610,7 @@ class Session:
         self.fd = fd
         self.alive = True
         threading.Thread(target=self._read_loop, daemon=True).start()
-        bus.publish("terminal_opened", terminal=self.id, cwd=self.cwd,
+        self._publish("terminal_opened", terminal=self.id, cwd=self.cwd,
                     label=self.label)
         return self
 
@@ -636,7 +648,7 @@ class Session:
         self._store(note)
         self._fan_out(note)
         self._fan_out(None)           # wake senders so they can finish
-        bus.publish("terminal_closed", terminal=self.id, note=self.exit_note)
+        self._publish("terminal_closed", terminal=self.id, note=self.exit_note)
 
     def _drop_temp_files(self):
         """Remove the temp files this session's argv points at.

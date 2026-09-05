@@ -7,6 +7,7 @@ this app's own sys.executable.
 """
 
 import os
+from contextlib import nullcontext
 import queue
 import sys
 import threading
@@ -42,6 +43,7 @@ class Kernel:
 
     def __init__(self, cwd, python=None, key=None):
         self.cwd = str(cwd)
+        self._publish = bus.publisher()
         self.python = str(python or sys.executable)
         self.key = key
         self._km = None
@@ -59,7 +61,7 @@ class Kernel:
 
     def _set_status(self, status):
         self.status = status
-        bus.publish("kernel_status", status=status, notebook=self.key,
+        self._publish("kernel_status", status=status, notebook=self.key,
                     python=self.python)
 
     def _spec_for(self, km):
@@ -124,6 +126,7 @@ class Kernel:
             km.start_kernel(cwd=self.cwd, env=env)
             kc = km.client()
             kc.start_channels()
+            self._km, self._kc = km, kc
             try:
                 kc.wait_for_ready(timeout=60)
             except RuntimeError:
@@ -136,12 +139,14 @@ class Kernel:
             self._set_status("idle")
         self._execute_silent(_BOOTSTRAP)
 
-    def shutdown(self):
-        with self._lock:
+    def shutdown(self, force=False):
+        # Application shutdown must also stop cells that ignore SIGINT.
+        with nullcontext() if force else self._lock:
             if self._km is None:
                 return
             try:
-                self._kc.stop_channels()
+                if self._kc is not None:
+                    self._kc.stop_channels()
                 self._km.shutdown_kernel(now=True)
             except Exception:
                 pass
@@ -458,9 +463,11 @@ class KernelPool:
         with self._lock:
             kernels, self._kernels = list(self._kernels.values()), {}
         for k in kernels:
-            k.shutdown()
+            k.shutdown(force=True)
 
     def info(self):
+        with self._lock:
+            snapshot = list(self._kernels.items())
         return {
             key: {
                 "status": k.status,
@@ -468,5 +475,5 @@ class KernelPool:
                 "alive": k.is_alive(),
                 "execution_count": k.execution_count,
             }
-            for key, k in self._kernels.items()
+            for key, k in snapshot
         }

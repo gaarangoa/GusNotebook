@@ -20,6 +20,8 @@ async function load(force = false) {
   const live = new Map(cells.filter(c => c._running).map(c => [c.id, c]));
   const running = data.running_cells || {};
   cells = data.cells.map(c => {
+    const draft = notebookDrafts(t).get(c.id);
+    if (draft) c.source = draft.source;
     const previous = live.get(c.id);
     return previous && Object.prototype.hasOwnProperty.call(running, c.id)
       ? {...c, outputs: previous.outputs, _running: true}
@@ -75,11 +77,9 @@ async function reloadNotebookFromDisk() {
       'Reloading keeps the notebook on disk and discards edits not saved from this browser.',
       'Reload');
     if (!ok) return;
+    await Promise.allSettled([...notebookDrafts(t).values()].map(d => d.promise).filter(Boolean));
     unsaved.clear();
-    for (const id of Object.keys(saveTimers)) {
-      clearTimeout(saveTimers[id]);
-      delete saveTimers[id];
-    }
+
   }
   try {
     await load(true);
@@ -90,6 +90,15 @@ async function reloadNotebookFromDisk() {
 }
 
 const es = new EventSource(BASE + '/events');
+let eventConnected = false;
+es.onopen = () => {
+  if (eventConnected) {
+    load().catch(err => flash(errText(err)));
+    loadSessions();
+    reconcileRunWaiters();
+  }
+  eventConnected = true;
+};
 es.onerror = () => {
   if (typeof runContexts !== 'undefined' && runContexts.size) {
     setTimeout(reconcileRunWaiters, 1000);
@@ -97,6 +106,34 @@ es.onerror = () => {
 };
 es.onmessage = (e) => {
   const msg = JSON.parse(e.data);
+  if (msg.type === 'resync') {
+    load().catch(err => flash(errText(err)));
+    loadSessions();
+    reconcileRunWaiters();
+    return;
+  }
+  if (msg.type === 'notebook_read_error') {
+    flash(msg.error);
+    return;
+  }
+  if (msg.type === 'files_renamed') {
+    for (const [before, after] of Object.entries(msg.paths)) {
+      for (const entry of workspaceTabEntries(before)) {
+        entry.tab.path = after;
+        entry.tab.name = after.split('/').pop();
+        entry.tab.previewUrl = null;
+        if (entry.visible && active === before) active = after;
+      }
+      for (const view of workspaceViews.values()) {
+        if (view.active === before) view.active = after;
+      }
+    }
+    renderTabs();
+    showActive();
+    loadSessions();
+    return;
+  }
+
 
   // Every event names the notebook it came from. Record it on that tab, but
   // only touch the DOM when it's the tab on screen.
@@ -328,5 +365,5 @@ document.addEventListener('keydown', (e) => {
 // Closing the browser with unsaved text tabs shouldn't lose the edit silently.
 window.addEventListener('beforeunload', (e) => {
   stashActive();
-  if (tabs.some(t => t.dirty)) { e.preventDefault(); e.returnValue = ''; }
+  if (tabs.some(t => t.dirty) || [...workspaceViews.values()].some(w => w.tabs.some(t => t.dirty))) { e.preventDefault(); e.returnValue = ''; }
 });

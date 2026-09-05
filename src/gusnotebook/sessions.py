@@ -27,9 +27,11 @@ import os
 import pathlib
 import threading
 
+from werkzeug.local import LocalProxy
+
 from . import paths
 
-STORE_PATH = paths.state("sessions.json")
+STORE_PATH = LocalProxy(lambda: paths.state("sessions.json"))
 
 
 def _slug(name):

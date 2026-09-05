@@ -18,8 +18,9 @@ import threading
 import time
 from pathlib import Path
 
-from flask import (Flask, Response, render_template, request, jsonify,
-                   send_file)
+from flask import (Blueprint, Flask, Response, current_app, render_template,
+                   request, jsonify, send_file)
+from werkzeug.local import LocalProxy
 from flask_sock import Sock
 
 from . import bus
@@ -37,18 +38,26 @@ from . import venvs
 from .kernel import KernelPool
 from .notebook import Registry
 
-app = Flask(__name__,
-            template_folder=str(paths.template_dir()),
-            # The stylesheet and the page's eight JS files. Both folders are
-            # named rather than left to Flask(__name__)'s guess — see paths.py.
-            static_folder=str(paths.static_dir()),
-            static_url_path="/static")
+routes = Blueprint("notebook", __name__)
+sock = Sock()
 
-# Support reverse proxy (e.g. Domino) — trust X-Forwarded-* headers
-from werkzeug.middleware.proxy_fix import ProxyFix
-app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
 
-sock = Sock(app)
+def runtime():
+    return current_app.extensions["gusnotebook"]
+
+
+def _resource(name):
+    return LocalProxy(lambda: getattr(runtime(), name))
+
+
+notebooks = _resource("notebooks")
+texts = _resource("texts")
+previews = _resource("previews")
+kernels = _resource("kernels")
+terms = _resource("terms")
+store = _resource("store")
+NOTEBOOK_PATH = _resource("notebook_path")
+WORK_DIR = LocalProxy(paths.work_dir)
 
 
 # Who is asking. The browser sends a per-page id on every mutating request; it's
@@ -60,12 +69,12 @@ sock = Sock(app)
 # invisible in the code and only shows up as a stall while typing. `gusnb` and
 # external edits send nothing and get no origin, which is right: those are
 # changes the page really does need to load.
-@app.before_request
+@routes.before_request
 def _record_origin():
     bus.set_origin(request.headers.get("X-Client-Id"))
 
 
-@app.teardown_request
+@routes.teardown_request
 def _clear_origin(_exc=None):
     # Threads are reused between requests; a stale origin would mislabel the
     # next caller's events as an echo and lose a repaint.
@@ -88,7 +97,7 @@ def _launch_notebook():
     checkout would be absurd.
     """
     work = paths.work_dir()
-    env = os.environ.get("NOTEBOOK")
+    env = current_app.config.get("NOTEBOOK") or os.environ.get("NOTEBOOK")
     if env:
         return files.normalize(Path(env)), work
     try:
@@ -100,26 +109,6 @@ def _launch_notebook():
     if os.access(work, os.W_OK):
         return files.normalize(work / paths.DEFAULT_NOTEBOOK), work
     return files.normalize(paths.state(paths.DEFAULT_NOTEBOOK)), work
-
-
-NOTEBOOK_PATH, WORK_DIR = _launch_notebook()
-
-notebooks = Registry()
-texts = textfile.TextRegistry()
-previews = preview.PreviewPool()
-kernels = KernelPool(default_python=sys.executable)
-terms = terminals.SessionPool()
-notebooks.get(NOTEBOOK_PATH)          # the tab that's open on first load
-notebook_mod.watch(notebooks)
-
-# Sessions group tabs so several projects don't share one page.
-store = sessions_mod.SessionStore()
-store.ensure_default("Main", str(NOTEBOOK_PATH.parent), [str(NOTEBOOK_PATH)])
-
-# Skills are markdown on disk, read by Claude and by the notebook's picker. The
-# starter set is written only when there are none, so it demonstrates the format
-# on a fresh install without reappearing after the user clears it out.
-skills_mod.install_starters()
 
 
 def restore_session_state():
@@ -155,7 +144,6 @@ def restore_session_state():
         store.add_tab(str(NOTEBOOK_PATH), cur.id)
 
 
-restore_session_state()
 
 
 def request_session():
@@ -176,8 +164,8 @@ def request_session_id():
     return session.id if session else None
 
 # One execution at a time per notebook — different notebooks run concurrently.
-_exec_locks = {}
-_exec_locks_guard = threading.Lock()
+_exec_locks = _resource("exec_locks")
+_exec_locks_guard = _resource("exec_locks_guard")
 
 # Where the user's caret is — the notebook *and* the cell, posted by the browser
 # as the selection moves. This is what makes "the cell I'm on" answerable to
@@ -191,10 +179,9 @@ _exec_locks_guard = threading.Lock()
 # per click to record something meaningless after a restart is a bad trade. A
 # cursor that resets to nothing when the app restarts is correct — nobody is
 # parked anywhere until they click.
-_focuses = {}
-_focus_guard = threading.Lock()
-_markup_focuses = {}
-_markup_focus_serial = 0
+_focuses = _resource("focuses")
+_focus_guard = _resource("focus_guard")
+_markup_focuses = _resource("markup_focuses")
 
 
 def set_focus(key, cell_id, session_id=None):
@@ -236,7 +223,6 @@ def _source_selection(rendered, source, start, end):
 def set_markup_focus(path, selection, source=None, expected_version=None,
                      session_id=None):
     """Remember the exact serialized range selected in a visual document."""
-    global _markup_focus_serial
     session_id = session_id or "default"
     path = str(path)
     with _focus_guard:
@@ -262,9 +248,9 @@ def set_markup_focus(path, selection, source=None, expected_version=None,
             raise ValueError("visual document is too large")
         start, end = _source_selection(rendered, document, start, end)
 
-        _markup_focus_serial += 1
+        runtime().markup_focus_serial += 1
         markup_focus = {
-            "id": _markup_focus_serial,
+            "id": runtime().markup_focus_serial,
             "path": path,
             "document": document,
             "start": start,
@@ -302,7 +288,7 @@ def get_markup_focus(session_id=None):
 #
 # One in-memory record per workspace, like the focus above. Two agents can be
 # active at once, so prompt attribution must not cross their workspace boundary.
-_prompts = {}
+_prompts = _resource("prompts")
 
 # How long a prompt stays attributable. A cell rewritten by `gusnb set` from a
 # plain shell hours after the last Claude prompt must not be labelled with it:
@@ -404,21 +390,22 @@ def kernel_for(key):
     return k
 
 
-@app.context_processor
+@routes.context_processor
 def inject_base_url():
-    return {"BASE_URL": os.environ.get("APP_BASE_URL", "")}
+    return {"BASE_URL": request.script_root or current_app.config["APP_BASE_URL"]}
 
 
 # --- Shell ---
 
-@app.route("/")
+@routes.route("/")
 def index():
-    return render_template("index.html")
+    template = "index.html" if current_app.extensions["authenticated"]() else "unlock.html"
+    return render_template(template)
 
 
 # --- Path completions for the cell editor ---
 
-@app.route("/api/completions")
+@routes.route("/api/completions")
 def api_completions():
     """List filesystem entries matching a partial path typed in a string literal.
 
@@ -459,7 +446,7 @@ def api_completions():
 
 # --- File browser ---
 
-@app.route("/api/files")
+@routes.route("/api/files")
 def api_files():
     """List a directory. Defaults to the current session's root."""
     cur = request_session()
@@ -475,7 +462,7 @@ def api_files():
     return jsonify(data)
 
 
-@app.route("/api/files/new", methods=["POST"])
+@routes.route("/api/files/new", methods=["POST"])
 def api_new_file():
     """Create a file or folder in the browsed directory.
 
@@ -506,7 +493,7 @@ def api_new_file():
                     "kind": textfile.kind_of(target)})
 
 
-@app.route("/api/files/upload", methods=["POST"])
+@routes.route("/api/files/upload", methods=["POST"])
 def api_upload_files():
     """Upload one or more browser-selected files into the visible directory.
 
@@ -559,7 +546,7 @@ def api_upload_files():
     } for target in written]})
 
 
-@app.route("/api/files/download")
+@routes.route("/api/files/download")
 def api_download_file():
     """Download one file from the Files sidebar as an attachment."""
     raw = request.args.get("path", "").strip()
@@ -575,7 +562,7 @@ def api_download_file():
         return jsonify({"error": str(e)}), 400
 
 
-@app.route("/api/dirlist")
+@routes.route("/api/dirlist")
 def api_dirlist():
     """List subdirectories and venv-like entries for the directory picker.
 
@@ -620,7 +607,53 @@ def api_dirlist():
         return jsonify({"error": str(e)}), 400
 
 
-@app.route("/api/files/rename", methods=["POST"])
+def relocate_file(source, destination):
+    """Move open-document identities together, preserving idle kernels."""
+    old, new = str(source), str(destination)
+    known = set(notebooks.paths() + texts.paths())
+    known.update(p for session in store.all() for p in session.tabs)
+    known.add(old)
+    mapping = {p: new + p[len(old):] for p in known
+               if p == old or p.startswith(old + os.sep)}
+    acquired = []
+    with _exec_locks_guard:
+        try:
+            for path in sorted(mapping):
+                lock = exec_lock(path)
+                if not lock.acquire(blocking=False):
+                    raise textfile.ExternalChangeError(
+                        "A notebook is running; stop it or wait before renaming or moving it")
+                acquired.append(lock)
+                if _running_cell_ids(path):
+                    raise textfile.ExternalChangeError(
+                        "A notebook has queued execution; wait before renaming or moving it")
+            source.rename(destination)
+            for before, after in mapping.items():
+                store.rename_tab(before, after)
+                notebooks.rename(before, after)
+                texts.rename(before, after)
+                kernels.rename(before, after)
+                previews.close(before)
+                _exec_locks[after] = _exec_locks.pop(before)
+                with _focus_guard:
+                    for focus in _focuses.values():
+                        if focus.get("notebook") == before:
+                            focus["notebook"] = after
+                    for focus in _markup_focuses.values():
+                        if focus.get("path") == before:
+                            focus["path"] = after
+            if str(NOTEBOOK_PATH) in mapping:
+                runtime().notebook_path = Path(mapping[str(NOTEBOOK_PATH)])
+            for session in store.all():
+                if session.root == old or session.root.startswith(old + os.sep):
+                    store.set_root(session.id, new + session.root[len(old):])
+        finally:
+            for lock in reversed(acquired):
+                lock.release()
+    bus.publish("files_renamed", paths=mapping)
+
+
+@routes.route("/api/files/rename", methods=["POST"])
 def api_rename_file():
     body = request.get_json(silent=True) or {}
     src = body.get("path", "").strip()
@@ -634,17 +667,15 @@ def api_rename_file():
     if dst_path.exists():
         return jsonify({"error": f"{name} already exists"}), 400
     try:
-        src_path.rename(dst_path)
+        relocate_file(src_path, dst_path)
+    except textfile.ExternalChangeError:
+        raise
     except OSError as e:
         return jsonify({"error": str(e)}), 400
-    store.rename_tab(str(src_path), str(dst_path))
-    notebooks.close(str(src_path)) or texts.close(str(src_path))
-    previews.close(str(src_path))
-    kernels.drop(str(src_path))
     return jsonify({"path": str(dst_path)})
 
 
-@app.route("/api/files/copy", methods=["POST"])
+@routes.route("/api/files/copy", methods=["POST"])
 def api_copy_file():
     """Copy one file or folder to a directory under a caller-chosen name."""
     import shutil
@@ -680,7 +711,7 @@ def api_copy_file():
     return jsonify({"path": str(target), "kind": files.kind_of(target)})
 
 
-@app.route("/api/files/move", methods=["POST"])
+@routes.route("/api/files/move", methods=["POST"])
 def api_move_file():
     """Move one file or folder into a directory without overwriting."""
     body = request.get_json(silent=True) or {}
@@ -707,17 +738,15 @@ def api_move_file():
     except ValueError:
         pass
     try:
-        src_path.rename(target)
+        relocate_file(src_path, target)
+    except textfile.ExternalChangeError:
+        raise
     except OSError as e:
         return jsonify({"error": str(e)}), 400
-    store.rename_tab(str(src_path), str(target))
-    notebooks.close(str(src_path)) or texts.close(str(src_path))
-    previews.close(str(src_path))
-    kernels.drop(str(src_path))
     return jsonify({"path": str(target), "kind": files.kind_of(target)})
 
 
-@app.route("/api/files/delete", methods=["POST"])
+@routes.route("/api/files/delete", methods=["POST"])
 def api_delete_file():
     import shutil
     body = request.get_json(silent=True) or {}
@@ -794,14 +823,14 @@ def session_json(s, current_id=None):
             "current": s.id == current_id}
 
 
-@app.route("/api/sessions")
+@routes.route("/api/sessions")
 def api_sessions():
     current_id = request_session_id()
     return jsonify({"sessions": [session_json(s, current_id) for s in store.all()],
                     "current": current_id})
 
 
-@app.route("/api/sessions", methods=["POST"])
+@routes.route("/api/sessions", methods=["POST"])
 def api_new_session():
     """Create a session and switch to it. Starts empty — no tabs, no kernels."""
     body = request.get_json(silent=True) or {}
@@ -815,7 +844,7 @@ def api_new_session():
     return jsonify(session_json(s, s.id))
 
 
-@app.route("/api/sessions/<sid>", methods=["POST"])
+@routes.route("/api/sessions/<sid>", methods=["POST"])
 def api_update_session(sid):
     """Switch to a session, rename it, move its root, or set its guardrails."""
     body = request.get_json(silent=True) or {}
@@ -852,7 +881,7 @@ def api_update_session(sid):
     return jsonify(session_json(store.get(sid), current_id))
 
 
-@app.route("/api/sessions/<sid>", methods=["DELETE"])
+@routes.route("/api/sessions/<sid>", methods=["DELETE"])
 def api_delete_session(sid):
     """Delete a session, releasing what it owned.
 
@@ -887,7 +916,7 @@ def api_delete_session(sid):
 
 # --- Tabs: open / close any file ---
 
-@app.route("/api/tabs")
+@routes.route("/api/tabs")
 def api_tabs():
     """Everything currently open, so a page reload restores the tab bar.
 
@@ -916,7 +945,7 @@ def api_tabs():
     })
 
 
-@app.route("/api/open", methods=["POST"])
+@routes.route("/api/open", methods=["POST"])
 def api_open():
     """Open a file as a tab. Notebooks get cells + a kernel; text gets an editor."""
     body = request.get_json(silent=True) or {}
@@ -967,7 +996,7 @@ def api_open():
     return jsonify(data)
 
 
-@app.route("/api/close", methods=["POST"])
+@routes.route("/api/close", methods=["POST"])
 def api_close():
     """Close a tab in this workspace; release shared resources at last owner."""
     raw = (request.get_json(silent=True) or {}).get("path", "")
@@ -984,7 +1013,7 @@ def api_close():
                     "open": notebooks.paths()})
 
 
-@app.route("/api/text", methods=["POST"])
+@routes.route("/api/text", methods=["POST"])
 def api_save_text():
     """Save a text tab."""
     body = request.get_json(silent=True) or {}
@@ -1007,7 +1036,7 @@ def api_save_text():
         return jsonify({"error": str(e)}), 400
 
 
-@app.route("/api/text-version")
+@routes.route("/api/text-version")
 def api_text_version():
     """Cheap poll target so visual files follow agent writes on disk."""
     path = files.normalize(request.args.get("path", ""))
@@ -1021,7 +1050,7 @@ def api_text_version():
                     "preview_version": server.version() if server else None})
 
 
-@app.route("/api/preview", methods=["POST"])
+@routes.route("/api/preview", methods=["POST"])
 def api_preview():
     """Serve the browser's current markup buffer from its localhost origin."""
     body = request.get_json(silent=True) or {}
@@ -1046,13 +1075,13 @@ def api_preview():
         return jsonify({"error": f"could not render preview: {e}"}), 400
 
 
-@app.route("/api/previews")
+@routes.route("/api/previews")
 def api_previews():
     """Live preview origins, primarily for lifecycle/status UI and tests."""
     return jsonify({"previews": previews.info(request.host.split(":")[0])})
 
 
-@app.route("/api/raw")
+@routes.route("/api/raw")
 def api_raw():
     """Serve a file as-is — used to show images in a tab."""
     path = files.normalize(request.args.get("path", ""))
@@ -1063,7 +1092,7 @@ def api_raw():
 
 # --- Notebook document API (all routes take ?notebook=/abs/path) ---
 
-@app.route("/api/notebook")
+@routes.route("/api/notebook")
 def api_notebook():
     key = doc_key()
     doc = get_nb(key)
@@ -1078,7 +1107,7 @@ def api_notebook():
     return jsonify(data)
 
 
-@app.route("/api/cells", methods=["POST"])
+@routes.route("/api/cells", methods=["POST"])
 def api_add_cell():
     body = request.get_json(silent=True) or {}
     cell = get_nb(doc_key()).add_cell(
@@ -1090,7 +1119,7 @@ def api_add_cell():
     return jsonify(cell)
 
 
-@app.route("/api/cells/<cell_id>", methods=["PATCH"])
+@routes.route("/api/cells/<cell_id>", methods=["PATCH"])
 def api_update_cell(cell_id):
     body = request.get_json(silent=True) or {}
     # `undoable` is asked for, not assumed: the browser PATCHes as the user
@@ -1099,7 +1128,8 @@ def api_update_cell(cell_id):
     doc = get_nb(doc_key())
     cell = doc.update_cell(
         cell_id, source=body.get("source"), cell_type=body.get("cell_type"),
-        undoable=undoable)
+        undoable=undoable,
+        expected_source=body.get("expected_source", textfile.ANY_VERSION))
     if cell is None:
         return jsonify({"error": "no such cell"}), 404
     # An undoable write is by definition one the user didn't type — `gusnb set`
@@ -1113,7 +1143,7 @@ def api_update_cell(cell_id):
     return jsonify(cell)
 
 
-@app.route("/api/cells/<cell_id>/undo", methods=["POST"])
+@routes.route("/api/cells/<cell_id>/undo", methods=["POST"])
 def api_undo_cell(cell_id):
     """Put back the source an agent or a snippet replaced. One step, this cell."""
     before = get_nb(doc_key()).cell_json(cell_id)
@@ -1125,14 +1155,14 @@ def api_undo_cell(cell_id):
     return jsonify(cell)
 
 
-@app.route("/api/cells/<cell_id>", methods=["DELETE"])
+@routes.route("/api/cells/<cell_id>", methods=["DELETE"])
 def api_delete_cell(cell_id):
     if not get_nb(doc_key()).delete_cell(cell_id):
         return jsonify({"error": "no such cell"}), 404
     return jsonify({"status": "ok"})
 
 
-@app.route("/api/cells/<cell_id>/move", methods=["POST"])
+@routes.route("/api/cells/<cell_id>/move", methods=["POST"])
 def api_move_cell(cell_id):
     body = request.get_json(silent=True) or {}
     if not get_nb(doc_key()).move_cell(cell_id, int(body.get("index", 0))):
@@ -1142,7 +1172,7 @@ def api_move_cell(cell_id):
 
 # --- The cell the user is on ---
 
-@app.route("/api/focus", methods=["POST"])
+@routes.route("/api/focus", methods=["POST"])
 def api_set_focus():
     """The browser reporting where the caret is. Fire-and-forget."""
     body = request.get_json(silent=True) or {}
@@ -1150,7 +1180,7 @@ def api_set_focus():
     return jsonify({"status": "ok"})
 
 
-@app.route("/api/markup-focus", methods=["POST"])
+@routes.route("/api/markup-focus", methods=["POST"])
 def api_set_markup_focus():
     """The visual editor reporting an exact HTML/SVG range for the agent."""
     body = request.get_json(silent=True) or {}
@@ -1169,7 +1199,7 @@ def api_set_markup_focus():
     return jsonify({"status": "ok", "selection_id": focus and focus["id"]})
 
 
-@app.route("/api/markup-selection", methods=["PATCH"])
+@routes.route("/api/markup-selection", methods=["PATCH"])
 def api_replace_markup_selection():
     """Replace only the visual range the user selected, then notify the page."""
     body = request.get_json(silent=True) or {}
@@ -1224,7 +1254,7 @@ def api_replace_markup_selection():
                     "selection_end": start + len(replacement)})
 
 
-@app.route("/api/prompt", methods=["POST"])
+@routes.route("/api/prompt", methods=["POST"])
 def api_set_prompt():
     """An agent terminal reporting what the user just asked for.
 
@@ -1233,11 +1263,58 @@ def api_set_prompt():
     and never fatal: a prompt has to go through whether or not this lands.
     """
     body = request.get_json(silent=True) or {}
+    session = request_session()
+    if session and body.get("prompt"):
+        runtime().history.begin(session.id, request.headers.get("X-Terminal-Id", "cli"),
+                                body["prompt"], session.tabs)
     set_prompt_text(body.get("prompt"), request_session_id())
     return jsonify({"status": "ok"})
 
 
-@app.route("/api/here")
+@routes.route("/api/history")
+def api_history():
+    return jsonify(groups=runtime().history.list(request_session_id()))
+
+
+@routes.route("/api/history", methods=["POST"])
+def api_begin_history():
+    session = request_session()
+    body = request.get_json(silent=True) or {}
+    group = runtime().history.begin(session.id, "manual", body.get("prompt"), session.tabs)
+    return jsonify(id=group)
+
+
+@routes.route("/api/history/<group_id>/finish", methods=["POST"])
+def api_finish_history(group_id):
+    try:
+        return jsonify(runtime().history.finish(group_id, request_session_id()))
+    except ValueError as exc:
+        return jsonify(error=str(exc)), 400
+
+
+@routes.route("/api/history/<group_id>/undo", methods=["POST"])
+def api_undo_history(group_id):
+    # An executing cell can save outputs after a restore. Refuse until those
+    # writes have finished, leaving both the kernel and the documents intact.
+    with _exec_locks_guard:
+        if any(_running_cell_ids(path) for path in request_session().tabs):
+            return jsonify(error="Wait for running cells before restoring changes"), 409
+        try:
+            changed = runtime().history.undo(group_id, request_session_id(),
+                        (request.get_json(silent=True) or {}).get("revision"))
+        except textfile.ExternalChangeError:
+            raise
+        except ValueError as exc:
+            return jsonify(error=str(exc)), 400
+        except OSError as exc:
+            return jsonify(error=str(exc)), 500
+        for path in changed:
+            bus.publish("notebook_changed" if path.endswith(".ipynb") else "text_external_changed",
+                        notebook=path, path=path, reason="history")
+    return jsonify(restored=changed)
+
+
+@routes.route("/api/here")
 def api_here():
     """The notebook cell or visual markup range the user is parked on.
 
@@ -1309,9 +1386,9 @@ LIVE_STREAM_TAIL = 64_000
 # A Run fetch and a Stop fetch use separate HTTP connections, so the browser's
 # Stop can arrive first while Run is still being dispatched. Tokens let us
 # remember that early cancellation and apply it to exactly the intended run.
-_run_control_lock = threading.Lock()
-_cancelled_runs = {}
-_running_cells = {}
+_run_control_lock = _resource("run_control_lock")
+_cancelled_runs = _resource("cancelled_runs")
+_running_cells = _resource("running_cells")
 
 
 def _remember_cancel(run_id):
@@ -1349,25 +1426,32 @@ def _trim_for_live(outputs):
 
 def _run_cell(key, cell_id, run_id=None):
     """Execute one code cell, streaming outputs to listeners as they arrive."""
-    nb = get_nb(key)
-    _, cell = nb.find(cell_id)
-    if cell is None:
-        return {"error": "no such cell"}, 404
-    if cell.get("cell_type") != "code":
-        return {"error": "not a code cell"}, 400
+    with _exec_locks_guard:
+        if runtime().stop.is_set():
+            raise RuntimeError("GusNotebook is shutting down")
+        if not Path(key).is_file():
+            return {"error": "notebook was moved or removed; reload before running"}, 404
+        nb = get_nb(key)
+        _, cell = nb.find(cell_id)
+        if cell is None:
+            return {"error": "no such cell"}, 404
+        if cell.get("cell_type") != "code":
+            return {"error": "not a code cell"}, 400
 
-    source = cell.get("source", "")
-    if not source.strip():
-        nb.set_outputs(cell_id, [], None)
-        bus.publish("cell_done", cell_id=cell_id, execution_count=None,
-                    outputs=[], notebook=key, run_id=run_id)
-        return {"status": "ok", "execution_count": None, "outputs": []}, 200
+        source = cell.get("source", "")
+        if not source.strip():
+            nb.set_outputs(cell_id, [], None)
+            bus.publish("cell_done", cell_id=cell_id, execution_count=None,
+                        outputs=[], notebook=key, run_id=run_id)
+            return {"status": "ok", "execution_count": None, "outputs": []}, 200
 
-    with _run_control_lock:
-        _running_cells.setdefault(key, {})[cell_id] = run_id or ""
+        with _run_control_lock:
+            _running_cells.setdefault(key, {})[cell_id] = run_id or ""
 
     try:
         with exec_lock(key):
+            if runtime().stop.is_set():
+                raise RuntimeError("GusNotebook is shutting down")
             k = kernel_for(key)
             with _run_control_lock:
                 cancelled = bool(run_id and _cancelled_runs.pop(run_id, None))
@@ -1436,10 +1520,14 @@ def _start_cell_run(key, cell_id, run_id, origin=None):
     terminal ``cell_done`` event if something fails outside Kernel.execute's own
     error handling: the browser's running marker must never be stranded.
     """
-    def work():
+    application = current_app._get_current_object()
+
+    def execute_work():
         bus.set_origin(origin)
         try:
-            _run_cell(key, cell_id, run_id)
+            result, status = _run_cell(key, cell_id, run_id)
+            if status != 200:
+                raise ValueError(result["error"])
         except Exception as e:
             outputs = [{
                 "output_type": "error",
@@ -1457,12 +1545,29 @@ def _start_cell_run(key, cell_id, run_id, origin=None):
                         kernel_status=k.status if k else "dead",
                         python=k.python if k else kernel_python(key))
         finally:
+            with _run_control_lock:
+                running = _running_cells.get(key, {})
+                if running.get(cell_id) == (run_id or ""):
+                    running.pop(cell_id, None)
+                if not running:
+                    _running_cells.pop(key, None)
             bus.set_origin(None)
 
-    threading.Thread(target=work, name=f"cell-{cell_id}", daemon=True).start()
+    def work():
+        with application.app_context():
+            try:
+                execute_work()
+            finally:
+                with runtime().workers_lock:
+                    runtime().workers.discard(threading.current_thread())
+
+    worker = threading.Thread(target=work, name=f"cell-{cell_id}", daemon=True)
+    with runtime().workers_lock:
+        runtime().workers.add(worker)
+    worker.start()
 
 
-@app.route("/api/cells/<cell_id>/run", methods=["POST"])
+@routes.route("/api/cells/<cell_id>/run", methods=["POST"])
 def api_run_cell(cell_id):
     # Restricted sessions let Claude write cells but not run them. Enforced here
     # rather than by a deny rule because the kernel is the app's, not Claude's:
@@ -1478,21 +1583,32 @@ def api_run_cell(cell_id):
         return jsonify({"error": NO_EXECUTE_NOTE}), 403
 
     body = request.get_json(silent=True) or {}
-    key = doc_key()
-    if body.get("source") is not None:
-        get_nb(key).update_cell(cell_id, source=body["source"])
-    # Browser runs are event-driven: release this request as soon as the worker
-    # starts, then let cell_running/output/done carry the lifecycle. CLI callers
-    # retain the synchronous response because they have no SSE connection and
-    # expect the execution result in this response.
-    if from_browser():
-        _start_cell_run(key, cell_id, body.get("run_id"), bus.origin())
-        return jsonify({"status": "started", "run_id": body.get("run_id")}), 202
+    with _exec_locks_guard:
+        key = doc_key()
+        if not Path(key).is_file():
+            return jsonify(error="Notebook was moved or removed; reload before running"), 404
+        _, target = get_nb(key).find(cell_id)
+        if target is None:
+            return jsonify(error="No such cell"), 404
+        if target.get("cell_type") != "code":
+            return jsonify(error="Not a code cell"), 400
+        if body.get("source") is not None:
+            get_nb(key).update_cell(cell_id, source=body["source"],
+                                   expected_source=body.get("expected_source", textfile.ANY_VERSION))
+        # Browser runs are event-driven: release this request as soon as the worker
+        # starts, then let cell_running/output/done carry the lifecycle. CLI callers
+        # retain the synchronous response because they have no SSE connection and
+        # expect the execution result in this response.
+        if from_browser():
+            with _run_control_lock:
+                _running_cells.setdefault(key, {})[cell_id] = body.get("run_id") or ""
+            _start_cell_run(key, cell_id, body.get("run_id"), bus.origin())
+            return jsonify({"status": "started", "run_id": body.get("run_id")}), 202
     result, status = _run_cell(key, cell_id, body.get("run_id"))
     return jsonify(result), status
 
 
-@app.route("/api/run-all", methods=["POST"])
+@routes.route("/api/run-all", methods=["POST"])
 def api_run_all():
     if execution_blocked() and not from_browser():
         return jsonify({"error": NO_EXECUTE_NOTE}), 403
@@ -1505,7 +1621,7 @@ def api_run_all():
     return jsonify({"status": "ok", "ran": len(results), "results": results})
 
 
-@app.route("/api/clear-outputs", methods=["POST"])
+@routes.route("/api/clear-outputs", methods=["POST"])
 def api_clear_outputs():
     body = request.get_json(silent=True) or {}
     get_nb(doc_key()).clear_outputs(body.get("cell_id"))
@@ -1514,7 +1630,7 @@ def api_clear_outputs():
 
 # --- Error help (single LLM call) ---
 
-@app.route("/api/cells/<cell_id>/help", methods=["POST"])
+@routes.route("/api/cells/<cell_id>/help", methods=["POST"])
 def api_cell_help(cell_id):
     """Explain the error in this cell and propose a fix. One model call."""
     nb = get_nb(doc_key())
@@ -1544,7 +1660,7 @@ def api_cell_help(cell_id):
 
 # --- Environments (venv per notebook) ---
 
-@app.route("/api/venvs")
+@routes.route("/api/venvs")
 def api_venvs():
     """Interpreters we could use, nearest to the notebook first."""
     key = doc_key()
@@ -1559,7 +1675,7 @@ def api_venvs():
     })
 
 
-@app.route("/api/venv", methods=["POST"])
+@routes.route("/api/venv", methods=["POST"])
 def api_set_venv():
     """Bind a notebook to an interpreter and restart its kernel on it."""
     body = request.get_json(silent=True) or {}
@@ -1584,7 +1700,7 @@ def api_set_venv():
 
 # --- Kernel control (per notebook) ---
 
-@app.route("/api/kernel", methods=["GET"])
+@routes.route("/api/kernel", methods=["GET"])
 def api_kernel_status():
     key = doc_key()
     k = kernels.peek(key)
@@ -1599,7 +1715,7 @@ def api_kernel_status():
     })
 
 
-@app.route("/api/kernel/<action>", methods=["POST"])
+@routes.route("/api/kernel/<action>", methods=["POST"])
 def api_kernel_action(action):
     key = doc_key()
     try:
@@ -1626,23 +1742,26 @@ def api_kernel_action(action):
 
 # --- Events (SSE): notebook changes, cell outputs, kernel status, view reload ---
 
-@app.route("/events")
+@routes.route("/events")
 def events():
+    event_bus = bus.current()
+    kernel_states = kernels.info()
+
     def stream_events():
-        q = bus.subscribe()
-        # Replay current kernel states so a fresh tab isn't blank until an event.
-        for key, info in kernels.info().items():
-            yield bus.format_sse({"type": "kernel_status", "notebook": key,
-                                  "status": info["status"],
-                                  "python": info["python"]})
+        q = event_bus.subscribe()
         try:
+            # Replay current kernel states so a fresh tab isn't blank until an event.
+            for key, info in kernel_states.items():
+                yield bus.format_sse({"type": "kernel_status", "notebook": key,
+                                      "status": info["status"],
+                                      "python": info["python"]})
             while True:
                 try:
                     yield bus.format_sse(q.get(timeout=15))
-                except Exception:
+                except queue.Empty:
                     yield ": ping\n\n"
         finally:
-            bus.unsubscribe(q)
+            event_bus.unsubscribe(q)
 
     return Response(stream_events(), mimetype="text/event-stream", headers={
         "Cache-Control": "no-cache",
@@ -1653,7 +1772,7 @@ def events():
 
 # --- Agent terminals (several, each rooted where you asked) ---
 
-@app.route("/api/terminals")
+@routes.route("/api/terminals")
 def api_terminals():
     """Live sessions. `?session=mine` narrows to the current session's."""
     all_terms = terms.list()
@@ -1664,7 +1783,7 @@ def api_terminals():
     return jsonify({"terminals": all_terms})
 
 
-@app.route("/api/terminals", methods=["POST"])
+@routes.route("/api/terminals", methods=["POST"])
 def api_new_terminal():
     """Open a session in the file browser's folder.
 
@@ -1691,13 +1810,13 @@ def api_new_terminal():
     return jsonify(s.to_json())
 
 
-@app.route("/api/terminals/<sid>", methods=["DELETE"])
+@routes.route("/api/terminals/<sid>", methods=["DELETE"])
 def api_close_terminal(sid):
     store.drop_terminal(sid)
     return jsonify({"status": "ok", "closed": terms.close(sid)})
 
 
-@sock.route("/ws/<sid>")
+@sock.route("/ws/<sid>", bp=routes)
 def websocket(ws, sid):
     """Attach this socket to an existing session.
 
@@ -1765,12 +1884,12 @@ def websocket(ws, sid):
 
 # --- Settings (inline LLM) ---
 
-@app.route("/api/settings")
+@routes.route("/api/settings")
 def api_settings():
     return jsonify(llm.settings_view())
 
 
-@app.route("/api/settings", methods=["POST"])
+@routes.route("/api/settings", methods=["POST"])
 def api_save_settings():
     body = request.get_json(silent=True) or {}
     llm.save_settings(body)
@@ -1779,14 +1898,14 @@ def api_save_settings():
 
 # --- Skills: snippets and practices, for Claude and for the notebook ---
 
-@app.route("/api/skills")
+@routes.route("/api/skills")
 def api_skills():
     """Every skill, with its code extracted for the picker."""
     return jsonify({"skills": skills_mod.all_skills(),
                     "dir": str(skills_mod.SKILLS_DIR)})
 
 
-@app.route("/api/skills", methods=["POST"])
+@routes.route("/api/skills", methods=["POST"])
 def api_save_skill():
     """Create a skill, or update the one named by `id`.
 
@@ -1803,7 +1922,7 @@ def api_save_skill():
     return jsonify(s)
 
 
-@app.route("/api/skills/<sid>", methods=["DELETE"])
+@routes.route("/api/skills/<sid>", methods=["DELETE"])
 def api_delete_skill(sid):
     gone = skills_mod.delete(sid)
     bus.publish("skills_changed", skill=sid)
@@ -1830,7 +1949,7 @@ def _ai_context(nb, upto_index, limit=6):
     return out[-limit:]
 
 
-@app.route("/api/cells/<cell_id>/ai", methods=["POST"])
+@routes.route("/api/cells/<cell_id>/ai", methods=["POST"])
 def api_cell_ai(cell_id):
     """Turn this cell's prompt into code, then make it a code cell.
 
@@ -1876,50 +1995,155 @@ def api_cell_ai(cell_id):
     return jsonify({**result, "cell": nb.cell_json(cell_id)})
 
 
+def create_app(config=None):
+    """Build an isolated application. Importing this module starts nothing."""
+    import secrets
+    from werkzeug.middleware.proxy_fix import ProxyFix
+    from . import auth
+    from .runtime import Runtime
+
+    application = Flask(__name__, template_folder=str(paths.template_dir()),
+                        static_folder=str(paths.static_dir()), static_url_path="/static")
+    application.config.update(
+        AUTH_TOKEN=os.environ.get("GUSNOTEBOOK_TOKEN") or secrets.token_urlsafe(32),
+        INSTANCE_ID=secrets.token_hex(8),
+        ALLOWED_HOSTS=["localhost", "127.0.0.1", "::1"],
+        TRUST_PROXY=False, START_WATCHERS=True, WORK_DIR=str(paths.work_dir()),
+        APP_URL="http://127.0.0.1:8888", PREVIEW_HOST="127.0.0.1",
+        APP_BASE_URL=os.environ.get("APP_BASE_URL", ""),
+    )
+    application.config.update(config or {})
+    if application.config["TRUST_PROXY"]:
+        application.wsgi_app = ProxyFix(application.wsgi_app, x_for=1, x_proto=1,
+                                        x_host=1, x_prefix=1)
+
+    # Strip a URL prefix when the reverse proxy forwards it unchanged.
+    # APP_BASE_URL="/some/prefix" keeps Flask routes at "/" while SCRIPT_NAME
+    # preserves the public prefix for generated URLs and authentication cookies.
+    _base = application.config["APP_BASE_URL"].rstrip("/")
+    application.config["APP_BASE_URL"] = _base
+    if _base:
+        _inner = application.wsgi_app
+
+        def _strip_prefix(environ, start_response):
+            path = environ.get("PATH_INFO", "")
+            if path == _base or path.startswith(_base + "/"):
+                environ["PATH_INFO"] = path[len(_base):] or "/"
+                environ["SCRIPT_NAME"] = _base
+            return _inner(environ, start_response)
+
+        application.wsgi_app = _strip_prefix
+
+    application.extensions["authenticated"] = auth.install(application)
+    application.register_blueprint(routes)
+
+    @application.errorhandler(notebook_mod.NotebookReadError)
+    def notebook_error(exc):
+        return jsonify(error=str(exc), code="notebook_read_error"), 409
+
+    @application.errorhandler(textfile.ExternalChangeError)
+    def conflict(exc):
+        return jsonify(error=str(exc), code="external_change"), 409
+
+    with application.app_context():
+        state = Runtime()
+        application.extensions["gusnotebook"] = state
+        state.notebook_path, _work = _launch_notebook()
+        state.previews.set_bind_host(application.config["PREVIEW_HOST"])
+        try:
+            state.notebooks.get(state.notebook_path)
+        except notebook_mod.NotebookReadError as exc:
+            application.logger.error("%s", exc)
+        state.store.ensure_default("Main", str(paths.work_dir()), [str(state.notebook_path)])
+        skills_mod.install_starters()
+        restore_session_state()
+        if application.config["START_WATCHERS"]:
+            state.start()
+    return application
+
+
+def close_app(application):
+    with application.app_context():
+        application.extensions["gusnotebook"].close()
+
+
+_default_app = None
+_default_app_lock = threading.Lock()
+
+
+def _get_default_app():
+    global _default_app
+    with _default_app_lock:
+        if _default_app is None:
+            _default_app = create_app()
+        return _default_app
+
+
+# WSGI compatibility; initialization occurs on first use, never on import.
+app = LocalProxy(_get_default_app)
+
+
 def main(argv=None):
-    """The `gusnotebook` command.
-
-    Deliberately thin: everything above already ran at import, so this only
-    decides where to listen and tells `terminals` the URL its `gusnb` should
-    use — a terminal opened on port 9000 must not send its cells to whatever is
-    on 8888.
-    """
+    """Parse launch options before creating any documents or background work."""
     import argparse
+    import signal
+    import webbrowser
+    from werkzeug.serving import make_server
+    from .persistence import atomic_write
 
-    p = argparse.ArgumentParser(
-        prog="gusnotebook",
-        description="Notebooks with embedded Claude Code and Codex terminals. "
-                    "Serves the directory you run it in.")
-    p.add_argument("-p", "--port", type=int,
-                   default=int(os.environ.get("PORT", 8888)))
-    p.add_argument("--host", default=os.environ.get("HOST", "127.0.0.1"),
-                   help="interface to bind (default: localhost only)")
-    p.add_argument("--debug", action="store_true",
-                   default=os.environ.get("FLASK_DEBUG") == "1")
-    p.add_argument("--no-browser", action="store_true",
-                   help="don't open a browser window")
-    args = p.parse_args(argv)
-
-    previews.set_bind_host(args.host)
-    terminals.set_url(f"http://127.0.0.1:{args.port}")
-    print(f"GusNotebook — http://127.0.0.1:{args.port}\n"
-          f"  working in {WORK_DIR}\n"
-          f"  state in   {paths.state_dir()}")
-    if not args.no_browser:
-        # After a beat, so the server is accepting connections by the time the
-        # browser asks. A failure here is not a reason not to serve.
-        import threading
-        import webbrowser
-        threading.Timer(
-            1.0, lambda: webbrowser.open(f"http://127.0.0.1:{args.port}")
-        ).start()
-
-    # Reloader off: it would fork a second copy of every kernel and PTY.
+    parser = argparse.ArgumentParser(prog="gusnotebook", description=__doc__.split("\n")[0])
+    parser.add_argument("-p", "--port", type=int, default=int(os.environ.get("PORT", 8888)))
+    parser.add_argument("--host", default=os.environ.get("HOST", "127.0.0.1"))
+    parser.add_argument("--debug", action="store_true", default=os.environ.get("FLASK_DEBUG") == "1")
+    parser.add_argument("--no-browser", action="store_true")
+    parser.add_argument("--trust-proxy", action="store_true",
+                        help="trust one explicitly configured reverse proxy")
+    parser.add_argument("--allowed-host", action="append", default=[],
+                        help="additional hostname used to reach this server")
+    args = parser.parse_args(argv)
+    allowed = ["localhost", "127.0.0.1", "::1"] + args.allowed_host
+    if args.host not in {"0.0.0.0", "::"}:
+        allowed.append(args.host)
+    link_host = "127.0.0.1" if args.host in {"0.0.0.0", "::"} else args.host
+    if ":" in link_host:
+        link_host = "[" + link_host + "]"
+    # Reserve the port before opening documents or pruning persistent sessions.
+    # A second launch on an occupied port must leave the live server's state alone.
+    server = make_server(args.host, args.port, lambda _env, _start: (), threaded=True)
+    base = f"http://{link_host}:{server.server_port}"
     try:
-        app.run(host=args.host, port=args.port, debug=args.debug,
-                threaded=True, use_reloader=False)
+        application = create_app({"APP_URL": base, "PREVIEW_HOST": args.host,
+                                  "ALLOWED_HOSTS": allowed, "TRUST_PROXY": args.trust_proxy,
+                                  "DEBUG": args.debug})
+    except BaseException:
+        server.server_close()
+        raise
+    server.app = application
+    url = base + "/#token=" + application.config["AUTH_TOKEN"]
+    with application.app_context():
+        connection = paths.state(f"server-{server.server_port}.json")
+        atomic_write(connection, json.dumps({"url": base, "pid": os.getpid(),
+                     "token": application.config["AUTH_TOKEN"]}), mode=0o600)
+        print(f"GusNotebook — {url}\n  working in {paths.work_dir()}\n"
+              f"  state in   {paths.state_dir()}", flush=True)
+    if not args.no_browser:
+        threading.Timer(1.0, lambda: webbrowser.open(url)).start()
+    def stop_server(_signum, _frame):
+        raise KeyboardInterrupt
+
+    signal.signal(signal.SIGTERM, stop_server)
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        pass
     finally:
-        previews.close_all()
+        close_app(application)
+        server.server_close()
+        try:
+            if json.loads(connection.read_text()).get("pid") == os.getpid():
+                connection.unlink()
+        except (OSError, ValueError):
+            pass
 
 
 if __name__ == "__main__":

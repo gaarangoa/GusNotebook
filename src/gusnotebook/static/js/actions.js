@@ -4,7 +4,6 @@
  * are about the notebook as a whole rather than any one cell. */
 
 // ---------- Editing ----------
-const saveTimers = {};
 const activeRuns = new Map();
 // Browser run POSTs return as soon as their server worker starts. The matching
 // cell_done SSE event resolves this promise, preserving Shift+Enter and Run all
@@ -18,35 +17,98 @@ const RUN_RECONCILE_MS = 5000;
 // reconciles a reused CM view against it. Without this, any re-render landing
 // inside that window (a run finishing, a cell added, a kernel event) would push
 // the stale server text back over what the user just typed.
-const unsaved = new Set();
+// Drafts and requests belong to a tab, including while another tab is visible.
+function notebookDrafts(t = activeTab()) {
+  if (!t) return new Map();
+  return t.cellDrafts || (t.cellDrafts = new Map());
+}
+const unsaved = {
+  get size() { return notebookDrafts().size; },
+  has(id) { return notebookDrafts().has(id); },
+  clear() { discardNotebookDrafts(activeTab()); },
+  [Symbol.iterator]() { return notebookDrafts().keys(); },
+};
 
-function queueSave(id) {
-  unsaved.add(id);
-  clearTimeout(saveTimers[id]);
-  saveTimers[id] = setTimeout(() => saveCell(id), 500);
+function discardNotebookDrafts(t) {
+  for (const draft of notebookDrafts(t).values()) clearTimeout(draft.timer);
+  notebookDrafts(t).clear();
+  if (t) t.dirty = false;
 }
 
-async function saveCell(id) {
+function captureCellDraft(id, t = activeTab()) {
+  if (!t || t.closing || t.kind !== 'notebook' || active !== t.path) return null;
   const ed = document.getElementById('ed-' + id);
-  if (!ed) return;
-  const c = getCell(id);
-  if (c) c.source = ed.value;
-  unsaved.delete(id);
-  clearTimeout(saveTimers[id]);
-  await api(`/api/cells/${id}${nbq()}`,
-            {method: 'PATCH', body: JSON.stringify({source: ed.value})});
+  const c = (t.cells || cells).find(c => c.id === id);
+  if (!ed || !c) return null;
+  const drafts = notebookDrafts(t);
+  let draft = drafts.get(id);
+  if (!draft) {
+    if (ed.value === c.source) return null;
+    draft = {source: ed.value, base: c.source, revision: 0, session: currentSession};
+    drafts.set(id, draft);
+  }
+  if (draft.source !== ed.value) draft.revision++;
+  draft.source = ed.value;
+  c.source = ed.value;
+  t.dirty = true;
+  return draft;
+}
+
+function queueSave(id) {
+  const t = activeTab();
+  const draft = captureCellDraft(id, t);
+  if (!draft) return;
+  clearTimeout(draft.timer);
+  draft.timer = setTimeout(() => {
+    saveCell(id, t).catch(err => flash('Save failed: ' + errText(err)));
+  }, 500);
+  renderTabs();
+}
+
+async function saveCell(id, t = activeTab()) {
+  if (!t || t.closing) return;
+  const drafts = notebookDrafts(t);
+  let draft = active === t.path ? captureCellDraft(id, t) : drafts.get(id);
+  if (!draft) return;
+  clearTimeout(draft.timer);
+  if (draft.promise) {
+    await draft.promise;
+    if (drafts.has(id)) return saveCell(id, t);
+    return;
+  }
+  const source = draft.source;
+  const revision = draft.revision;
+  const query = new URLSearchParams({notebook: t.path});
+  draft.promise = api(`/api/cells/${id}?${query}`, {
+    method: 'PATCH',
+    headers: draft.session ? {'X-Session-Id': draft.session} : {},
+    body: JSON.stringify({source, expected_source: draft.base}),
+  }).then(() => {
+    draft.base = source;
+    if (drafts.get(id) === draft && draft.revision === revision) drafts.delete(id);
+    t.dirty = drafts.size > 0;
+    renderTabs();
+  }).finally(() => { draft.promise = null; });
+  await draft.promise;
+  if (drafts.has(id)) return saveCell(id, t);
+}
+
+async function flushNotebook(t = activeTab()) {
+  await Promise.all([...notebookDrafts(t).keys()].map(id => saveCell(id, t)));
 }
 
 async function saveActiveDocument() {
   const t = activeTab();
   if (!t) return;
-  if (t.kind === 'notebook') {
-    await Promise.all([...unsaved].map(id => saveCell(id)));
-    flash('Notebook saved');
-    return;
-  }
-  if (t.kind === 'text') {
-    saveText();
+  try {
+    if (t.kind === 'notebook') {
+      await flushNotebook(t);
+      flash('Notebook saved');
+    } else if (t.kind === 'text') {
+      await saveText();
+    }
+  } catch (err) {
+    flash('Save failed: ' + errText(err));
   }
 }
 
@@ -336,17 +398,23 @@ async function runCell(id, advance = false) {
     return;
   }
 
-  const ed = document.getElementById('ed-' + id);
-  const source = ed ? ed.value : c.source;
-  const notebook = active;
+  const runTab = activeTab();
+  const runSession = currentSession;
+  try {
+    await saveCell(id, runTab);
+  } catch (error) {
+    flash('Cannot run until the cell is saved: ' + errText(error));
+    return;
+  }
+  const source = c.source;
+  const notebook = runTab.path;
   const runId = CLIENT_ID + '-run-' + Date.now().toString(36) +
     Math.random().toString(36).slice(2);
   const finished = waitForRunDone(runId, notebook, id);
   activeRuns.set(notebook, runId);
   c.source = source;
-  clearTimeout(saveTimers[id]);
 
-  const outEl = document.getElementById('out-' + id);
+  const outEl = active === notebook ? document.getElementById('out-' + id) : null;
   if (outEl && source.trim()) {
     c.outputs = [];
     setCellRunning(id, true);
@@ -360,8 +428,9 @@ async function runCell(id, advance = false) {
   }
 
   try {
-    await api(`/api/cells/${id}/run${nbq()}`, {
-      method: 'POST', body: JSON.stringify({source, run_id: runId})});
+    await api(`/api/cells/${id}/run?${new URLSearchParams({notebook})}`, {
+      method: 'POST', headers: runSession ? {'X-Session-Id': runSession} : {},
+      body: JSON.stringify({source, expected_source: source, run_id: runId})});
     // JupyterLab's ⇧⏎ starts execution and immediately moves focus to the next
     // cell. The output continues arriving asynchronously via SSE.
     if (advance && active === notebook) {

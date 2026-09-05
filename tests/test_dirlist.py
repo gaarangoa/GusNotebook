@@ -7,16 +7,23 @@ import unittest
 from unittest import mock
 
 
-# Importing the app creates its persistent stores, so keep this test isolated
-# from the user's real GusNotebook state.
-_STATE = tempfile.TemporaryDirectory()
-os.environ["GUSNOTEBOOK_HOME"] = _STATE.name
-
-from gusnotebook import venvs  # noqa: E402
-from gusnotebook.app import app  # noqa: E402
+from gusnotebook import venvs
+from gusnotebook.app import create_app, close_app
 
 
 class DirectoryPickerTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.app = create_app({"WORK_DIR": self.temp.name,
+                               "STATE_DIR": str(pathlib.Path(self.temp.name) / "state"),
+                               "START_WATCHERS": False, "AUTH_TOKEN": "test"})
+        self.client = self.app.test_client()
+        self.client.post("/auth", headers={"Authorization": "Bearer test"})
+
+    def tearDown(self):
+        close_app(self.app)
+        self.temp.cleanup()
+
     def test_inaccessible_child_does_not_abort_parent_listing(self):
         with tempfile.TemporaryDirectory() as root:
             root = pathlib.Path(root)
@@ -31,7 +38,7 @@ class DirectoryPickerTests(unittest.TestCase):
                 return real_python_bin(prefix)
 
             with mock.patch.object(venvs, "python_bin", side_effect=inspect):
-                response = app.test_client().get(
+                response = self.client.get(
                     "/api/dirlist", query_string={"path": str(root)})
 
             self.assertEqual(response.status_code, 200, response.get_json())

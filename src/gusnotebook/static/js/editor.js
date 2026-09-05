@@ -1,18 +1,15 @@
 /* The CodeMirror cell editor, its textarea fallback, and folding.
  *
- * The fallback is the reason this can't simply be a module: with esm.sh
- * unreachable there is no CM at all, and `#ed-<id>.value` has to keep working
+ * The fallback is the reason this can't simply be a module: if the bundled
+ * editor fails to load, `#ed-<id>.value` still has to keep working
  * against the plain textarea underneath. */
 
 /* ---------- The cell editor ----------
  * Two implementations behind one interface. With CodeMirror loaded, each cell
  * gets an EditorView: Python colouring and a per-cell undo history, which is
  * JupyterLab's model — history belongs to the editor, so undoing here says
- * nothing about the cell below. Without it (offline, a blocked CDN, an esm.sh
- * outage) the plain <textarea> that cellHtml() emitted stays exactly where it
- * is. That fallback is load-bearing rather than decorative: CM is ESM from a
- * CDN, and if it fails there is no editor at all, so a notebook that can't be
- * typed in is the alternative.
+ * nothing about the cell below. If the bundled editor fails to load, the plain
+ * <textarea> that cellHtml() emitted remains editable.
  *
  * Both paths answer to `#ed-<id>.value`, because eight call sites and both
  * Playwright suites read and write it. See shimHost() for how CM gets one.
@@ -102,6 +99,13 @@ function refreshCodeFoldForEdit(id, source) {
   if (!cell) return;
   const host = document.getElementById('ed-' + id) ||
     document.getElementById('ed-host-' + id);
+  const hadCaret = host && host.contains(document.activeElement);
+  const restoreCaret = () => {
+    if (!hadCaret) return;
+    const view = cmViews.get(id);
+    if (view) view.focus();
+    else host.focus({preventScroll: true});
+  };
   let wrap = document.getElementById('fold-' + id);
   const foldable = isFoldable(c);
   if (!foldable) {
@@ -111,6 +115,7 @@ function refreshCodeFoldForEdit(id, source) {
       const parent = wrap.parentNode;
       while (wrap.firstChild) parent.insertBefore(wrap.firstChild, wrap);
       wrap.remove();
+      restoreCaret();
     }
     codeOpen.delete(id);
     refreshViewBtns(id);
@@ -123,6 +128,7 @@ function refreshCodeFoldForEdit(id, source) {
     wrap.style.setProperty('--fold-h', foldHeight());
     host.parentNode.insertBefore(wrap, host);
     wrap.appendChild(host);
+    restoreCaret();
   }
   if (!wrap) return;
   wrap.style.setProperty('--fold-h', foldHeight());
@@ -356,8 +362,8 @@ function cmToggleComment(view, cellType) {
  * Attach a CM editor over one cell's fallback textarea.
  *
  * A view already built for this cell is **moved** into the new host rather than
- * rebuilt, because render() replaces the notebook's innerHTML wholesale and a
- * rebuild would drop the cell's undo history every time anything re-rendered —
+ * rebuilt, because render() replaces changed cell nodes and a rebuild would
+ * drop the cell's undo history every time anything in the cell re-rendered —
  * adding a cell, switching a type, finishing a run. JupyterLab's history
  * survives those, so ours does too.
  */
@@ -457,8 +463,8 @@ function mountEditor(id) {
 
 /**
  * Mount every unmounted host after a render, and forget the views whose cells
- * are gone. render() replaces the notebook's innerHTML wholesale, so a view
- * left in the map would point at a detached DOM node and its `.value` would be
+ * are gone. After a cell is removed, a view left in the map would point at a
+ * detached DOM node and its `.value` would be
  * read by nobody — and its history would be resurrected onto the next cell that
  * happened to reuse the id.
  */

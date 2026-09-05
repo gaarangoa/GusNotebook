@@ -17,9 +17,12 @@ import tempfile
 import threading
 from pathlib import Path
 
+from flask import current_app, has_app_context
+from werkzeug.local import LocalProxy
+
 from . import paths
 
-SETTINGS_PATH = paths.state("settings.json")
+SETTINGS_PATH = LocalProxy(lambda: paths.state("settings.json"))
 
 API_VERSION = "2025-02-01-preview"
 
@@ -93,7 +96,13 @@ _lock = threading.RLock()
 # A key held for this run only, when gateway_key_store is "session". Lives here
 # and nowhere else: never written to settings.json, so stopping the app forgets
 # it. Survives page reloads because it's server-side, not in the browser.
-_session_key = None
+_fallback_memory = {}
+
+
+def _memory():
+    if has_app_context():
+        return current_app.extensions["gusnotebook"].settings_memory
+    return _fallback_memory
 
 
 # --- settings ---
@@ -102,13 +111,13 @@ def load_settings():
     """User settings merged over the defaults, with the session key applied."""
     data = {}
     try:
-        with open(SETTINGS_PATH, encoding="utf-8") as f:
+        with open(str(SETTINGS_PATH), encoding="utf-8") as f:
             data = json.load(f) or {}
     except (OSError, ValueError):
         data = {}
     s = {**DEFAULTS, **{k: v for k, v in data.items() if v is not None}}
-    if _session_key:
-        s["gateway_key"] = _session_key
+    if _memory().get("key"):
+        s["gateway_key"] = _memory().get("key")
     return s
 
 
@@ -118,7 +127,6 @@ def save_settings(updates):
     A key is routed by `gateway_key_store`: "session" keeps it in memory for
     this run, "disk" writes it to settings.json.
     """
-    global _session_key
     with _lock:
         current = load_settings()
         incoming = {k: v for k, v in (updates or {}).items() if k in DEFAULTS}
@@ -136,23 +144,23 @@ def save_settings(updates):
         if "gateway_key" in incoming:
             key = incoming["gateway_key"]
             if store == "disk":
-                _session_key = None
+                _memory()["key"] = None
                 on_disk["gateway_key"] = key
             else:
-                _session_key = key or None
+                _memory()["key"] = key or None
                 on_disk["gateway_key"] = ""
         elif store == "disk":
             # Switching to "disk" persists the key already held in memory,
             # so the toggle alone is enough — no need to retype it.
-            if _session_key:
-                on_disk["gateway_key"] = _session_key
-                _session_key = None
+            if _memory().get("key"):
+                on_disk["gateway_key"] = _memory().get("key")
+                _memory()["key"] = None
             else:
                 on_disk["gateway_key"] = current.get("gateway_key", "")
         else:
             # Switching to "session": stop storing it, keep it usable this run.
             if current.get("gateway_key"):
-                _session_key = _session_key or current["gateway_key"]
+                _memory()["key"] = _memory().get("key") or current["gateway_key"]
             on_disk["gateway_key"] = ""
 
         # Same directory as the target, so os.replace below is an atomic rename
@@ -242,7 +250,7 @@ def gateway_config(with_source=False):
     key = s.get("gateway_key") or ""
     # load_settings() overlays the session key, so distinguish the two here:
     # "this run only" and "written to settings.json" read very differently.
-    source = ("session" if _session_key else "settings") if key else None
+    source = ("session" if _memory().get("key") else "settings") if key else None
 
     if not url or not key:
         env_url = os.environ.get("AI_GATEWAY_URL")

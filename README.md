@@ -45,6 +45,21 @@ does. It opens on the first `.ipynb` it finds there, or creates
 Options: `--port`, `--host`, `--no-browser`. `NOTEBOOK=/path/to/x.ipynb` picks
 the launch document.
 
+The launch link includes a fresh access token. Opening it unlocks that browser;
+the token is removed from the address bar. API and terminal connections require
+authentication, and requests from another website are rejected. Embedded
+terminals receive authentication automatically. An external `gusnb` command
+finds the current local connection in the app state directory, or accepts
+`NB_URL` and `NB_TOKEN` explicitly.
+
+For a reverse proxy, pass `--trust-proxy` and `--allowed-host your-hostname`.
+Forwarded headers are otherwise ignored. The proxy must also route WebSockets;
+visual previews still use separate ports on the listening interface.
+
+If the proxy forwards the public URL prefix unchanged, set
+`APP_BASE_URL="/some/prefix"`. GusNotebook strips that prefix before routing and
+keeps it in generated browser URLs and authentication cookies.
+
 ## Where things live
 
 Two directories, deliberately separate:
@@ -95,6 +110,25 @@ cell's own undo stack — a **↶** appears on the cell, one step per replace,
 independent per cell, exactly as in JupyterLab. It's stored in cell metadata, so
 it survives a restart and travels with the cell.
 
+**History** in the title bar groups changes to the notebook and text tabs open
+when an agent request begins. Open it to review the diffs, finish a recording,
+and undo the recorded changes together. You can also start a manual recording.
+History keeps the last 20 completed/active groups in app state, with up to 10 MB
+of initial document content per group. Hidden files, unsupported files, and
+documents beyond that limit are skipped. Files opened after a recording begins
+are covered by the next recording.
+
+A recording captures changes since a request; another editor or agent working
+on the same files can contribute changes too. Undo refuses to overwrite files
+that changed after the recording finished. It restores files, including saved
+notebook outputs, while leaving live kernel variables intact.
+
+Cell saves retain pending edits until the server acknowledges them. If an agent
+changes the same cell meanwhile, saving reports a conflict and keeps your draft.
+Unreadable notebooks are preserved on disk: repair the file and use **Reload**
+before continuing. Renaming an idle notebook keeps its kernel and variables;
+finish or stop a running cell before renaming or moving its file.
+
 ## Credentials
 
 One gateway credential serves the inline `+ AI` cell, the **Help** button, and
@@ -106,7 +140,7 @@ are kept **in memory only** by default; switch to `disk` to persist them to
 An `AWS_BEARER_TOKEN_BEDROCK` already in your environment is left alone, so your
 own Claude auth is unaffected. Codex uses the login and configuration from your
 installed `codex` CLI; GusNotebook does not copy the gateway key into it. A plain
-shell terminal gets no credential at all.
+shell terminal gets only the local notebook access token, with no AI gateway credential.
 
 ## What else is in here
 
@@ -128,10 +162,30 @@ when its terminal closes.
 
 ```bash
 uv sync --extra test
-uv run gusnotebook &
+uv run python -m unittest discover -s tests -p 'test_*.py'
+npm ci --ignore-scripts
+npm test
+npm run build
+uv run playwright install chromium
+uv run python tests/test_reliability_ui.py
 uv run python tests/test_tabs_ui.py
-uv run python tests/test_new_ui.py       # NO_LLM=1 skips the one paid test
+uv run python scripts/benchmark.py
 ```
 
-Both suites drive a real browser against a running app, and both point
-`GUSNOTEBOOK_HOME` at a temp directory so they can't damage your settings.
+Browser suites start their own server on an available port with a temporary
+project and `GUSNOTEBOOK_HOME`, then stop it and clean up. They never target your
+running app. They use Playwright Chromium, with installed Chrome as a fallback
+on macOS; `GUSNOTEBOOK_BROWSER_CHANNEL` overrides the choice. Paid LLM calls are
+disabled in the disposable harness. `tests/test_new_ui.py` is the extended suite
+and additionally exercises installed agent CLIs.
+
+The frontend libraries are pinned in `package-lock.json`. `npm run build`
+regenerates `static/vendor/`, including third-party licenses; commit the generated
+assets so wheel installs and ordinary launches require neither Node nor CDN
+access. CI checks that generated assets match their sources and runs the unit
+and offline browser regressions.
+
+`create_app(config)` creates independent app resources, and `close_app(app)`
+stops their watchers, terminals, previews, and kernels. Importing the app or
+asking for `--help` creates no notebooks or persistent state. Use `WORK_DIR`,
+`STATE_DIR`, `NOTEBOOK`, and `START_WATCHERS` in the factory config for tests.

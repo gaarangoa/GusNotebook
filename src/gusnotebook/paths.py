@@ -30,6 +30,8 @@ better than trusting them to put back what they changed.
 import os
 import pathlib
 
+from flask import current_app, has_app_context
+
 APP_NAME = "gusnotebook"
 
 # The default document, created on first launch in the state directory so a bare
@@ -53,7 +55,8 @@ def _base():
     should find one answer. `mkdir` here rather than at import so merely
     importing the package touches no disk.
     """
-    override = os.environ.get("GUSNOTEBOOK_HOME")
+    override = (current_app.config.get("STATE_DIR") if has_app_context() else None)
+    override = override or os.environ.get("GUSNOTEBOOK_HOME")
     if override:
         base = pathlib.Path(override).expanduser()
     else:
@@ -77,6 +80,8 @@ def state(*parts):
 
 def work_dir():
     """The directory the app was launched in — the user's project."""
+    if has_app_context() and current_app.config.get("WORK_DIR"):
+        return pathlib.Path(current_app.config["WORK_DIR"]).resolve()
     return LAUNCH_DIR
 
 

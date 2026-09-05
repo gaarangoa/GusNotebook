@@ -3,17 +3,17 @@
 Kept in nbformat v4 so the file stays openable in Jupyter / VS Code.
 """
 
-import os
 import pathlib
-import tempfile
 import threading
-import time
 
 import nbformat
 
 from . import bus
+from .persistence import ANY_VERSION, ExternalChangeError, atomic_write, disk_version
 
-_lock = threading.RLock()
+
+class NotebookReadError(ValueError):
+    """An existing notebook could not be read; its bytes must be preserved."""
 
 # Marks a raw cell that is really an unfilled inline-LLM prompt. See _new_cell.
 AI_ROLE = "ai-prompt"
@@ -42,27 +42,30 @@ CLAUDE_KEY = "claude_prompt"
 PROMPT_MAX = 400
 
 
-def watch(registry, interval=0.4):
+def watch(registry, interval=0.4, stop=None, publish=None):
     """Background thread: notify listeners when any open .ipynb changes on disk.
 
     Lets Claude edit a notebook with ordinary file tools and have the browser
     pick it up immediately.
     """
-    def loop():
-        last = {}
-        while True:
-            time.sleep(interval)
-            for key, doc in registry.items():
-                mtime = doc._disk_mtime()
-                if not mtime:
-                    continue
-                if key in last and mtime > last[key] and mtime > doc._mtime:
-                    doc.load()
-                    bus.publish("notebook_changed", reason="external",
-                                notebook=key)
-                last[key] = mtime
+    stop = stop or threading.Event()
+    publish = publish or bus.publish
 
-    t = threading.Thread(target=loop, daemon=True)
+    def loop():
+        seen = {}
+        while not stop.wait(interval):
+            for key, doc in registry.items():
+                try:
+                    version = disk_version(doc.path)
+                    if version == doc._version or (key in seen and seen[key] == version):
+                        continue
+                    seen[key] = version
+                    doc.load()
+                    publish("notebook_changed", reason="external", notebook=key)
+                except (OSError, ValueError) as exc:
+                    publish("notebook_read_error", notebook=key, error=str(exc))
+
+    t = threading.Thread(target=loop, name="gusnb-notebook-watch", daemon=True)
     t.start()
     return t
 
@@ -95,6 +98,15 @@ class Registry:
         with self._lock:
             return list(self._docs.items())
 
+    def rename(self, old, new):
+        with self._lock:
+            doc = self._docs.pop(str(old), None)
+            if doc:
+                with doc._lock:
+                    doc.path = pathlib.Path(new)
+                    doc._version = disk_version(new)
+                self._docs[str(new)] = doc
+
     def paths(self):
         with self._lock:
             return list(self._docs)
@@ -102,9 +114,11 @@ class Registry:
 
 class Notebook:
     def __init__(self, path):
-        self.path = path
+        self.path = pathlib.Path(path)
         self._nb = None
         self._mtime = 0
+        self._version = None
+        self._lock = threading.RLock()
 
     # --- persistence ---
 
@@ -119,17 +133,28 @@ class Notebook:
         return nb
 
     def load(self):
-        with _lock:
-            if self.path.exists():
-                try:
-                    self._nb = nbformat.read(str(self.path), as_version=4)
-                    self._ensure_ids()
-                except Exception:
-                    self._nb = self._blank()
-                self._mtime = self._disk_mtime()
-            else:
+        with self._lock:
+            version = disk_version(self.path)
+            if version is None:
+                if self._nb is not None:
+                    raise NotebookReadError(
+                        f"{self.path.name} was removed from disk; restore it before saving")
                 self._nb = self._blank()
                 self._save()
+            else:
+                try:
+                    candidate = nbformat.read(str(self.path), as_version=4)
+                    nbformat.validate(candidate)
+                    if disk_version(self.path) != version:
+                        raise ValueError("file changed while it was being read")
+                except Exception as exc:
+                    raise NotebookReadError(
+                        f"Cannot read {self.path.name}: {exc}. "
+                        "The original file has been preserved; repair it and reload.") from exc
+                self._nb = candidate
+                self._ensure_ids()
+                self._version = version
+                self._mtime = self._disk_mtime()
             return self._nb
 
     def _disk_mtime(self):
@@ -153,7 +178,7 @@ class Notebook:
         """Reload if the file changed underneath us (Claude editing it directly)."""
         if self._nb is None:
             self.load()
-        elif self._disk_mtime() > self._mtime:
+        elif disk_version(self.path) != self._version:
             self.load()
         return self._nb
 
@@ -163,27 +188,20 @@ class Notebook:
 
     def _save(self):
         """Atomic write so a concurrent reader never sees a half-written file."""
-        self.path.parent.mkdir(parents=True, exist_ok=True)
         text = nbformat.writes(self._nb)
-        fd, tmp = tempfile.mkstemp(dir=str(self.path.parent), suffix=".tmp")
-        try:
-            with os.fdopen(fd, "w", encoding="utf-8") as f:
-                f.write(text)
-            os.replace(tmp, str(self.path))
-            self._mtime = self._disk_mtime()
-        finally:
-            if os.path.exists(tmp):
-                os.unlink(tmp)
+        self._version = atomic_write(self.path, text, self._version)
+        self._mtime = self._disk_mtime()
 
     def save(self):
-        with _lock:
+        with self._lock:
+            self._sync()
             self._save()
 
     # --- interpreter (persisted in the .ipynb, so it survives restarts) ---
 
     def get_python(self):
         """The interpreter this notebook wants, or None for the app default."""
-        with _lock:
+        with self._lock:
             meta = self.nb.metadata.get("kernelspec") or {}
             return meta.get("notebook_python") or None
 
@@ -193,7 +211,7 @@ class Notebook:
         `notebook_python` is our own key; the surrounding kernelspec fields stay
         Jupyter-standard so the file still opens elsewhere.
         """
-        with _lock:
+        with self._lock:
             nb = self.nb
             spec = dict(nb.metadata.get("kernelspec") or {})
             spec["name"] = "python3"
@@ -212,7 +230,7 @@ class Notebook:
     # --- reads ---
 
     def to_json(self):
-        with _lock:
+        with self._lock:
             nb = self.nb
             return {
                 "cells": [self._cell_json(c) for c in nb.cells],
@@ -248,7 +266,7 @@ class Notebook:
         }
 
     def find(self, cell_id):
-        with _lock:
+        with self._lock:
             for i, c in enumerate(self.nb.cells):
                 if c.get("id") == cell_id:
                     return i, c
@@ -280,7 +298,7 @@ class Notebook:
         return nbformat.v4.new_code_cell(source)
 
     def add_cell(self, cell_type="code", source="", index=None, after=None):
-        with _lock:
+        with self._lock:
             cell = self._new_cell(cell_type, source)
             cells = self.nb.cells
             if after is not None:
@@ -294,7 +312,8 @@ class Notebook:
                         cell_id=cell["id"], notebook=str(self.path))
             return self._cell_json(cell)
 
-    def update_cell(self, cell_id, source=None, cell_type=None, undoable=False):
+    def update_cell(self, cell_id, source=None, cell_type=None, undoable=False,
+                    expected_source=ANY_VERSION):
         """Change a cell's source and/or type.
 
         `undoable` pushes the source being replaced onto the cell's own undo
@@ -303,10 +322,15 @@ class Notebook:
         wholesale replacement done by an agent or a snippet, which the user did
         not type and may want back.
         """
-        with _lock:
+        with self._lock:
             i, cell = self.find(cell_id)
             if cell is None:
                 return None
+            if expected_source is not ANY_VERSION and cell.get("source", "") != expected_source:
+                raise ExternalChangeError("This cell changed elsewhere; reload before saving your edit")
+            if ((source is None or source == cell.get("source", "")) and
+                    (cell_type is None or cell_type == self._cell_json(cell)["cell_type"])):
+                return self._cell_json(cell)
             if undoable and source is not None and source != cell.get("source", ""):
                 self._push_undo(cell)
             if source is not None:
@@ -349,7 +373,7 @@ class Notebook:
         the unchanged cell if there's nothing to undo, so a caller can tell "no
         such cell" from "nothing to undo" by whether `undo_depth` moved.
         """
-        with _lock:
+        with self._lock:
             _, cell = self.find(cell_id)
             if cell is None:
                 return None
@@ -382,7 +406,7 @@ class Notebook:
         Kept in cell metadata so the .ipynb stays a plain notebook: Jupyter
         ignores the key, and we can show the prompt above the code it produced.
         """
-        with _lock:
+        with self._lock:
             _, cell = self.find(cell_id)
             if cell is None:
                 return None
@@ -405,7 +429,7 @@ class Notebook:
         a different key, because the two strips say different things: the inline
         LLM's prompt can be re-run, this one is a record of what happened.
         """
-        with _lock:
+        with self._lock:
             _, cell = self.find(cell_id)
             if cell is None:
                 return None
@@ -424,7 +448,7 @@ class Notebook:
             return self._cell_json(cell)
 
     def delete_cell(self, cell_id):
-        with _lock:
+        with self._lock:
             i, cell = self.find(cell_id)
             if cell is None:
                 return False
@@ -437,7 +461,7 @@ class Notebook:
             return True
 
     def move_cell(self, cell_id, index):
-        with _lock:
+        with self._lock:
             i, cell = self.find(cell_id)
             if cell is None:
                 return False
@@ -450,7 +474,7 @@ class Notebook:
             return True
 
     def set_outputs(self, cell_id, outputs, execution_count=None):
-        with _lock:
+        with self._lock:
             _, cell = self.find(cell_id)
             if cell is None or cell.get("cell_type") != "code":
                 return
@@ -459,7 +483,7 @@ class Notebook:
             self._save()
 
     def clear_outputs(self, cell_id=None):
-        with _lock:
+        with self._lock:
             targets = self.nb.cells if cell_id is None else [self.find(cell_id)[1]]
             for cell in targets:
                 if cell is not None and cell.get("cell_type") == "code":

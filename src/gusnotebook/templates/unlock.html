@@ -1,0 +1,12 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>GusNotebook</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="{{ BASE_URL }}/static/app.css"></head>
+<body><main style="max-width:420px;margin:15vh auto;padding:24px">
+<h1>GusNotebook</h1><p>Open the link printed when GusNotebook starts, or enter its launch token.</p>
+<form id="unlock-form" data-base="{{ BASE_URL }}">
+<label for="launch-token">Launch token</label>
+<input id="launch-token" type="password" autocomplete="off" required style="width:100%;margin:12px 0">
+<button class="btn primary" type="submit">Open notebook</button>
+<p id="unlock-error" role="alert"></p></form></main>
+<script src="{{ BASE_URL }}/static/js/auth.js"></script></body></html>

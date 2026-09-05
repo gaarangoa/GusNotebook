@@ -4,35 +4,8 @@
 <meta charset="UTF-8">
 <title>GusNotebook</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><rect width='64' height='64' rx='14' fill='rgb(15,23,42)'/><path d='M20 15h20a8 8 0 0 1 8 8v26H26a10 10 0 0 1-10-10V19a4 4 0 0 1 4-4Z' fill='none' stroke='rgb(103,232,249)' stroke-width='5' stroke-linejoin='round'/><path d='M27 26h12M27 36h16' stroke='rgb(244,114,182)' stroke-width='4' stroke-linecap='round'/><path d='M16 19c3-2 7-2 10 0v30c-3-2-7-2-10 0V19Z' fill='rgb(34,211,238)' opacity='.9'/></svg>">
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.min.css">
+<link rel="stylesheet" href="{{ BASE_URL }}/static/vendor/xterm.css">
 
-<!-- CodeMirror 6, for syntax colouring and per-cell undo history.
-     Every specifier is pinned here, and every URL carries esm.sh's `*`
-     (external-all) prefix, because CM breaks in a way that is easy to miss if it
-     doesn't: two copies of @codemirror/state make its `instanceof` checks fail,
-     which throws "Unrecognized extension value in extension set" and renders an
-     editor with *zero* highlighted tokens — plain-looking text, no error the eye
-     would catch. With `*`, esm.sh resolves the shared deps through this map, so
-     there is exactly one copy of state, view and @lezer/highlight.
-     CM is ESM-only (no UMD build), so it loads as a module and hands itself to
-     the classic script below via window.CM. -->
-<script type="importmap">
-{ "imports": {
-  "@codemirror/state":        "https://esm.sh/*@codemirror/state@6.4.1?target=es2022",
-  "@codemirror/view":         "https://esm.sh/*@codemirror/view@6.26.3?target=es2022",
-  "@codemirror/language":     "https://esm.sh/*@codemirror/language@6.10.1?target=es2022",
-  "@codemirror/commands":     "https://esm.sh/*@codemirror/commands@6.6.0?target=es2022",
-  "@codemirror/lang-python":  "https://esm.sh/*@codemirror/lang-python@6.1.6?target=es2022",
-  "@codemirror/autocomplete": "https://esm.sh/*@codemirror/autocomplete@6.16.0?target=es2022",
-  "@lezer/common":            "https://esm.sh/*@lezer/common@1.2.1?target=es2022",
-  "@lezer/highlight":         "https://esm.sh/*@lezer/highlight@1.2.0?target=es2022",
-  "@lezer/lr":                "https://esm.sh/*@lezer/lr@1.4.0?target=es2022",
-  "@lezer/python":            "https://esm.sh/*@lezer/python@1.1.13?target=es2022",
-  "style-mod":                "https://esm.sh/*style-mod@4.1.2?target=es2022",
-  "w3c-keyname":              "https://esm.sh/*w3c-keyname@2.2.8?target=es2022",
-  "crelt":                    "https://esm.sh/*crelt@1.0.6?target=es2022"
-}}
-</script>
 <!-- The stylesheet moved out of this file: 1300 lines of <style> ahead of the
      markup made the page hard to read and impossible to diff usefully. Linked
      with the same {{ BASE_URL }} prefix every fetch() uses, so a reverse-proxy
@@ -99,6 +72,7 @@
       <!-- The one way into settings: here rather than the toolbar, which hides
            on text and image tabs, and settings aren't notebook-specific. -->
       <span class="grow"></span>
+      <button class="files-btn" id="history-button" onclick="openHistory()" title="Review and undo grouped changes">History</button>
       <button class="files-btn" id="nb-reload" onclick="reloadNotebookFromDisk()"
               title="Reload this notebook from disk">Reload</button>
       <button class="files-btn" onclick="openSettings()"
@@ -250,6 +224,21 @@
 </div>
 
 <!-- ---------- Directory picker (for venv Browse…) ---------- -->
+<div class="modal-back" id="history-back" onclick="if (event.target === this) closeHistory()">
+  <div class="modal history-modal" role="dialog" aria-modal="true" aria-labelledby="history-title">
+    <div class="mhead"><span class="grow" id="history-title">Change history</span>
+      <button class="tb" onclick="closeHistory()" aria-label="Close history">×</button></div>
+    <div class="mbody">
+      <p>Changes are grouped from each agent request and cover the notebook and text tabs open when recording starts.
+         Other processes can also change these files. Review the diff before restoring.</p>
+      <p>Restoring files keeps live kernel variables as they are. Hidden files and documents beyond the recording limit are skipped.</p>
+      <button class="tb" onclick="beginHistory()">Start recording</button>
+      <button class="tb" onclick="openHistory()">Refresh</button>
+      <div id="history-list" aria-live="polite"></div>
+    </div>
+  </div>
+</div>
+
 <div class="modal-back" id="dirpick-back" onclick="if (event.target === this) dirPickCancel()">
   <div class="modal dirpick">
     <div class="mhead">
@@ -567,67 +556,8 @@
   </div>
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10.0/lib/addon-fit.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@xterm/addon-web-links@0.11.0/lib/addon-web-links.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js"></script>
-
-<!-- CodeMirror, handed to the classic script below as window.CM.
-     A module runs deferred, so the main script and the first render() may well
-     go first — that's why mounting is driven by the `cm-ready` event as well as
-     checked inline: whichever happens second does the work.
-     If this block fails (offline, blocked CDN, an esm.sh outage) window.CM stays
-     null and every cell falls back to the plain textarea. That path is load-
-     bearing, not decorative: without it a CDN failure leaves a notebook that
-     cannot be typed in at all. -->
-<script type="module">
-try {
-  const [state, view, language, commands, langPython, highlight, autocomplete] = await Promise.all([
-    import("@codemirror/state"), import("@codemirror/view"),
-    import("@codemirror/language"), import("@codemirror/commands"),
-    import("@codemirror/lang-python"), import("@lezer/highlight"),
-    import("@codemirror/autocomplete"),
-  ]);
-  const t = highlight.tags;
-  // Our own palette rather than defaultHighlightStyle, whose colours assume a
-  // different background than this app's light theme.
-  const style = language.HighlightStyle.define([
-    {tag: [t.keyword, t.moduleKeyword, t.controlKeyword], color: "#7c3aed"},
-    {tag: [t.string, t.special(t.string)], color: "#0f7b3f"},
-    {tag: [t.comment, t.lineComment, t.blockComment], color: "#8b95a5", fontStyle: "italic"},
-    {tag: [t.number, t.bool, t.null], color: "#b45309"},
-    {tag: [t.function(t.variableName), t.function(t.propertyName)], color: "#1d4ed8"},
-    {tag: [t.className, t.typeName, t.definition(t.className)], color: "#0e7490"},
-    {tag: t.operator, color: "#475569"},
-    {tag: [t.self, t.atom], color: "#a21caf"},
-    {tag: t.definition(t.variableName), color: "#0f172a"},
-  ]);
-  window.CM = {
-    EditorState: state.EditorState, Prec: state.Prec,
-    EditorView: view.EditorView, keymap: view.keymap,
-    highlightActiveLine: view.highlightActiveLine,
-    lineNumbers: view.lineNumbers,
-    drawSelection: view.drawSelection, placeholder: view.placeholder,
-    syntaxHighlighting: language.syntaxHighlighting,
-    indentUnit: language.indentUnit, style,
-    history: commands.history, undo: commands.undo, redo: commands.redo,
-    undoDepth: commands.undoDepth, redoDepth: commands.redoDepth,
-    indentMore: commands.indentMore, indentLess: commands.indentLess,
-    defaultKeymap: commands.defaultKeymap, historyKeymap: commands.historyKeymap,
-    python: langPython.python,
-    syntaxTree: language.syntaxTree,
-    autocompletion: autocomplete.autocompletion,
-    startCompletion: autocomplete.startCompletion,
-    autocompletionConfig: true,
-  };
-} catch (e) {
-  window.CM = null;                      // the textarea fallback handles it
-  console.warn('CodeMirror unavailable — falling back to plain textareas', e);
-}
-window.CM_READY = true;
-window.dispatchEvent(new Event('cm-ready'));
-</script>
+<script src="{{ BASE_URL }}/static/vendor/vendor.js"></script>
+<script type="module" src="{{ BASE_URL }}/static/vendor/codemirror.js"></script>
 
 <!-- The page's own script, in eight files rather than 2700 lines in one.
      Classic scripts, not modules, and the order matters: they share one global
@@ -647,6 +577,7 @@ window.dispatchEvent(new Event('cm-ready'));
 <script src="{{ BASE_URL }}/static/js/events.js"></script>
 <script src="{{ BASE_URL }}/static/js/panels.js"></script>
 <script src="{{ BASE_URL }}/static/js/terminals.js"></script>
+<script src="{{ BASE_URL }}/static/js/history.js"></script>
 
 </body>
 </html>

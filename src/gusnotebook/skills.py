@@ -28,6 +28,8 @@ import re
 import shutil
 import threading
 
+from werkzeug.local import LocalProxy
+
 from . import paths
 
 # Laid out as a Claude Code plugin, because that's what makes `--plugin-dir`
@@ -36,9 +38,9 @@ from . import paths
 # In the state directory, not the package: skills are the user's own writing,
 # created and edited through the app, and an upgrade that replaced site-packages
 # would delete every one of them.
-PLUGIN_DIR = paths.state("skills")
-SKILLS_DIR = PLUGIN_DIR / "skills"
-MANIFEST = PLUGIN_DIR / ".claude-plugin" / "plugin.json"
+PLUGIN_DIR = LocalProxy(lambda: paths.state("skills"))
+SKILLS_DIR = LocalProxy(lambda: PLUGIN_DIR / "skills")
+MANIFEST = LocalProxy(lambda: PLUGIN_DIR / ".claude-plugin" / "plugin.json")
 
 PLUGIN_NAME = "notebook-skills"
 

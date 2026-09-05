@@ -1,12 +1,8 @@
-"""End-to-end check of file creation, Claude terminals, and the +AI cell.
-
-Drives the running app in Chrome. Start the app first (`uv run gusnotebook`),
-then:
+"""Extended browser checks using a disposable app and temporary workspace.
 
     uv run python tests/test_new_ui.py
 
-The inline-LLM generation test makes a real gateway call; skip it with
-NO_LLM=1 if you're offline or don't want to spend the tokens.
+Requires installed Claude and Codex CLIs. Paid model calls are skipped.
 """
 
 import json
@@ -20,10 +16,11 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import sync_playwright, expect
+from ui_server import rerun_isolated, authenticate_browser, launch_browser
 
 URL = os.environ.get("GUSNOTEBOOK_TEST_URL", "http://localhost:8888/")
-FIX = pathlib.Path("/tmp/nbcreate")
+FIX = pathlib.Path(os.environ.get("GUSNOTEBOOK_TEST_ROOT", "/tmp")) / "nbcreate"
 # The app's own directory: a real one with dotfiles (.env, .gitignore) in it.
 APP_DIR = pathlib.Path(__file__).resolve().parent.parent
 
@@ -47,20 +44,21 @@ checks = []
 def check(label, got, want):
     ok = want(got) if callable(want) else got == want
     checks.append((ok, label, got))
-    print(f"  {'PASS' if ok else 'FAIL'}  {label}: {got!r}")
+    print(f"  {'PASS' if ok else 'FAIL'}  {label}: {repr(got)[:600]}")
 
 
 def post(route, body=None):
     req = urllib.request.Request(
         URL.rstrip("/") + route, method="POST",
         data=json.dumps(body or {}).encode(),
-        headers={"Content-Type": "application/json"})
+        headers={"Content-Type": "application/json", "Authorization": "Bearer " + os.environ.get("NB_TOKEN", "")})
     with urllib.request.urlopen(req) as r:
         return json.load(r)
 
 
 def get(route):
-    with urllib.request.urlopen(URL.rstrip("/") + route) as r:
+    req = urllib.request.Request(URL.rstrip("/") + route, headers={"Authorization": "Bearer " + os.environ.get("NB_TOKEN", "")})
+    with urllib.request.urlopen(req) as r:
         return json.load(r)
 
 
@@ -68,13 +66,13 @@ def patch(route, body=None):
     req = urllib.request.Request(
         URL.rstrip("/") + route, method="PATCH",
         data=json.dumps(body or {}).encode(),
-        headers={"Content-Type": "application/json"})
+        headers={"Content-Type": "application/json", "Authorization": "Bearer " + os.environ.get("NB_TOKEN", "")})
     with urllib.request.urlopen(req) as r:
         return json.load(r)
 
 
 def delete(route):
-    req = urllib.request.Request(URL.rstrip("/") + route, method="DELETE")
+    req = urllib.request.Request(URL.rstrip("/") + route, method="DELETE", headers={"Authorization": "Bearer " + os.environ.get("NB_TOKEN", "")})
     with urllib.request.urlopen(req) as r:
         return json.load(r)
 
@@ -89,7 +87,7 @@ def status_of(route, body=None, headers=None):
     req = urllib.request.Request(
         URL.rstrip("/") + route, method="POST",
         data=json.dumps(body or {}).encode(),
-        headers={"Content-Type": "application/json", **(headers or {})})
+        headers={"Content-Type": "application/json", "Authorization": "Bearer " + os.environ.get("NB_TOKEN", ""), **(headers or {})})
     try:
         with urllib.request.urlopen(req) as r:
             return r.status, json.load(r)
@@ -221,10 +219,12 @@ def answer_name(pg, answer):
 
 
 def main():
+    rerun_isolated(__file__)
     make_fixtures()
     with sync_playwright() as p:
-        b = p.chromium.launch(channel="chrome", headless=True)
+        b = launch_browser(p)
         pg = b.new_page(viewport={"width": 1600, "height": 950})
+        authenticate_browser(pg.context, URL)
         errors = []
         pg.on("pageerror", lambda e: errors.append(str(e)))
         pg.goto(URL, wait_until="domcontentloaded")
@@ -311,6 +311,7 @@ def main():
         pg.wait_for_function("before => activeTab().previewVersion !== before",
                              arg=preview_version, timeout=20000)
         preview.locator("#preview-title").wait_for(timeout=20000)
+        expect(preview.locator("#preview-title")).to_have_css("color", "rgb(116, 37, 141)")
         check("a served asset change reloads the integrated browser",
               preview.locator("#preview-title").evaluate(
                   "el => getComputedStyle(el).color"), "rgb(116, 37, 141)")
@@ -938,8 +939,8 @@ def main():
         print("\n-- toolbar offers every cell type")
         labels = [t.strip() for t in pg.locator("#toolbar button.tb").all_inner_texts()]
         print("     toolbar:", labels)
-        check("+ Raw and + AI present",
-              "+ Raw" in labels and "+ AI" in labels, True)
+        check("plain cell types are present",
+              all(label in labels for label in ("+ Code", "+ Markdown", "+ Raw")), True)
         check("kernel controls still there",
               "■ Stop" in labels and "↻ Restart" in labels, True)
         check("bottom add-row removed", pg.locator(".add-row button").count(), 0)
@@ -992,7 +993,7 @@ def main():
             "getComputedStyle(document.querySelector('.right .bar'))"
             ".backgroundColor")), lambda v: v > 200)
         check("text is dark on it", lum(pg.evaluate(
-            "getComputedStyle(document.querySelector('.right .bar .title')).color")),
+            "getComputedStyle(document.querySelector('.right .bar .agent-select')).color")),
             lambda v: v < 140)
 
         print("\n-- a terminal is a shell, Claude is Claude")
@@ -1063,6 +1064,7 @@ def main():
         # windows can stay on separate workspaces and switching either one must
         # not pull the other page along with it.
         peer = b.new_page(viewport={"width": 1200, "height": 800})
+        authenticate_browser(peer.context, URL)
         peer.on("pageerror", lambda e: errors.append("peer: " + str(e)))
         peer.goto(URL + ("&" if "?" in URL else "?") +
                   "session=" + urllib.parse.quote(first_session),
@@ -1374,7 +1376,7 @@ def main():
         # be forged. Deny rules have the same property.
         check("the browser's own header still runs",
               status_of(f"/api/cells/{rcell['id']}/run" + rq, {},
-                        {"X-Client-Id": "suite"})[0], 200)
+                        {"X-Client-Id": "suite"})[0], 202)
 
         delete(f"/api/terminals/{locked['id']}")
         check("both temp files go with the session",
@@ -1497,9 +1499,8 @@ def main():
         # Colouring is asserted on span *count*, not by eye: two copies of
         # @codemirror/state make CM's instanceof checks fail, and the result is
         # an editor that renders and edits normally with zero highlighted
-        # tokens — plain-looking text with nothing in the console. The `*`
-        # prefix in the import map is what prevents it, and this is the check
-        # that would catch its removal.
+        # tokens — plain-looking text with nothing in the console. The vendor
+        # build checks that only one state module is bundled.
         epath = post("/api/open", {"path": str(FIX / "editor.ipynb")})["path"]
         pg.evaluate(f"openFile({epath!r})")
         pg.wait_for_function(f"active === {epath!r}", timeout=15000)
@@ -1556,7 +1557,7 @@ def main():
               pg.evaluate(f"document.getElementById('ed-{ecid}').value"),
               lambda s: "x = 1" in s)
 
-        # render() replaces the notebook's innerHTML wholesale. A view rebuilt on
+        # render() replaces changed cell nodes. A view rebuilt on
         # each render loses its history every time anything repaints — adding a
         # cell, a run finishing, a kernel event — so the view is moved instead.
         pg.wait_for_function(f"!unsaved.has({ecid!r})", timeout=15000)
@@ -1706,16 +1707,14 @@ def main():
         check("a deleted cell's view is forgotten",
               pg.evaluate(f"cmViews.has({emd!r})"), False)
 
-        print("\n-- with the CDN unreachable, the textarea is still there")
-        # Load-bearing rather than decorative: CM is ESM from a CDN, and if the
-        # import fails there is no editor at all — a notebook that cannot be
-        # typed in is the alternative to this fallback.
+        print("\n-- if the editor bundle fails to load, the textarea is still there")
         off = b.new_page()
-        off.route("**esm.sh**", lambda r: r.abort())
+        authenticate_browser(off.context, URL)
+        off.route("**/static/vendor/codemirror.js", lambda r: r.abort())
         off.goto(URL)
-        off.wait_for_function("window.CM_READY === true", timeout=60000)
+        off.wait_for_function("typeof cells !== 'undefined' && cells.length", timeout=60000)
         check("CM is reported absent, not half-loaded",
-              off.evaluate("window.CM"), None)
+              off.evaluate("window.CM || null"), None)
         ocid = post("/api/cells" + eq, {"cell_type": "code", "source": ""})["id"]
         # After the tab bar has been restored: switching before boot finishes is
         # undone by the restore that follows it.
@@ -1763,6 +1762,7 @@ def main():
         check("+ adds a code cell directly below",
               pg.evaluate(f"getCell({added!r}).cell_type"), "code")
         check("and parks you on it", pg.evaluate("selected"), added)
+        pg.locator(f'.cell[data-id="{added}"]').hover()
         pg.click(f'.cell[data-id="{added}"] .act-btn.danger')
         pg.wait_for_function(f"!getCell({added!r})", timeout=20000)
         check("✕ deletes it", len(get("/api/notebook" + eq)["cells"]), before)
@@ -1790,7 +1790,7 @@ def main():
             f'.cell[data-id="{fcid}"] .fold-veil',
             "e => getComputedStyle(e).backgroundImage"),
               lambda s: "gradient" in s)
-        pg.click(f'.cell[data-id="{fcid}"] .fold-veil')
+        pg.click(f'.cell[data-id="{fcid}"] .fold-veil span')
         check("clicking it opens the cell", pg.eval_on_selector(
             fold, "e => e.classList.contains('folded')"), False)
         check("and the veil goes with the fold", pg.eval_on_selector_all(
@@ -1808,6 +1808,7 @@ def main():
         # with the caret in the hidden part. Typed rather than PATCHed, because
         # the caret is the whole point.
         gcid = post("/api/cells" + eq, {"cell_type": "code"})["id"]
+        pg.evaluate("foldOpenOnFocus = true")
         pg.evaluate("load()")
         pg.wait_for_selector(f"#ed-{gcid} .cm-content", timeout=20000)
         pg.click(f"#ed-{gcid} .cm-content")
@@ -1825,6 +1826,7 @@ def main():
         pg.evaluate("document.activeElement.blur(); render()")
         check("it folds once you leave it", pg.eval_on_selector_all(
             f'.cell[data-id="{gcid}"] .fold.folded', "els => els.length"), 1)
+        pg.evaluate("foldOpenOnFocus = false")
 
         print("\n-- output collapses, and stays collapsed through a re-run")
         ocid2 = post("/api/cells" + eq,
@@ -1835,39 +1837,32 @@ def main():
         pg.wait_for_selector(f"#out-{ocid2} .outputs", timeout=60000)
         pg.wait_for_function(
             f"!document.querySelector('#out-{ocid2} .spin')", timeout=60000)
-        # The ▾ has to appear without a re-render: the SSE handlers write into
-        # #out-<id> and never rebuild the gutter.
-        pg.wait_for_selector(f"#outb-{ocid2}", timeout=20000)
-        check("running a cell gives it a ▾", pg.eval_on_selector(
-            f"#outb-{ocid2}", "e => e.textContent.trim()"), "▾")
-        pg.click(f"#outb-{ocid2}")
-        check("clicking hides the output", pg.eval_on_selector(
-            f"#out-{ocid2}", "e => getComputedStyle(e).display"), "none")
+        pg.wait_for_selector(f"#out-{ocid2} .out-note", timeout=20000)
+        check("running a cell offers Hide output", pg.eval_on_selector(
+            f"#out-{ocid2} .out-note", "e => e.textContent.trim()"), "▾ Hide output")
+        pg.click(f"#out-{ocid2} .out-note")
+        check("clicking hides the output", pg.locator(f"#out-{ocid2} .outputs").count(), 0)
         # Hidden, not forgotten: a collapsed cell must not read as one that
         # never ran.
         check("a note stands in for it", pg.eval_on_selector(
             f'.cell[data-id="{ocid2}"] .out-note', "e => e.textContent"),
-              lambda s: "hidden" in s)
+              lambda s: "Show output" in s)
         pg.evaluate("render()")
-        check("hidden survives a repaint", pg.eval_on_selector(
-            f"#out-{ocid2}", "e => getComputedStyle(e).display"), "none")
+        check("hidden survives a repaint", pg.locator(f"#out-{ocid2} .outputs").count(), 0)
         pg.evaluate(f"runCell({ocid2!r})")
         pg.wait_for_timeout(2500)
-        check("a re-run leaves it collapsed", pg.eval_on_selector(
-            f"#out-{ocid2}", "e => getComputedStyle(e).display"), "none")
+        check("a re-run leaves it collapsed", pg.locator(f"#out-{ocid2} .outputs").count(), 0)
         check("with one note, not two per run", pg.eval_on_selector_all(
             f'.cell[data-id="{ocid2}"] .out-note', "els => els.length"), 1)
         pg.click(f'.cell[data-id="{ocid2}"] .out-note')
-        check("the note opens it again", pg.eval_on_selector(
-            f"#out-{ocid2}", "e => getComputedStyle(e).display"),
-              lambda s: s != "none")
+        check("the note opens it again", pg.locator(f"#out-{ocid2} .outputs").count(), 1)
         check("the output is still there", pg.locator(f"#out-{ocid2}").inner_text(),
               lambda s: "shown" in s)
-        check("a cell that never ran has no ▾", pg.eval_on_selector_all(
-            f"#outb-{fcid}", "els => els.length"), 0)
+        check("a cell that never ran has no output control", pg.locator(f"#out-{fcid} .out-note").count(), 0)
 
         print("\n-- the gutter's type menu")
-        pg.click(f'.cell[data-id="{ocid2}"] .gutter-acts .act-btn:first-child')
+        pg.locator(f'.cell[data-id="{ocid2}"]').hover()
+        pg.click(f'.cell[data-id="{ocid2}"] .act-btn[title="Change this cell\'s type"]')
         check("it opens", pg.eval_on_selector(
             "#type-menu", "e => e.classList.contains('on')"), True)
         pg.click("#type-menu .new-item:has-text('Markdown')")
@@ -1879,13 +1874,15 @@ def main():
              if c["id"] == ocid2), None), "markdown")
         check("and the menu closes", pg.eval_on_selector(
             "#type-menu", "e => e.classList.contains('on')"), False)
-        pg.click(f'.cell[data-id="{ocid2}"] .gutter-acts .act-btn:first-child')
+        pg.locator(f'.cell[data-id="{ocid2}"]').hover()
+        pg.click(f'.cell[data-id="{ocid2}"] .act-btn[title="Change this cell\'s type"]')
         pg.click("#type-menu .new-item:has-text('Code')")
         pg.wait_for_function(
             f"getCell({ocid2!r}).cell_type === 'code'", timeout=20000)
         check("and back to code",
               pg.evaluate(f"getCell({ocid2!r}).cell_type"), "code")
-        pg.click(f'.cell[data-id="{ecid}"] .gutter-acts .act-btn:first-child')
+        pg.locator(f'.cell[data-id="{ecid}"]').hover()
+        pg.click(f'.cell[data-id="{ecid}"] .act-btn[title="Change this cell\'s type"]')
         pg.click("body", position={"x": 4, "y": 4})
         check("clicking away dismisses it", pg.eval_on_selector(
             "#type-menu", "e => e.classList.contains('on')"), False)
@@ -2033,8 +2030,8 @@ def main():
         check("and the stylesheet and scripts beside it",
               [(pkg_dir / "static" / "app.css").is_file(),
                sorted(p.name for p in (pkg_dir / "static" / "js").glob("*.js"))],
-              [True, ["actions.js", "browser.js", "cells.js", "core.js",
-                      "editor.js", "events.js", "panels.js", "terminals.js"]])
+              [True, ["actions.js", "auth.js", "browser.js", "cells.js", "core.js",
+                      "editor.js", "events.js", "history.js", "panels.js", "terminals.js"]])
         # Work is separate again: the file browser and new tabs start where the
         # user launched the app, not where the code happens to be installed.
         work = pathlib.Path(get("/api/files")["cwd"])
@@ -2056,8 +2053,8 @@ def main():
               nb_cmd.startswith("/") and nb_cmd.endswith("gusnb"), True)
         check("and that file exists", pathlib.Path(nb_cmd).is_file() if nb_cmd
               else False, True)
-        check("it passes the app's own URL", f"NB_URL={URL.rstrip('/')}" in text3
-              or "NB_URL=http://127.0.0.1:8888" in text3, True)
+        check("it defaults to the app's URL and respects the terminal's override",
+              "NB_URL=${NB_URL:-" + URL.rstrip('/') + "}" in text3, True)
         delete(f"/api/terminals/{claude3['id']}")
 
         print("\n-- nothing broke")
@@ -2071,7 +2068,7 @@ def main():
     print(f"\n{len(checks) - len(bad)}/{len(checks)} passed")
     if bad:
         for _, label, got in bad:
-            print(f"  FAILED {label} -> {got!r}")
+            print(f"  FAILED {label} -> {repr(got)[:600]}")
         sys.exit(1)
 
 

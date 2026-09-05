@@ -4,10 +4,11 @@ Text tabs are a simple read/save editor — no kernel involved. Files that aren'
 decodable text, or are very large, are reported as such instead of being loaded.
 """
 
-import os
-import tempfile
 import threading
 from pathlib import Path
+
+from .persistence import (ANY_VERSION, ExternalChangeError, atomic_write,
+                          disk_version)
 
 MAX_BYTES = 2 * 1024 * 1024      # refuse to open more than 2 MB in a textarea
 
@@ -23,21 +24,7 @@ TEXT_SUFFIXES = {
 
 IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"}
 
-_lock = threading.RLock()
-_NO_EXPECTATION = object()
-
-
-class ExternalChangeError(OSError):
-    """The file no longer matches the disk revision the editor loaded."""
-
-
-def disk_version(path):
-    """Cheap identity for conflict detection, including atomic replacements."""
-    try:
-        stat = Path(path).stat()
-        return f"{stat.st_mtime_ns}:{stat.st_size}:{stat.st_ino}"
-    except OSError:
-        return None
+_NO_EXPECTATION = ANY_VERSION
 
 
 def kind_of(path):
@@ -59,12 +46,13 @@ class TextFile:
         self.path = Path(path)
         self._text = None
         self._version = None
+        self._lock = threading.RLock()
 
     def disk_version(self):
         return disk_version(self.path)
 
     def load(self):
-        with _lock:
+        with self._lock:
             if not self.path.exists():
                 self._text = ""
                 self._version = None
@@ -79,15 +67,19 @@ class TextFile:
             if size > MAX_BYTES:
                 raise ValueError(
                     f"{self.path.name} is {size // 1024} KB — too large to edit here")
+            version = self.disk_version()
             try:
-                self._text = self.path.read_text(encoding="utf-8")
+                text = self.path.read_text(encoding="utf-8")
             except UnicodeDecodeError:
                 raise ValueError(f"{self.path.name} is not UTF-8 text")
-            self._version = self.disk_version()
+            if self.disk_version() != version:
+                raise ExternalChangeError(f"{self.path.name} changed while being read; reload it")
+            self._text = text
+            self._version = version
             return self._text
 
     def to_json(self):
-        with _lock:
+        with self._lock:
             if self._text is None or self.disk_version() != self._version:
                 self.load()
             data = {
@@ -109,22 +101,10 @@ class TextFile:
             raise ValueError(
                 f"edited document is {size // 1024} KB — maximum is "
                 f"{MAX_BYTES // 1024} KB")
-        with _lock:
-            actual = self.disk_version()
-            if expected_version is not _NO_EXPECTATION and actual != expected_version:
-                raise ExternalChangeError(
-                    f"{self.path.name} changed on disk; reload it before saving")
-            self.path.parent.mkdir(parents=True, exist_ok=True)
-            fd, tmp = tempfile.mkstemp(dir=str(self.path.parent), suffix=".tmp")
-            try:
-                with os.fdopen(fd, "w", encoding="utf-8") as f:
-                    f.write(text)
-                os.replace(tmp, str(self.path))
-            finally:
-                if os.path.exists(tmp):
-                    os.unlink(tmp)
+        with self._lock:
+            version = atomic_write(self.path, text, expected_version)
             self._text = text
-            self._version = self.disk_version()
+            self._version = version
             return {"path": str(self.path), "saved": True,
                     "disk_version": self._version}
 
@@ -153,6 +133,15 @@ class TextRegistry:
     def close(self, path):
         with self._lock:
             return self._docs.pop(str(path), None) is not None
+
+    def rename(self, old, new):
+        with self._lock:
+            doc = self._docs.pop(str(old), None)
+            if doc:
+                with doc._lock:
+                    doc.path = Path(new)
+                    doc._version = disk_version(new)
+                self._docs[str(new)] = doc
 
     def paths(self):
         with self._lock:

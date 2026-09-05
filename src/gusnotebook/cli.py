@@ -65,12 +65,31 @@ def target_path(value):
     return str(pathlib.Path(value).expanduser().resolve())
 
 
+def auth_token():
+    token = os.environ.get("NB_TOKEN")
+    if token:
+        return token
+    from . import paths
+    parsed = urllib.parse.urlsplit(BASE)
+    try:
+        connection = paths.state(f"server-{parsed.port or 80}.json")
+        info = json.loads(connection.read_text())
+        if info.get("url", "").rstrip("/") == BASE.rstrip("/"):
+            return info.get("token", "")
+    except (OSError, ValueError):
+        pass
+    return ""
+
+
 def call(path, method="GET", body=None, timeout=600):
     if TARGET:
         sep = "&" if "?" in path else "?"
         path += sep + urllib.parse.urlencode({"notebook": TARGET})
     data = json.dumps(body).encode() if body is not None else None
-    headers = {"Content-Type": "application/json"}
+    headers = {"Content-Type": "application/json",
+               "Authorization": "Bearer " + auth_token()}
+    if os.environ.get("NB_TERMINAL"):
+        headers["X-Terminal-Id"] = os.environ["NB_TERMINAL"]
     if SESSION:
         headers["X-Session-Id"] = SESSION
     req = urllib.request.Request(

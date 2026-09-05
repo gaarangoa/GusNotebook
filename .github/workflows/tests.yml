@@ -1,0 +1,21 @@
+name: Tests
+on: [push, pull_request]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: pip install -e '.[test]'
+      - run: npm ci --ignore-scripts
+      - run: npm run build && git diff --exit-code -- src/gusnotebook/static/vendor
+      - run: npm test
+      - run: python -m unittest discover -s tests -p 'test_*.py'
+      - run: python -m playwright install --with-deps chromium
+      - run: python tests/test_reliability_ui.py

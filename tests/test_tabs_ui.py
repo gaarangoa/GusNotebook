@@ -18,17 +18,18 @@ import sys
 import urllib.request
 
 from playwright.sync_api import sync_playwright
+from ui_server import rerun_isolated, authenticate_browser, launch_browser
 
 URL = os.environ.get("GUSNOTEBOOK_TEST_URL", "http://localhost:8888/")
-FIX = pathlib.Path("/tmp/nbtest")
-ALT_VENV = pathlib.Path("/tmp/venv312")
+FIX = pathlib.Path(os.environ.get("GUSNOTEBOOK_TEST_ROOT", "/tmp")) / "nbtest"
+ALT_VENV = pathlib.Path(os.environ.get("GUSNOTEBOOK_TEST_ROOT", "/tmp")) / "venv312"
 
 
 def api(route, method="GET", body=None):
     data = json.dumps(body or {}).encode() if method == "POST" else None
     req = urllib.request.Request(
         URL.rstrip("/") + route, method=method, data=data,
-        headers={"Content-Type": "application/json"} if data else {})
+        headers={"Content-Type": "application/json", "Authorization": "Bearer " + os.environ.get("NB_TOKEN", "")})
     with urllib.request.urlopen(req) as r:
         return json.load(r)
 
@@ -68,9 +69,10 @@ def make_fixtures():
             p.write_text(json.dumps({
                 "cells": [], "metadata": {}, "nbformat": 4, "nbformat_minor": 5}))
     if not (ALT_VENV / "bin/python3").exists():
-        subprocess.run([sys.executable, "-m", "venv", str(ALT_VENV)], check=True)
-        subprocess.run([str(ALT_VENV / "bin/pip"), "-q", "install", "ipykernel"],
-                       check=True)
+        subprocess.run([sys.executable, "-m", "venv", "--system-site-packages", str(ALT_VENV)], check=True)
+        import site
+        package_dir = ALT_VENV / "lib" / f"python{sys.version_info.major}.{sys.version_info.minor}" / "site-packages"
+        (package_dir / "gusnb-test.pth").write_text("\n".join(site.getsitepackages()) + "\n")
 
 
 checks = []
@@ -100,11 +102,13 @@ def run_cell(pg, source):
 
 
 def main():
+    rerun_isolated(__file__)
     make_fixtures()
     close_stray_tabs()
     with sync_playwright() as p:
-        b = p.chromium.launch(channel="chrome", headless=True)
+        b = launch_browser(p)
         pg = b.new_page(viewport={"width": 1600, "height": 950})
+        authenticate_browser(pg.context, URL)
         errors = []
         pg.on("pageerror", lambda e: errors.append(str(e)))
         pg.on("dialog", lambda d: d.accept())
@@ -143,7 +147,7 @@ def main():
         pg.wait_for_function("activeTab().name === 'one.ipynb'")
         check("toolbar back", pg.locator("#toolbar").is_visible(), True)
         out = run_cell(pg, "secret = 'ONE'\nimport sys; print(sys.executable)")
-        check("one ran on .venv", "AI30-CRM/.venv" in out, True)
+        check("one ran on .venv", sys.executable in out, True)
 
         pg.evaluate(f"switchTab('{FIX.resolve()}/two.ipynb')")
         pg.wait_for_function("activeTab().name === 'two.ipynb'")
@@ -156,7 +160,7 @@ def main():
         # and ⚙ moved to the title bar; the point of it is that nothing *else*
         # crept back in.
         check("nothing but cell types and kernel controls", labels,
-              ["+ Code", "+ Markdown", "+ Raw", "+ AI",
+              ["+ Code", "+ Markdown", "+ Raw",
                "Delete", "■ Stop", "↻ Restart"])
         check("kernel badge is the env button",
               pg.evaluate("document.getElementById('venv-btn').classList.contains('kernel-badge')"),
@@ -189,8 +193,8 @@ def main():
         print("\n-- shortcuts replacing the removed buttons")
         n_before = pg.evaluate("cells.length")
         first = pg.evaluate("cells[0].id")
-        pg.click(f"#ed-{first}")
-        pg.keyboard.press("Shift+Meta+m")
+        pg.evaluate("id => focusCellEditor(id)", first)
+        pg.keyboard.press("Shift+ControlOrMeta+m")
         pg.wait_for_function(
             f"(cells.find(c => c.id === '{first}') || {{}}).cell_type === 'markdown'",
             timeout=15000)
@@ -215,7 +219,7 @@ def main():
         pg.click("#notebook")
         check("closes on outside click", pg.locator("#venv-menu").is_visible(), False)
 
-        pg.evaluate("setTimeout(() => openDirPicker('/tmp'), 0)")
+        pg.evaluate("path => setTimeout(() => openDirPicker(path), 0)", str(ALT_VENV.parent))
         pg.wait_for_selector("#dirpick-back.on .dp-venv", timeout=20000)
         check("an arbitrarily named environment is recognized",
               pg.locator("#dirpick-list .dp-venv", has_text="venv312").count(), 1)
@@ -234,13 +238,13 @@ def main():
         pg.evaluate(f"switchTab('{FIX.resolve()}/one.ipynb')")
         pg.wait_for_function("activeTab().name === 'one.ipynb'")
         out = run_cell(pg, "import sys; print(sys.executable, secret)")
-        check("one untouched, state intact", "ONE" in out and "AI30-CRM" in out, True)
+        check("one untouched, state intact", "ONE" in out and sys.executable in out, True)
 
         print("\n-- bad env is reported, not silently applied")
         pg.evaluate("setVenv('/tmp/definitely-not-a-venv')")
         pg.wait_for_selector("#flash.on", timeout=20000)
         check("readable error", "no python found" in pg.locator("#flash").inner_text(), True)
-        check("env unchanged", "AI30-CRM" in pg.evaluate("activeTab().python"), True)
+        check("env unchanged", sys.executable == pg.evaluate("activeTab().python"), True)
 
         print("\n-- non-text files")
         for name, expect in [("huge.bin", "binary"), ("big.txt", "too large")]:

@@ -13,12 +13,15 @@ into the file), and is explicitly stopped when the tab closes.
 import atexit
 import html
 import json
+import hmac
+from http.cookies import SimpleCookie
 import mimetypes
 import re
+import secrets
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import quote, unquote, urlsplit
+from urllib.parse import parse_qs, quote, unquote, urlsplit
 
 from . import paths
 from .textfile import disk_version
@@ -107,6 +110,8 @@ class PreviewServer:
         self._lock = threading.RLock()
         self._source = self.path.read_text(encoding="utf-8")
         self._language = self.path.suffix.lstrip(".").lower()
+        self._access = secrets.token_urlsafe(32)
+        self._hosts = {"localhost", "127.0.0.1", "::1", bind_host}
         self._nonce = ""
         self._parent_origin = "*"
         self._render_serial = 0
@@ -128,6 +133,7 @@ class PreviewServer:
 
     def origin_for(self, host):
         """The origin as reached from `host` — the browser's own Host header."""
+        self._hosts.add(host)
         return f"http://{host}:{self.port}"
 
     def render(self, source, nonce, parent_origin, host=None):
@@ -142,7 +148,7 @@ class PreviewServer:
             relative = quote(self.path.name, safe="")
             origin = self.origin_for(host) if host else self.origin
             return {
-                "url": f"{origin}/{relative}?gusnb={self._render_serial}",
+                "url": f"{origin}/{relative}?gusnb={self._render_serial}&access={self._access}",
                 "origin": origin,
                 "preview_version": self.version(),
             }
@@ -201,6 +207,32 @@ class PreviewServer:
             handler.wfile.write(content)
 
     def serve(self, handler, head_only=False):
+        host = urlsplit("http://" + handler.headers.get("Host", "")).hostname
+        if host not in self._hosts:
+            self._write(handler, 400, b"Unrecognized preview host\n", "text/plain", head_only)
+            return
+        query = parse_qs(urlsplit(handler.path).query)
+        cookie_name = f"gusnb_preview_{self.port}"
+        supplied = query.get("access", [""])[0]
+        if supplied and hmac.compare_digest(supplied, self._access):
+            # Remove the capability from the page URL before executing scripts.
+            handler.send_response(302)
+            handler.send_header("Set-Cookie", f"{cookie_name}={self._access}; Path=/; HttpOnly; SameSite=Strict")
+            handler.send_header("Location", urlsplit(handler.path).path + "?gusnb=" + quote(query.get("gusnb", [""])[0]))
+            handler.send_header("Cache-Control", "no-store")
+            handler.send_header("Referrer-Policy", "no-referrer")
+            handler.send_header("Content-Length", "0")
+            handler.end_headers()
+            return
+        cookies = SimpleCookie()
+        try:
+            cookies.load(handler.headers.get("Cookie", ""))
+            supplied = cookies[cookie_name].value if cookie_name in cookies else ""
+        except Exception:
+            supplied = ""
+        if not supplied or not hmac.compare_digest(supplied, self._access):
+            self._write(handler, 401, b"Open this preview from GusNotebook\n", "text/plain", head_only)
+            return
         route = urlsplit(handler.path).path
         if route == "/.gusnotebook/editor.js":
             self._write(handler, 200, self._runtime,

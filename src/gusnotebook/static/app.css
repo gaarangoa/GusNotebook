@@ -851,7 +851,8 @@ button.tb.primary:hover { background: #fdf4f8; }
 .act-row {
   display: contents;
 }
-.cell:hover .gutter-acts { opacity: 1; pointer-events: auto; }
+.cell:hover .gutter-acts,
+.cell:focus-within .gutter-acts { opacity: 1; pointer-events: auto; }
 .cell[data-type="markdown"] .gutter-acts {
   top: 28px;
   transform: none;
@@ -1729,3 +1730,14 @@ button.tb.primary:hover { background: #fdf4f8; }
   z-index: 50;
 }
 .flash.on { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+.history-modal { width: min(900px, 92vw); max-height: 85vh; }
+.history-modal .mbody { overflow: auto; }
+.history-group { padding: 16px 0; border-bottom: 1px solid #dbe2ea; }
+.history-heading { display: flex; gap: 16px; justify-content: space-between; }
+.history-heading strong { white-space: pre-wrap; overflow-wrap: anywhere; }
+.history-heading span { flex-shrink: 0; color: #64748b; font-size: 12px; }
+.history-group p { color: #64748b; font-size: 12px; }
+.history-group details { margin: 10px 0; }
+.history-group summary { cursor: pointer; overflow-wrap: anywhere; }
+.history-group pre { padding: 12px; background: #f1f5f9; overflow: auto; max-height: 400px; font-size: 12px; }
