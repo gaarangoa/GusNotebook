@@ -1741,3 +1741,32 @@ button.tb.primary:hover { background: #fdf4f8; }
 .history-group details { margin: 10px 0; }
 .history-group summary { cursor: pointer; overflow-wrap: anywhere; }
 .history-group pre { padding: 12px; background: #f1f5f9; overflow: auto; max-height: 400px; font-size: 12px; }
+
+.environment-modal { width: 760px; }
+.environment-tabs { display: flex; gap: 4px; padding: 8px 16px 0; border-bottom: 1px solid var(--border); }
+.environment-tabs button { border: 0; border-bottom: 2px solid transparent; padding: 9px 12px; background: none; color: var(--muted); cursor: pointer; font: inherit; font-size: 12px; }
+.environment-tabs button[aria-selected="true"] { color: var(--accent); border-color: var(--accent); font-weight: 600; }
+.environment-modal [hidden] { display: none !important; }
+.environment-modal fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
+.environment-modal fieldset:disabled { opacity: .65; }
+.environment-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.environment-modal .field .row > input,
+.environment-modal .field .row > textarea,
+.environment-modal .field .row > select { min-width: 0; flex: 1; }
+.environment-modal .field .row > button { flex: 0 0 auto; align-self: flex-start; }
+.environment-modal textarea { font-family: var(--mono); }
+.environment-error { margin-bottom: 12px; padding: 10px; background: #fff5f5; color: #991b1b; border-radius: 6px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.environment-package-info { color: var(--muted); font-size: 11px; white-space: pre-wrap; overflow-wrap: anywhere; margin-bottom: 12px; }
+#environment-package-count { font-size: 11px; color: var(--muted); margin: 8px 0; }
+.environment-package-table { max-height: 320px; overflow: auto; border: 1px solid var(--border); border-radius: 6px; }
+.environment-package-table table { width: 100%; border-collapse: collapse; font-size: 12px; text-align: left; }
+.environment-package-table th { position: sticky; top: 0; background: #f1f5f9; font-weight: 600; }
+.environment-package-table td, .environment-package-table th { padding: 8px 10px; border-bottom: 1px solid var(--border); overflow-wrap: anywhere; }
+.environment-package-table td:nth-child(2) { font-family: var(--mono); white-space: nowrap; }
+.environment-package-table td:last-child { max-width: 300px; font-size: 11px; }
+#environment-progress { margin-top: 12px; }
+#environment-status { font-size: 12px; overflow-wrap: anywhere; }
+#environment-log { background: #f1f5f9; padding: 10px; font: 11px/1.5 var(--mono); max-height: 180px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
+.venv-packages { background: none; border: 1px solid var(--border); border-radius: 4px; padding: 2px 5px; font: inherit; font-size: 10px; cursor: pointer; color: var(--accent); }
+#dirpick-back { z-index: 90; }
+@media (max-width: 620px) { .environment-row { grid-template-columns: 1fr; gap: 0; } }

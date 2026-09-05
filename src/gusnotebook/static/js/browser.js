@@ -777,6 +777,7 @@ function newFromMenu(what) {
   if (what === 'notebook') return newNotebook();
   if (what === 'text') return newFile();
   if (what === 'folder') return newFolder();
+  if (what === 'environment') return openEnvironments();
   if (what === 'claude') return openTerminalHere('claude');
   if (what === 'codex') return openTerminalHere('codex');
   if (what === 'terminal') return openTerminalHere('shell');

@@ -25,6 +25,7 @@ from flask_sock import Sock
 
 from . import bus
 from . import error_help
+from . import environments
 from . import files
 from . import llm
 from . import notebook as notebook_mod
@@ -596,7 +597,7 @@ def api_dirlist():
                 continue
             # Hidden directories are normally picker noise, but a structurally
             # valid environment remains useful whatever it happens to be named.
-            if child.name.startswith(".") and not is_venv:
+            if child.name.startswith(".") and not is_venv and request.args.get("include_hidden") != "1":
                 continue
             entries.append({"name": child.name, "path": str(child),
                             "is_venv": is_venv,
@@ -1660,6 +1661,46 @@ def api_cell_help(cell_id):
 
 # --- Environments (venv per notebook) ---
 
+@routes.route("/api/environments")
+def api_environments():
+    manager = runtime().environments
+    session = request_session()
+    found = venvs.discover(near=session.root, current=kernels.default_python,
+                          registered=manager.registered(), probe=False)
+    return jsonify(environments=found, uv_available=bool(manager.uv),
+                   default_python=kernels.default_python, location=session.root,
+                   jobs=manager.jobs_for(session.id))
+
+
+@routes.route("/api/environments", methods=["POST"])
+def api_create_environment():
+    body = request.get_json(silent=True) or {}
+    if not isinstance(body, dict):
+        return jsonify(error="Provide the environment name, location, and packages"), 400
+    try:
+        return jsonify(runtime().environments.create(body, request_session_id())), 202
+    except (OSError, ValueError) as exc:
+        return jsonify(error=str(exc)), 400
+
+
+@routes.route("/api/environments/jobs/<job_id>", methods=["GET", "DELETE"])
+def api_environment_job(job_id):
+    manager = runtime().environments
+    try:
+        operation = manager.cancel if request.method == "DELETE" else manager.get
+        return jsonify(operation(job_id, request_session_id()))
+    except ValueError as exc:
+        return jsonify(error=str(exc)), 404
+
+
+@routes.route("/api/environments/packages")
+def api_environment_packages():
+    try:
+        return jsonify(environments.inspect_packages(request.args.get("python", "")))
+    except (OSError, ValueError) as exc:
+        return jsonify(error=str(exc)), 400
+
+
 @routes.route("/api/venvs")
 def api_venvs():
     """Interpreters we could use, nearest to the notebook first."""
@@ -1667,7 +1708,8 @@ def api_venvs():
     current = get_nb(key).get_python() or kernels.default_python
     # The env in use may live nowhere we search (an explicit "Browse…" path),
     # so seed the list with it — otherwise the menu can't show what's current.
-    found = venvs.discover(near=key, current=current)
+    found = venvs.discover(near=key, current=current,
+                          registered=runtime().environments.registered())
     return jsonify({
         "venvs": found,
         "current": current,
@@ -1690,11 +1732,16 @@ def api_set_venv():
                      f"run: {info['python']} -m pip install ipykernel",
         }), 400
 
-    get_nb(key).set_python(info["python"], label=info["label"],
-                           version=info["version"])
-    with exec_lock(key):
+    with _exec_locks_guard:
+        lock = exec_lock(key)
+        if _running_cell_ids(key) or not lock.acquire(blocking=False):
+            return jsonify(error="Stop running cells before switching this notebook's environment"), 409
+    try:
+        get_nb(key).set_python(info["python"], label=info["label"], version=info["version"])
         k = kernels.get(key, cwd=Path(key).parent, python=info["python"])
         k.restart(python=info["python"])
+    finally:
+        lock.release()
     return jsonify({"status": "ok", "notebook": key, **info})
 
 

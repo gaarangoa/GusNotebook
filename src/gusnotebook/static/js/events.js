@@ -326,6 +326,8 @@ es.onmessage = (e) => {
 };
 
 document.addEventListener('keydown', (e) => {
+  // Modal fields own their keys, including multiline input and Enter shortcuts.
+  if (document.querySelector('.modal-back.on')) return;
   if (e.key && e.key.toLowerCase() === 's' && (e.metaKey || e.ctrlKey)) {
     e.preventDefault();
     e.stopPropagation();

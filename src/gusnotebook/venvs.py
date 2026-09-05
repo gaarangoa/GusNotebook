@@ -147,7 +147,7 @@ def _dedup(entries):
     return out
 
 
-def discover(near=None, include_homes=True, probe=True, current=None):
+def discover(near=None, include_homes=True, probe=True, current=None, registered=()):
     """Environments to offer for `near` (a notebook path or directory).
 
     Nearest-first: the environment already in use, the notebook's own
@@ -158,6 +158,10 @@ def discover(near=None, include_homes=True, probe=True, current=None):
 
     if current:
         found.append(describe(current, origin="in use", probe=probe))
+
+    for entry in registered:
+        found.append(describe(entry["prefix"], label=entry.get("label"),
+                              origin="created with uv", probe=probe))
 
     if near:
         start = Path(near).expanduser()

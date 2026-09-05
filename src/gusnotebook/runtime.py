@@ -5,6 +5,7 @@ import time
 
 from . import bus, notebook, paths, preview, sessions, terminals, textfile
 from .history import History
+from .environments import EnvironmentManager
 from .kernel import KernelPool
 
 
@@ -29,6 +30,7 @@ class Runtime:
         self.running_cells = {}
         self.settings_memory = {}
         self.history = History(paths.state("history"))
+        self.environments = EnvironmentManager(paths.state("environments.json"))
         self.stop = threading.Event()
         self.watcher = None
         self.workers = set()
@@ -41,6 +43,7 @@ class Runtime:
 
     def close(self):
         self.stop.set()
+        self.environments.close()
         if self.watcher:
             self.watcher.join(timeout=2)
         # Interrupt first: shutdown takes the execution lock and must not wait

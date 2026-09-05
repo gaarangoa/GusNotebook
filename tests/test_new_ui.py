@@ -953,9 +953,9 @@ def main():
                if t.strip().startswith("+")], [])
         pg.click("#tab-new")
         pg.wait_for_selector("#new-menu.on", timeout=10000)
-        check("six entries, each with an icon",
+        check("creation entries, each with an icon",
               [t.strip() for t in pg.locator("#new-menu .nl").all_inner_texts()],
-              ["Notebook", "Text file", "Folder", "Claude Code", "Codex",
+              ["Notebook", "Text file", "Folder", "Environment", "Claude Code", "Codex",
                "Terminal"])
         check("icons present",
               all(t.strip() for t in pg.locator("#new-menu .ni").all_inner_texts()),
@@ -2031,7 +2031,7 @@ def main():
               [(pkg_dir / "static" / "app.css").is_file(),
                sorted(p.name for p in (pkg_dir / "static" / "js").glob("*.js"))],
               [True, ["actions.js", "auth.js", "browser.js", "cells.js", "core.js",
-                      "editor.js", "events.js", "history.js", "panels.js", "terminals.js"]])
+                      "editor.js", "environments.js", "events.js", "history.js", "panels.js", "terminals.js"]])
         # Work is separate again: the file browser and new tabs start where the
         # user launched the app, not where the code happens to be installed.
         work = pathlib.Path(get("/api/files")["cwd"])

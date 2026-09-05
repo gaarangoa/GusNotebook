@@ -60,6 +60,43 @@ If the proxy forwards the public URL prefix unchanged, set
 `APP_BASE_URL="/some/prefix"`. GusNotebook strips that prefix before routing and
 keeps it in generated browser URLs and authentication cookies.
 
+## Python environments
+
+Choose **+ → Environment** to create an environment with uv. Enter its name,
+choose an existing parent folder, and list packages one per line, for example:
+
+```text
+pandas
+numpy>=2,<3
+requests[socks]
+```
+
+Optionally choose a Python version (such as `3.12`) or an interpreter path;
+leaving it blank uses the app's Python. Add local repository folders with
+**Add folder…** or paste one absolute path per line. Repositories need a
+`pyproject.toml` or `setup.py`. Editable installation is enabled by default,
+so source changes are available without reinstalling. Paths refer to the
+machine running GusNotebook, including when you access it through a proxy.
+
+**Create environment** runs uv and shows its installation log. `ipykernel` is
+included automatically. You can close the modal while creation continues, or
+cancel to remove the incomplete environment. Existing folders are never
+overwritten. Successful environments remain in the picker after restarting
+the app. Choose **Use for [notebook]** to switch that notebook's interpreter;
+this restarts its kernel, clearing live variables. Finish or stop running
+cells before switching.
+
+The modal's **Installed packages** tab lists package names, versions, and local
+repository paths, with filtering and refresh. You can also click **Packages**
+beside an environment in the notebook's environment menu, or browse to an
+environment that wasn't discovered automatically.
+
+Creation requires `uv` on the server's PATH or in `~/.local/bin`; set
+`GUSNOTEBOOK_UV=/absolute/path/to/uv` for another location and restart the app.
+Package inspection works without uv or pip. See uv's documentation for
+[environment creation](https://docs.astral.sh/uv/pip/environments/) and
+[package and local repository installation](https://docs.astral.sh/uv/pip/packages/).
+
 ## Where things live
 
 Two directories, deliberately separate:
@@ -67,7 +104,7 @@ Two directories, deliberately separate:
 | | |
 |---|---|
 | **Your project** | wherever you ran `gusnotebook` — notebooks, data, `.env` |
-| **App state** | `~/.config/gusnotebook/` — `settings.json`, `sessions.json`, `skills/` |
+| **App state** | `~/.config/gusnotebook/` — `settings.json`, `sessions.json`, `environments.json`, `skills/` |
 
 State is out of the install directory because an installed package's directory
 is read-only, shared between every project, and replaced on upgrade. Override
@@ -169,6 +206,7 @@ npm run build
 uv run playwright install chromium
 uv run python tests/test_reliability_ui.py
 uv run python tests/test_tabs_ui.py
+uv run python tests/test_environments_ui.py
 uv run python scripts/benchmark.py
 ```
 
@@ -177,7 +215,9 @@ project and `GUSNOTEBOOK_HOME`, then stop it and clean up. They never target you
 running app. They use Playwright Chromium, with installed Chrome as a fallback
 on macOS; `GUSNOTEBOOK_BROWSER_CHANNEL` overrides the choice. Paid LLM calls are
 disabled in the disposable harness. `tests/test_new_ui.py` is the extended suite
-and additionally exercises installed agent CLIs.
+and additionally exercises installed agent CLIs. The environments suite needs
+uv and package index access; it installs packages and a local repository into
+temporary environments, then runs a notebook on the new interpreter.
 
 The frontend libraries are pinned in `package-lock.json`. `npm run build`
 regenerates `static/vendor/`, including third-party licenses; commit the generated

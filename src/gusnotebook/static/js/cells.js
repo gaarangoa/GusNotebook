@@ -726,16 +726,19 @@ function renderVenvMenu(data) {
     if (v.python === data.current) cls.push('current');
     if (!v.ipykernel) cls.push('off');
     const note = v.ipykernel ? (v.origin || '') : 'no ipykernel';
-    return `<div class="${cls.join(' ')}" onclick="setVenv('${escapeAttr(v.python)}')"
+    return `<div class="${cls.join(' ')}" onclick="setVenv(this.title)"
                  title="${escapeAttr(v.python)}">
       <span class="vl">${escapeHtml(v.label)}</span>
       <span class="vv">${escapeHtml(v.version || '?')}</span>
       <span class="vo">${escapeHtml(note)}</span>
+      <button class="venv-packages" onclick="event.stopPropagation(); openEnvironments('packages', this.closest('.venv-item').title)"
+              title="Show installed packages">Packages</button>
     </div>`;
   }).join('');
 
   document.getElementById('venv-menu').innerHTML = rows +
     '<div class="venv-sep"></div>' +
+    `<div class="venv-item" onclick="openEnvironments()"><span class="vl">Create environment…</span></div>` +
     `<div class="venv-item" onclick="browseVenv()">
        <span class="vl">Browse…</span>
        <span class="vo">type a venv or python path</span>
@@ -755,6 +758,8 @@ function renderVenvMenu(data) {
 // ---------- Directory picker for venv selection ----------
 let dirPickResolve = null;
 let dirPickSelected = null;
+let dirPickMode = 'environment';
+let dirPickGeneration = 0;
 
 async function browseVenv() {
   const start = (activeTab() || {}).python
@@ -773,8 +778,13 @@ function require_path_parent(p) {
   try { return p.split('/').slice(0, -3).join('/') || null; } catch (_) { return null; }
 }
 
-function openDirPicker(startPath) {
+function openDirPicker(startPath, options = {}) {
+  dirPickMode = options.mode || 'environment';
   document.getElementById('dirpick-back').classList.add('on');
+  document.getElementById('dirpick-title').textContent = options.title || 'Select environment';
+  const manual = document.getElementById('dirpick-manual');
+  manual.value = '';
+  manual.placeholder = dirPickMode === 'directory' ? 'paste a folder path' : 'paste an environment root, bin folder, or Python path';
   dirPickSelected = null;
   document.getElementById('dirpick-ok').disabled = true;
   document.getElementById('dirpick-sel').textContent = '';
@@ -783,16 +793,23 @@ function openDirPicker(startPath) {
 }
 
 async function dirPickNav(path) {
+  const generation = ++dirPickGeneration;
+  dirPickSelected = null;
+  document.getElementById('dirpick-ok').disabled = true;
+  document.getElementById('dirpick-sel').textContent = '';
+  document.getElementById('dirpick-manual').value = '';
   document.getElementById('dirpick-list').innerHTML =
     '<div class="files-msg">Loading…</div>';
   let data;
   try {
-    data = await api('/api/dirlist?' + new URLSearchParams({path}));
+    data = await api('/api/dirlist?' + new URLSearchParams({path, include_hidden: dirPickMode === 'directory' ? '1' : '0'}));
   } catch (err) {
+    if (generation !== dirPickGeneration) return;
     document.getElementById('dirpick-list').innerHTML =
       `<div class="files-msg err">${escapeHtml(String(err))}</div>`;
     return;
   }
+  if (generation !== dirPickGeneration) return;
 
   // Crumbs
   const parts = data.path.split('/').filter(Boolean);
@@ -800,17 +817,18 @@ async function dirPickNav(path) {
   let crumbs = `<span class="crumb" onclick="dirPickNav('/')">/</span>`;
   parts.forEach((p, i) => {
     crumbs += `<span class="crumb-sep">/</span>
-      <span class="crumb" onclick="dirPickNav('${escapeAttr(full[i])}')">${escapeHtml(p)}</span>`;
+      <span class="crumb" data-path="${escapeAttr(full[i])}" onclick="dirPickNav(this.dataset.path)">${escapeHtml(p)}</span>`;
   });
   document.getElementById('dirpick-crumbs').innerHTML = crumbs;
 
   // The server inspects pyvenv.cfg/conda-meta and supplies the interpreter.
   // Names are presentation only: MusicAI is as valid as .venv.
   const dirs = data.entries || [];
+  if (dirPickMode === 'directory') dirPickSelect(data.path, data.path);
 
   let html = '';
   if (data.parent) {
-    html += `<div class="dpick-row" onclick="dirPickNav('${escapeAttr(data.parent)}')">
+    html += `<div class="dpick-row" data-path="${escapeAttr(data.parent)}" onclick="dirPickNav(this.dataset.path)">
       <span class="dp-ic">↑</span><span class="dp-nm">..</span></div>`;
   }
   if (!dirs.length && !data.parent) {
@@ -819,10 +837,10 @@ async function dirPickNav(path) {
   dirs.forEach(e => {
     const isVenv = !!e.is_venv;
     const python = e.python;
-    html += `<div class="dpick-row${isVenv ? ' dp-venv' : ''}"
-      onclick="${isVenv
-        ? `dirPickSelect('${escapeAttr(python)}','${escapeAttr(e.path)}')`
-        : `dirPickNav('${escapeAttr(e.path)}')`}">
+    html += `<div class="dpick-row${isVenv ? ' dp-venv' : ''}" data-path="${escapeAttr(e.path)}" data-python="${escapeAttr(python || '')}"
+      onclick="${isVenv && dirPickMode === 'environment'
+        ? 'dirPickSelect(this.dataset.python, this.dataset.path)'
+        : 'dirPickNav(this.dataset.path)'}">
       <span class="dp-ic">${isVenv ? '🐍' : '▸'}</span>
       <span class="dp-nm">${escapeHtml(e.name)}${isVenv ? '' : '/'}</span>
       ${isVenv ? '<span class="dp-tag">venv</span>' : ''}
@@ -838,6 +856,7 @@ function dirPickSelect(python, label) {
 }
 
 function dirPickManual(val) {
+  dirPickGeneration++;
   const v = val.trim();
   if (v) {
     dirPickSelected = v;
@@ -852,6 +871,7 @@ function dirPickManual(val) {
 }
 
 function dirPickOk() {
+  dirPickGeneration++;
   document.getElementById('dirpick-back').classList.remove('on');
   document.getElementById('dirpick-manual').value = '';
   const r = dirPickResolve; dirPickResolve = null;
@@ -859,6 +879,7 @@ function dirPickOk() {
 }
 
 function dirPickCancel() {
+  dirPickGeneration++;
   document.getElementById('dirpick-back').classList.remove('on');
   const r = dirPickResolve; dirPickResolve = null;
   if (r) r(null);
@@ -875,6 +896,7 @@ async function setVenv(python) {
     t.python = info.python;
     refreshVenvBtn();
     flash(`${t.name} → ${venvLabel(info.python)} (Python ${info.version})`);
+    return info;
   } catch (err) {
     flash(errText(err));
     setKernelStatus(t.status || 'stopped');

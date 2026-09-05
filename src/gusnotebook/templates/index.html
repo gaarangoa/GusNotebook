@@ -99,6 +99,11 @@
         <span class="nl">Folder</span>
         <span class="nh">in the browsed directory</span>
       </div>
+      <div class="new-item" onclick="newFromMenu('environment')">
+        <span class="ni">◇</span>
+        <span class="nl">Environment</span>
+        <span class="nh">Python and packages with uv</span>
+      </div>
       <div class="new-item" onclick="newFromMenu('claude')">
         <span class="ni">✳</span>
         <span class="nl">Claude Code</span>
@@ -223,7 +228,74 @@
   </div>
 </div>
 
-<!-- ---------- Directory picker (for venv Browse…) ---------- -->
+<!-- ---------- Environments ---------- -->
+<div class="modal-back" id="environment-back" onclick="if (event.target === this) closeEnvironments()">
+  <div class="modal environment-modal" role="dialog" aria-modal="true" aria-labelledby="environment-title">
+    <div class="mhead"><span class="grow" id="environment-title">Environments</span>
+      <button class="tb" onclick="closeEnvironments()" aria-label="Close environments">×</button></div>
+    <div class="environment-tabs" role="tablist" aria-label="Environment view">
+      <button id="environment-create-tab" role="tab" aria-controls="environment-create" onclick="environmentView('create')">Create environment</button>
+      <button id="environment-packages-tab" role="tab" aria-controls="environment-packages" onclick="environmentView('packages')">Installed packages</button>
+    </div>
+    <div class="mbody">
+      <div id="environment-error" class="environment-error" role="alert" hidden></div>
+      <section id="environment-create" class="environment-panel" role="tabpanel" aria-labelledby="environment-create-tab">
+        <fieldset id="environment-fields">
+          <div class="environment-row">
+            <div class="field"><label for="environment-name">Environment name</label>
+              <input id="environment-name" type="text" value=".venv" placeholder="analysis" oninput="environmentDestination()" autocomplete="off" spellcheck="false"></div>
+            <div class="field"><label for="environment-python">Python version or interpreter</label>
+              <input id="environment-python" type="text" placeholder="Default: app Python" autocomplete="off" spellcheck="false">
+              <div class="fhelp">For example, 3.12 or an interpreter path. uv can download the requested Python.</div></div>
+          </div>
+          <div class="field"><label for="environment-location">Location</label>
+            <div class="row"><input id="environment-location" type="text" placeholder="/path/to/project" oninput="environmentDestination()" autocomplete="off" spellcheck="false">
+              <button class="tb" onclick="browseEnvironmentLocation()">Browse…</button></div>
+            <div class="fhelp" id="environment-destination">Choose the parent folder for the new environment.</div></div>
+          <div class="field"><label for="environment-requirements">Packages</label>
+            <textarea id="environment-requirements" rows="4" placeholder="pandas&#10;numpy>=2&#10;matplotlib" spellcheck="false"></textarea>
+            <div class="fhelp">One package per line, with optional versions or extras. ipykernel is included so the environment can run notebooks.</div></div>
+          <div class="field"><label for="environment-repositories">Local repositories</label>
+            <div class="row"><textarea id="environment-repositories" rows="2" placeholder="/path/to/my-python-project" spellcheck="false"></textarea>
+              <button class="tb" onclick="browseEnvironmentRepository()">Add folder…</button></div>
+            <div class="fhelp">One path per line, on the machine running GusNotebook. Each repository needs pyproject.toml or setup.py.</div></div>
+          <div class="field"><label class="check-row"><input id="environment-editable" type="checkbox" checked>
+            Install local repositories in editable mode</label>
+            <div class="fhelp">Source edits in those repositories are available without reinstalling.</div></div>
+        </fieldset>
+      </section>
+      <section id="environment-packages" class="environment-panel" role="tabpanel" aria-labelledby="environment-packages-tab" hidden>
+        <div class="field"><label for="environment-select">Environment</label>
+          <div class="row"><select id="environment-select" onchange="inspectEnvironment(this.value)"></select>
+            <button class="tb" onclick="browseInstalledEnvironment()">Browse…</button>
+            <button class="tb" onclick="refreshEnvironmentPackages()">Refresh</button></div></div>
+        <div id="environment-package-info" class="environment-package-info"></div>
+        <div class="field"><label for="environment-filter">Filter packages</label>
+          <input id="environment-filter" type="text" placeholder="Search by name or repository path" oninput="renderEnvironmentPackageRows()"></div>
+        <div id="environment-package-count" aria-live="polite"></div>
+        <div class="environment-package-table">
+          <table><thead><tr><th scope="col">Package</th><th scope="col">Version</th><th scope="col">Local repository</th></tr></thead>
+            <tbody id="environment-package-rows"></tbody></table>
+        </div>
+        <p class="environment-package-info">Using an environment for a notebook restarts its kernel and clears live variables.</p>
+      </section>
+      <section id="environment-progress" hidden>
+        <p id="environment-status" role="status"></p>
+        <details id="environment-log-details" open><summary>Installation log</summary>
+          <pre id="environment-log" tabindex="0"></pre></details>
+      </section>
+    </div>
+    <div class="mfoot">
+      <button class="tb" id="environment-cancel" onclick="cancelEnvironmentCreation()" hidden>Cancel creation</button>
+      <span class="grow"></span>
+      <button class="tb" onclick="closeEnvironments()">Close</button>
+      <button class="tb primary" id="environment-use" onclick="useInspectedEnvironment()" hidden>Use for this notebook</button>
+      <button class="tb primary" id="environment-submit" onclick="createEnvironment()">Create environment</button>
+    </div>
+  </div>
+</div>
+
+<!-- ---------- Change history and directory picker ---------- -->
 <div class="modal-back" id="history-back" onclick="if (event.target === this) closeHistory()">
   <div class="modal history-modal" role="dialog" aria-modal="true" aria-labelledby="history-title">
     <div class="mhead"><span class="grow" id="history-title">Change history</span>
@@ -578,6 +650,7 @@
 <script src="{{ BASE_URL }}/static/js/panels.js"></script>
 <script src="{{ BASE_URL }}/static/js/terminals.js"></script>
 <script src="{{ BASE_URL }}/static/js/history.js"></script>
+<script src="{{ BASE_URL }}/static/js/environments.js"></script>
 
 </body>
 </html>
