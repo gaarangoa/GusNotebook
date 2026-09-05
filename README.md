@@ -73,6 +73,28 @@ If the proxy forwards the public URL prefix unchanged, set
 `APP_BASE_URL="/some/prefix"`. GusNotebook strips that prefix before routing and
 keeps it in generated browser URLs and authentication cookies.
 
+## Appearance and layout
+
+Open **Settings → Appearance** for **Light**, **Dark**, or **Follow system**,
+comfortable or compact spacing, and the code/terminal font size. Changes preview
+immediately; **Save settings** keeps them in this browser, and **Cancel** or
+**Escape** restores the previous appearance. The sun/moon button in the header
+switches directly between light and dark. Editors, terminals, tables, menus,
+and dialogs follow the theme; authored plots, images, and HTML previews keep
+their original colors.
+
+The header controls show or hide **Files** and **Agents and terminals**, or
+enable **Focus notebook**. Drag either panel divider to resize it; widths and
+visibility are saved in this browser. Focused dividers also accept arrow keys
+(Shift for larger steps), Home, and End. Double-click a divider to reset its
+width, or use **Reset layout** in Appearance. On smaller screens, the panel
+buttons open drawers that close with Escape or a click outside.
+
+**Settings → Notebook** controls code folding and lists shortcuts.
+**Settings → Agents** contains standing instructions and expandable permission
+settings. Tabs support arrow-key navigation, the **+** menu works with the
+keyboard, and dialogs keep keyboard focus inside until closed.
+
 ## Python environments
 
 Choose **+ → Environment** to create an environment with uv. Enter its name,
@@ -220,6 +242,7 @@ uv run playwright install chromium
 uv run python tests/test_reliability_ui.py
 uv run python tests/test_tabs_ui.py
 uv run python tests/test_environments_ui.py
+uv run python tests/test_appearance_ui.py
 uv run python scripts/benchmark.py
 ```
 

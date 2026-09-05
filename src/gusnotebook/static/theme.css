@@ -1,0 +1,38 @@
+:root {
+  color-scheme: light;
+  --bg: #f1f3f6; --panel: #ffffff; --surface: #f7f8fa; --hover: #edf0f5;
+  --border: #dce1e8; --border-strong: #aab4c4; --text: #202632; --secondary: #445166;
+  --muted: #5f6b7e; --accent: #830051; --accent-hover: #9a1268;
+  --accent-soft: #f5e7f0; --accent-border: #c58aad; --on-accent: #ffffff;
+  --code-bg: #ffffff; --code-active: #f2f4f8; --selection: #d8e5ff;
+  --red: #b42332; --green: #237443; --yellow: #8a5b14;
+  --blue: #315cac; --magenta: #9248a7; --cyan: #166b80;
+  --error-bg: #fff0f1; --error-border: #df9aa4; --success-bg: #e9f5ed;
+  --warning-bg: #fbf3e3; --warning-border: #d6ba85; --info-bg: #edf3fc;
+  --overlay: rgb(20 27 40 / 42%); --shadow: 0 18px 50px rgb(20 27 40 / 18%);
+  --veil: rgb(255 255 255 / 94%);
+  --syntax-keyword: #762fa9; --syntax-string: #24733f; --syntax-comment: #667387;
+  --syntax-number: #995714; --syntax-function: #315cac; --syntax-type: #166b80;
+  --mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  --ui-size: 13px; --small-size: 12px; --control-height: 32px; --row-space: 8px;
+  --editor-size: 14px;
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #111318; --panel: #181b22; --surface: #20242d; --hover: #292e39;
+  --border: #343b49; --border-strong: #667186; --text: #e7eaf0; --secondary: #c3ccda;
+  --muted: #a0aabd; --accent: #df87bc; --accent-hover: #eda2cf;
+  --accent-soft: #392739; --accent-border: #946680; --on-accent: #20131d;
+  --code-bg: #181b22; --code-active: #222733; --selection: #354b6e;
+  --red: #ff9aa9; --green: #91d7a7; --yellow: #ebc17d;
+  --blue: #a1bfff; --magenta: #d4a7ee; --cyan: #8bd4e1;
+  --error-bg: #34232d; --error-border: #885162; --success-bg: #21362b;
+  --warning-bg: #332d23; --warning-border: #857047; --info-bg: #232d40;
+  --overlay: rgb(0 0 0 / 62%); --shadow: 0 18px 50px rgb(0 0 0 / 42%);
+  --veil: rgb(24 27 34 / 94%);
+  --syntax-keyword: #d4a7ee; --syntax-string: #a7d69d; --syntax-comment: #a0aabd;
+  --syntax-number: #ebc17d; --syntax-function: #a1bfff; --syntax-type: #8bd4e1;
+}
+:root[data-density="compact"] {
+  --ui-size: 12px; --small-size: 11px; --control-height: 28px; --row-space: 5px;
+}

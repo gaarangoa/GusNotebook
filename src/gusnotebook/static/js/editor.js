@@ -15,6 +15,12 @@
  * Playwright suites read and write it. See shimHost() for how CM gets one.
  */
 const cmViews = new Map();       // cell id -> EditorView, mounted cells only
+document.addEventListener('appearance-change', () => {
+  for (const view of cmViews.values()) {
+    view.dispatch({effects: view.nbTheme.reconfigure(CM.EditorView.theme({}, {dark: AppAppearance.isDark()}))});
+    view.requestMeasure();
+  }
+});
 
 /**
  * Give a mounted CM host a `value` property, so `document.getElementById('ed-X')
@@ -405,7 +411,9 @@ function mountEditor(id) {
   }
   if (existing) { existing.destroy(); cmViews.delete(id); }
 
+  const theme = new CM.Compartment();
   const ext = [
+    theme.of(CM.EditorView.theme({}, {dark: AppAppearance.isDark()})),
     CM.history(),
     CM.highlightActiveLine(),
     CM.syntaxHighlighting(CM.style),
@@ -445,6 +453,7 @@ function mountEditor(id) {
   if (hint) ext.push(CM.placeholder(hint));
 
   const view = new CM.EditorView({doc: text, extensions: ext});
+  view.nbTheme = theme;
   view.nbLang = host.dataset.lang;
   view.nbHint = hint;
   // The textarea goes, and the host inherits its id — so `#ed-<id>` still

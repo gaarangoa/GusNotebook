@@ -8,7 +8,10 @@
 let typeMenuCell = null;      // which cell the shared menu is open for
 
 function closeTypeMenu() {
-  document.getElementById('type-menu').classList.remove('on');
+  const menu = document.getElementById('type-menu');
+  const focused = menu.contains(document.activeElement);
+  menu.classList.remove('on');
+  if (focused) menu._opener?.focus();
   typeMenuCell = null;
 }
 
@@ -19,11 +22,13 @@ function toggleTypeMenu(ev, id) {
   // Anchored to the button, and pulled back inside the window: the gutter is at
   // the left edge, so only the bottom needs guarding against.
   const r = ev.currentTarget.getBoundingClientRect();
+  menu._opener = ev.currentTarget;
   menu.style.top = Math.min(r.bottom + 4, window.innerHeight - 130) + 'px';
   menu.style.left = r.left + 'px';
   menu.classList.add('on');
   typeMenuCell = id;
   selectCell(id);       // acting on a cell parks you on it, as clicking it does
+  menu.querySelector('[role="menuitem"]')?.focus();
 }
 
 function typeFromMenu(type) {
@@ -697,7 +702,10 @@ function refreshVenvBtn() {
 }
 
 function closeVenvMenu() {
-  document.getElementById('venv-menu').classList.remove('on');
+  const menu = document.getElementById('venv-menu');
+  if (menu.contains(document.activeElement)) document.getElementById('venv-btn').focus();
+  menu.classList.remove('on');
+  document.getElementById('venv-btn').setAttribute('aria-expanded', 'false');
 }
 
 async function toggleVenvMenu(ev) {
@@ -712,9 +720,11 @@ async function toggleVenvMenu(ev) {
   menu.style.top = (r.bottom + 5) + 'px';
   menu.style.right = (window.innerWidth - r.right) + 'px';
   menu.classList.add('on');
+  document.getElementById('venv-btn').setAttribute('aria-expanded', 'true');
   menu.innerHTML = '<div class="venv-note">looking for environments…</div>';
   try {
     renderVenvMenu(await api('/api/venvs' + nbq()));
+    if (menu.classList.contains('on')) menu.querySelector('[role="button"]')?.focus();
   } catch (err) {
     menu.innerHTML = `<div class="venv-note">${escapeHtml(errText(err))}</div>`;
   }
@@ -726,7 +736,7 @@ function renderVenvMenu(data) {
     if (v.python === data.current) cls.push('current');
     if (!v.ipykernel) cls.push('off');
     const note = v.ipykernel ? (v.origin || '') : 'no ipykernel';
-    return `<div class="${cls.join(' ')}" onclick="setVenv(this.title)"
+    return `<div role="button" tabindex="0" class="${cls.join(' ')}" onclick="setVenv(this.title)"
                  title="${escapeAttr(v.python)}">
       <span class="vl">${escapeHtml(v.label)}</span>
       <span class="vv">${escapeHtml(v.version || '?')}</span>
@@ -738,8 +748,8 @@ function renderVenvMenu(data) {
 
   document.getElementById('venv-menu').innerHTML = rows +
     '<div class="venv-sep"></div>' +
-    `<div class="venv-item" onclick="openEnvironments()"><span class="vl">Create environment…</span></div>` +
-    `<div class="venv-item" onclick="browseVenv()">
+    `<div role="button" tabindex="0" class="venv-item" onclick="openEnvironments()"><span class="vl">Create environment…</span></div>` +
+    `<div role="button" tabindex="0" class="venv-item" onclick="browseVenv()">
        <span class="vl">Browse…</span>
        <span class="vo">type a venv or python path</span>
      </div>` +
@@ -747,10 +757,10 @@ function renderVenvMenu(data) {
     // The kernel menu is also where the less-used run/clear actions live, now
     // that the toolbar is down to the essentials.
     '<div class="venv-sep"></div>' +
-    `<div class="venv-item" onclick="closeVenvMenu(); runAll()">
+    `<div role="button" tabindex="0" class="venv-item" onclick="closeVenvMenu(); runAll()">
        <span class="vl">Run all cells</span>
      </div>
-     <div class="venv-item" onclick="closeVenvMenu(); clearOutputs()">
+     <div role="button" tabindex="0" class="venv-item" onclick="closeVenvMenu(); clearOutputs()">
        <span class="vl">Clear all outputs</span>
      </div>`;
 }
@@ -814,10 +824,10 @@ async function dirPickNav(path) {
   // Crumbs
   const parts = data.path.split('/').filter(Boolean);
   const full = parts.map((p, i) => '/' + parts.slice(0, i + 1).join('/'));
-  let crumbs = `<span class="crumb" onclick="dirPickNav('/')">/</span>`;
+  let crumbs = `<span role="button" tabindex="0" class="crumb" onclick="dirPickNav('/')">/</span>`;
   parts.forEach((p, i) => {
     crumbs += `<span class="crumb-sep">/</span>
-      <span class="crumb" data-path="${escapeAttr(full[i])}" onclick="dirPickNav(this.dataset.path)">${escapeHtml(p)}</span>`;
+      <span role="button" tabindex="0" class="crumb" data-path="${escapeAttr(full[i])}" onclick="dirPickNav(this.dataset.path)">${escapeHtml(p)}</span>`;
   });
   document.getElementById('dirpick-crumbs').innerHTML = crumbs;
 
@@ -828,8 +838,8 @@ async function dirPickNav(path) {
 
   let html = '';
   if (data.parent) {
-    html += `<div class="dpick-row" data-path="${escapeAttr(data.parent)}" onclick="dirPickNav(this.dataset.path)">
-      <span class="dp-ic">↑</span><span class="dp-nm">..</span></div>`;
+    html += `<div role="button" tabindex="0" class="dpick-row" data-path="${escapeAttr(data.parent)}" onclick="dirPickNav(this.dataset.path)">
+      <span class="dp-ic">${icon('up')}</span><span class="dp-nm">..</span></div>`;
   }
   if (!dirs.length && !data.parent) {
     html += '<div class="files-msg">No subdirectories</div>';
@@ -837,11 +847,11 @@ async function dirPickNav(path) {
   dirs.forEach(e => {
     const isVenv = !!e.is_venv;
     const python = e.python;
-    html += `<div class="dpick-row${isVenv ? ' dp-venv' : ''}" data-path="${escapeAttr(e.path)}" data-python="${escapeAttr(python || '')}"
+    html += `<div role="button" tabindex="0" class="dpick-row${isVenv ? ' dp-venv' : ''}" data-path="${escapeAttr(e.path)}" data-python="${escapeAttr(python || '')}"
       onclick="${isVenv && dirPickMode === 'environment'
         ? 'dirPickSelect(this.dataset.python, this.dataset.path)'
         : 'dirPickNav(this.dataset.path)'}">
-      <span class="dp-ic">${isVenv ? '🐍' : '▸'}</span>
+      <span class="dp-ic">${icon(isVenv ? 'environment' : 'folder')}</span>
       <span class="dp-nm">${escapeHtml(e.name)}${isVenv ? '' : '/'}</span>
       ${isVenv ? '<span class="dp-tag">venv</span>' : ''}
     </div>`;
@@ -1031,6 +1041,24 @@ function richMimeText(value) {
 
 function htmlOutputSrcdoc(body, outputId) {
   const safeId = JSON.stringify(outputId);
+  // Plain output and data tables follow the app. Authored charts/widgets retain
+  // their canvas colors, including SVG's default black fill and image pixels.
+  const themeable = /<table\b/i.test(body) && !/<(?:svg|canvas|img|video|script)\b/i.test(body) ||
+    !/<(?:style|svg|canvas|img|video|link|script)\b|(?:background|color)\s*:/i.test(body);
+  const themeColors = themeable ? AppAppearance.colors() :
+    {text: '#202632', muted: '#5f6b7e', panel: '#ffffff', surface: '#f7f8fa', border: '#dce1e8'};
+  const themeStyle = Object.entries(themeColors).map(([key, value]) => `--${key}:${value}`).join(';');
+  const themeScript = `<script data-gusnb-output-theme>
+    addEventListener('message', event => {
+      if (event.source !== parent || event.data?.type !== 'gusnotebook-output-theme' || !${themeable}) return;
+      const root = document.documentElement;
+      for (const key of ['text', 'muted', 'panel', 'surface', 'border']) {
+        const color = event.data.colors?.[key];
+        if (typeof color === 'string' && /^#[0-9a-f]{6}$/i.test(color)) root.style.setProperty('--' + key, color);
+      }
+      root.style.colorScheme = event.data.theme === 'dark' ? 'dark' : 'light';
+    });
+  </script>`;
   const d3Patch = `<script data-gusnb-d3-static>
 (() => {
   const nativeSetTimeout = window.setTimeout.bind(window);
@@ -1253,19 +1281,27 @@ function htmlOutputSrcdoc(body, outputId) {
 </script>`;
   return `<!doctype html><html><head><base target="_blank">
 <style>
-html,body{margin:0;padding:0;background:transparent;color:#1e293b;font:13px/1.45 -apple-system,BlinkMacSystemFont,"Inter",sans-serif;}
+:root{${themeStyle};color-scheme:${themeable && AppAppearance.isDark() ? 'dark' : 'light'};}
+html,body{margin:0;padding:0;background:${themeable ? 'transparent' : 'var(--panel)'};color:var(--text);font:13px/1.55 -apple-system,BlinkMacSystemFont,"Inter",sans-serif;}
 body{overflow-x:auto;overflow-y:hidden;}
 *,*::before,*::after{animation:none!important;transition:none!important;}
 img,svg,canvas,video{max-width:100%;}
-table{border-collapse:collapse;font:11.5px/1.45 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;margin:3px 0;}
-th,td{border:1px solid #e2e8f0;padding:4px 7px;text-align:right;vertical-align:top;white-space:nowrap;}
-th{background:#f8fafc;color:#475569;font-weight:600;}
-tbody th{text-align:left;background:#fff;color:#64748b;font-weight:500;}
-tbody tr:hover td,tbody tr:hover th{background:#f8fafc;}
+table{border-collapse:collapse;font:13px/1.55 ui-monospace,Menlo,Consolas,monospace;margin:6px 0;}
+th,td{border:1px solid var(--border);padding:8px 12px;text-align:right;vertical-align:top;white-space:nowrap;}
+th{background:var(--surface);color:var(--muted);font-weight:600;}
+tbody th{text-align:left;background:var(--panel);color:var(--muted);font-weight:500;}
+tbody tr:hover td,tbody tr:hover th{background:var(--surface);}
 table[border]{border:none;}
 </style>
-</head><body>${d3Patch}${body}${resize.replace('<script>', '<script data-gusnb-frame-runtime>')}</body></html>`;
+</head><body>${d3Patch}${body}${themeScript}${resize.replace('<script>', '<script data-gusnb-frame-runtime>')}</body></html>`;
 }
+
+document.addEventListener('appearance-change', () => {
+  for (const frame of document.querySelectorAll('iframe[data-output-frame]')) {
+    frame.contentWindow?.postMessage({type: 'gusnotebook-output-theme', colors: AppAppearance.colors(),
+      theme: AppAppearance.isDark() ? 'dark' : 'light'}, '*');
+  }
+});
 
 function htmlOutputFrame(source, outputId, plain) {
   const raw = plain ? `
@@ -1561,7 +1597,7 @@ function provenanceRenderPicker() {
       ? `provenanceBrowse('${escapeAttr(e.path)}')`
       : `provenancePickFile('${escapeAttr(e.path)}')`;
     rows.push(`<div class="prov-file-row ${isDir ? 'dir' : ''}" onclick="${action}" title="${escapeAttr(e.path)}">
-      <span class="ic">${isDir ? '▸' : '·'}</span>
+      <span class="ic">${icon(isDir ? 'folder' : 'file')}</span>
       <span class="nm">${escapeHtml(e.name)}</span>
       <span class="sz">${isDir ? '' : fmtSize(e.size)}</span>
     </div>`);
@@ -1774,7 +1810,7 @@ function renderCellOutput(c) {
 /* How many lines a folded cell shows, as a max-height for the clip. In em so it
  * tracks the editor's line-height rather than a pixel count that breaks when the
  * font size changes; the extra covers the editor's vertical padding. */
-function foldHeight() { return (codeFoldLines * 1.55 + 1.4).toFixed(2) + 'em'; }
+function foldHeight() { return `calc(var(--editor-size) * ${codeFoldLines * 1.6} + 24px)`; }
 
 function cellLines(c) { return (c.source || '').split('\n').length; }
 function isFoldable(c) {
@@ -1877,7 +1913,7 @@ function cellHtml(c) {
       hdBtn = `<button class="hd-toggle" data-id="${c.id}"
            onclick="event.stopPropagation();toggleHeading('${c.id}')"
            title="${collapsed ? 'Expand section' : 'Collapse section'}"
-           >${collapsed ? '▸' : '▾'}</button>`;
+           >${icon(collapsed ? 'chevron' : 'chevronDown')}</button>`;
     }
     bodyInner = `<div class="md-rendered" ondblclick="editMarkdown('${c.id}')">${
       DOMPurify.sanitize(marked.parse(c.source || ''))}</div>`;
@@ -1935,7 +1971,7 @@ function cellHtml(c) {
       <span class="tag">AI</span>
       <span class="pt">${escapeHtml(c.prompt)}</span>
       <span class="re" onclick="event.stopPropagation();regenerate('${c.id}')"
-            title="Ask again with the same prompt">↻</span>
+            title="Ask again with the same prompt">${icon('refresh')}</span>
     </div>` : '';
 
   // What the user asked Claude, on a cell a terminal rewrote. Same shape as the
@@ -1945,7 +1981,7 @@ function cellHtml(c) {
   // The ↶ Undo replace strip below is what walks the write back.
   const claudeStrip = c.claude_prompt ? `
     <div class="ai-prompt claude" title="${escapeAttr(c.claude_prompt)}">
-      <span class="tag">✳</span>
+      <span class="tag">${icon('agent')}</span>
       <span class="pt">${escapeHtml(c.claude_prompt)}</span>
     </div>` : '';
 
@@ -1955,7 +1991,7 @@ function cellHtml(c) {
   const undoStrip = c.undo_depth ? `
     <div class="undo-bar">
       <button class="undo-go" onclick="event.stopPropagation();undoCell('${c.id}')"
-              title="Restore the source this replaced">↶ Undo replace</button>
+              title="Restore the source this replaced">${icon('undo')} Undo replace</button>
       <span class="undo-n">${c.undo_depth} step${c.undo_depth > 1 ? 's' : ''}</span>
     </div>` : '';
 
@@ -1963,8 +1999,8 @@ function cellHtml(c) {
   // ⌘Z/⇧⌘Z work fine and the buttons add visual noise without adding value.
   const histBtns = (isMd && !isEditing) || !window.CM ? '' : `
       <div class="gutter-hist" id="hist-${c.id}" style="display:none">
-        <button class="hist-btn" onclick="event.stopPropagation();cellUndo('${c.id}')" disabled>↶</button>
-        <button class="hist-btn" onclick="event.stopPropagation();cellRedo('${c.id}')" disabled>↷</button>
+        <button class="hist-btn" onclick="event.stopPropagation();cellUndo('${c.id}')" disabled>${icon('undo')}</button>
+        <button class="hist-btn" onclick="event.stopPropagation();cellRedo('${c.id}')" disabled>${icon('redo')}</button>
       </div>`;
 
   const hasOuts = !!(c.outputs && c.outputs.length);
@@ -1979,21 +2015,21 @@ function cellHtml(c) {
       <div class="gutter-acts">
         <div class="act-row">
           <button class="act-btn" title="Move cell up (⌘⇧↑)"
-                  onclick="event.stopPropagation();moveCell('${c.id}',-1)">↑</button>
+                  onclick="event.stopPropagation();moveCell('${c.id}',-1)">${icon('up')}</button>
           <button class="act-btn" title="Move cell down (⌘⇧↓)"
-                  onclick="event.stopPropagation();moveCell('${c.id}',1)">↓</button>
+                  onclick="event.stopPropagation();moveCell('${c.id}',1)">${icon('down')}</button>
         </div>
         <div class="act-row">
           <button class="act-btn" title="Change this cell's type"
-                  onclick="toggleTypeMenu(event, '${c.id}')">⌥</button>
+                  onclick="toggleTypeMenu(event, '${c.id}')">${icon('code')}</button>
           <button class="act-btn" title="Add a code cell below"
-                  onclick="event.stopPropagation();addCell('code', '${c.id}')">+</button>
+                  onclick="event.stopPropagation();addCell('code', '${c.id}')">${icon('plus')}</button>
         </div>
         <div class="act-row">
           <button class="act-btn" title="Copy provenance snapshot (⌥/Ctrl/⌘ click to attach file)"
-                  onclick="event.stopPropagation();copyCellProvenance('${c.id}', event)">⧉</button>
+                  onclick="event.stopPropagation();copyCellProvenance('${c.id}', event)">${icon('copy')}</button>
           <button class="act-btn danger" title="Delete this cell"
-                  onclick="event.stopPropagation();deleteCell('${c.id}')">✕</button>
+                  onclick="event.stopPropagation();deleteCell('${c.id}')">${icon('close')}</button>
         </div>
       </div>`;
 

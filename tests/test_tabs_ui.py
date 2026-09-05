@@ -160,8 +160,8 @@ def main():
         # and ⚙ moved to the title bar; the point of it is that nothing *else*
         # crept back in.
         check("nothing but cell types and kernel controls", labels,
-              ["+ Code", "+ Markdown", "+ Raw",
-               "Delete", "■ Stop", "↻ Restart"])
+              ["Run", "Code", "Markdown", "Raw",
+               "Delete", "Stop", "Restart"])
         check("kernel badge is the env button",
               pg.evaluate("document.getElementById('venv-btn').classList.contains('kernel-badge')"),
               True)

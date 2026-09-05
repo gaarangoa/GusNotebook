@@ -24,7 +24,9 @@ let skillList = [];
 let editingSkill = null;      // the id being edited, or null for a new one
 
 function toggleSkills() {
-  document.getElementById('skills').classList.toggle('collapsed');
+  const section = document.getElementById('skills');
+  section.classList.toggle('collapsed');
+  section.querySelector('.strip-head').setAttribute('aria-expanded', String(!section.classList.contains('collapsed')));
 }
 
 async function loadSkills() {
@@ -42,13 +44,13 @@ function renderSkills() {
     skillList.length ? `${skillList.length}` : '';
 
   document.getElementById('skill-list').innerHTML = skillList.map(s => `
-    <div class="skill-row" onclick="insertSkill('${escapeAttr(s.id)}')"
-         title="${escapeAttr(s.description || s.name)}&#10;&#10;click to add as a cell · ▤ to edit">
-      <span class="ic">◈</span>
+    <div class="skill-row" role="button" tabindex="0" onclick="insertSkill('${escapeAttr(s.id)}')"
+         title="${escapeAttr(s.description || s.name)}&#10;&#10;Click to add as a cell. Use Edit to change this skill.">
+      <span class="ic">${icon('code')}</span>
       <span class="nm">${escapeHtml(s.name)}</span>
       <span class="ds">${escapeHtml(s.description || '')}</span>
-      <span class="ed" onclick="openSkill('${escapeAttr(s.id)}', event)"
-            title="Edit this skill">▤</span>
+      <span role="button" tabindex="0" aria-label="Edit skill" class="ed" onclick="openSkill('${escapeAttr(s.id)}', event)"
+            title="Edit this skill">${icon('edit')}</span>
     </div>`).join('') ||
     // Not just "none": an empty list has to say what the thing is for, since
     // there's no example on screen to infer it from.
@@ -69,7 +71,7 @@ async function insertSkill(sid) {
     return;
   }
   if (!s.code) {
-    flash(`"${s.name}" has no code block — ▤ to add one.`);
+    flash(`"${s.name}" has no code block — use Edit to add one.`);
     return;
   }
   const cell = await addCell('code', selected);
@@ -206,7 +208,9 @@ function forgetWorkspace(sid) {
 }
 
 function toggleSessions() {
-  document.getElementById('sessions').classList.toggle('collapsed');
+  const section = document.getElementById('sessions');
+  section.classList.toggle('collapsed');
+  section.querySelector('.strip-head').setAttribute('aria-expanded', String(!section.classList.contains('collapsed')));
 }
 
 /* Kernel status fires on every idle/busy transition, i.e. once per cell run.
@@ -250,25 +254,25 @@ function renderSessions() {
     if (s.kernels) bits.push(`<span class="live">${s.kernels}k</span>`);
     if (s.terminals_live) bits.push(`<span class="live">${s.terminals_live}✳</span>`);
     return `
-    <div class="session-row ${s.current ? 'current' : ''}"
+    <div role="button" tabindex="0" class="session-row ${s.current ? 'current' : ''}"
          onclick="switchSession('${escapeAttr(s.id)}')"
          ondblclick="renameSession('${escapeAttr(s.id)}', event)"
          title="${escapeAttr(s.root)}&#10;double-click to rename">
-      <span class="ic">${s.current ? '▾' : '▸'}</span>
+      <span class="ic">${icon(s.current ? 'chevronDown' : 'chevron')}</span>
       <span class="nm">${escapeHtml(s.name)}</span>
       <span class="meta">${bits.join(' ')}</span>
-      <span class="pop" onclick="openSessionWindow('${escapeAttr(s.id)}', event)"
-            title="Open this session in a new window">↗</span>
-      <span class="note ${s.instructions || hasRestrictions(s.restrictions) ? 'set' : ''}"
+      <span role="button" tabindex="0" aria-label="Open session in a new window" class="pop" onclick="openSessionWindow('${escapeAttr(s.id)}', event)"
+            title="Open this session in a new window">${icon('external')}</span>
+      <span role="button" tabindex="0" aria-label="Session instructions" class="note ${s.instructions || hasRestrictions(s.restrictions) ? 'set' : ''}"
             onclick="openSessionInstr('${escapeAttr(s.id)}', event)"
             title="${s.instructions
                      ? 'Instructions for agents in this session:&#10;' + escapeAttr(s.instructions)
                      : 'Instructions for agents in this session'}${
                    hasRestrictions(s.restrictions)
                      ? '&#10;&#10;Restricted: ' + Object.keys(s.restrictions).length +
-                       ' setting(s)' : ''}">▤</span>
-      <span class="x" onclick="deleteSession('${escapeAttr(s.id)}', event)"
-            title="Close this session — its tabs and kernels shut down">✕</span>
+                       ' setting(s)' : ''}">${icon('edit')}</span>
+      <span role="button" tabindex="0" aria-label="Close session" class="x" onclick="deleteSession('${escapeAttr(s.id)}', event)"
+            title="Close this session — its tabs and kernels shut down">${icon('close')}</span>
     </div>`;
   }).join('') ||
     '<div class="files-msg">no sessions</div>';

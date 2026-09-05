@@ -9,7 +9,7 @@
 let fileState = {path: null, home: null, notebook: null, hidden: true};
 let browseSerial = 0;
 
-const FILE_ICON = {dir: '▸', notebook: '◆', file: '·'};
+const FILE_ICON = {dir: 'folder', notebook: 'notebook', file: 'file'};
 
 function fmtSize(n) {
   if (n == null) return '';
@@ -76,13 +76,13 @@ function renderCrumbs(path) {
 
   const hidden = Math.max(0, parts.length - CRUMB_TAIL);
   let html = hidden
-    ? `<span class="crumb" onclick="browse('${escapeAttr(full[hidden - 1])}')"
+    ? `<span role="button" tabindex="0" class="crumb" data-path="${escapeAttr(full[hidden - 1])}" onclick="browse(this.dataset.path)"
              title="${escapeAttr(full[hidden - 1])}">…</span>`
-    : `<span class="crumb" onclick="browse('/')">/</span>`;
+    : `<span role="button" tabindex="0" class="crumb" onclick="browse('/')">/</span>`;
 
   for (let i = hidden; i < parts.length; i++) {
     html += `<span class="crumb-sep">/</span>` +
-      `<span class="crumb" onclick="browse('${escapeAttr(full[i])}')"
+      `<span role="button" tabindex="0" class="crumb" data-path="${escapeAttr(full[i])}" onclick="browse(this.dataset.path)"
              title="${escapeAttr(full[i])}">${escapeHtml(parts[i])}</span>`;
   }
 
@@ -99,19 +99,20 @@ function renderFileList(entries) {
     list.innerHTML = entries.map(e => {
       const cls = ['file-row'];
       if (tab(e.path)) cls.push('open');
+      if (e.path === active) cls.push('active-file');
       if (e.kind === 'file') cls.push('dim');
       const action = e.kind === 'dir'
-        ? `browse('${escapeAttr(e.path)}')`
-        : `openFile('${escapeAttr(e.path)}')`;
-      return `<div class="${cls.join(' ')}" onclick="${action}"
-        oncontextmenu="fileCtxEntry(event,'${escapeAttr(e.path)}','${e.kind}')"
+        ? 'browse(this.dataset.path)'
+        : 'openFile(this.dataset.path)';
+      return `<div class="${cls.join(' ')}" data-path="${escapeAttr(e.path)}" onclick="${action}"
+        oncontextmenu="fileCtxEntry(event,this.dataset.path,'${e.kind}')"
         draggable="true"
-        ondragstart="fileDragStart(event,'${escapeAttr(e.path)}','${e.kind}')"
+        ondragstart="fileDragStart(event,this.dataset.path,'${e.kind}')"
         ondragover="fileDragOver(event,'${e.kind}')"
         ondragleave="fileDragLeave(event)"
-        ondrop="fileDrop(event,'${escapeAttr(e.path)}','${e.kind}')"
-        title="${escapeAttr(e.path)}">
-        <span class="ic">${FILE_ICON[e.kind]}</span>
+        ondrop="fileDrop(event,this.dataset.path,'${e.kind}')"
+        role="button" tabindex="0" title="${escapeAttr(e.path)}">
+        <span class="ic">${icon(FILE_ICON[e.kind])}</span>
         <span class="nm">${escapeHtml(e.name)}</span>
         <span class="sz">${fmtSize(e.size)}</span>
       </div>`;
@@ -175,9 +176,14 @@ function showFileCtx(x, y, items) {
   const menu = document.createElement('div');
   menu.className = 'file-ctx';
   menu.id = 'file-ctx';
+  menu.setAttribute('role', 'menu');
+  menu.setAttribute('aria-label', 'File actions');
+  menu._opener = document.activeElement;
   items.forEach(({label, action, danger}) => {
     const item = document.createElement('div');
     item.className = 'file-ctx-item' + (danger ? ' danger' : '');
+    item.setAttribute('role', 'menuitem');
+    item.tabIndex = -1;
     item.textContent = label;
     item.onclick = (e) => { e.stopPropagation(); closeFileCtx(); action(); };
     menu.appendChild(item);
@@ -187,6 +193,7 @@ function showFileCtx(x, y, items) {
   const mw = menu.offsetWidth, mh = menu.offsetHeight;
   menu.style.left = Math.min(x, window.innerWidth  - mw - 8) + 'px';
   menu.style.top  = Math.min(y, window.innerHeight - mh - 8) + 'px';
+  menu.firstElementChild?.focus();
 }
 
 function activeFileCtx(e) {
@@ -214,8 +221,7 @@ function showPathCtx(x, y, path) {
 async function showInFileTree(path) {
   const app = document.getElementById('app');
   if (app && app.classList.contains('files-hidden')) {
-    app.classList.remove('files-hidden');
-    applyLayout();
+    ensurePanel('files');
   }
   const directory = String(path || '').split('/').slice(0, -1).join('/') || '/';
   const ok = await browse(directory);
@@ -231,7 +237,10 @@ async function showInFileTree(path) {
 
 function closeFileCtx() {
   const m = document.getElementById('file-ctx');
-  if (m) m.remove();
+  if (m) {
+    if (m.contains(document.activeElement)) m._opener?.focus();
+    m.remove();
+  }
 }
 
 function baseName(path) {
@@ -593,17 +602,13 @@ function toggleHidden() {
   browse(fileState.path);
 }
 
-function toggleFiles() {
-  document.getElementById('app').classList.toggle('files-hidden');
-  applyLayout();
-  fitTerm();
-}
+function toggleFiles() { togglePanel('files'); }
 
 // ---------- Tab bar ----------
-const TAB_ICON = {notebook: '◆', text: '≡', markup: '◇', image: '▣'};
+const TAB_ICON = {notebook: 'notebook', text: 'text', markup: 'code', image: 'image'};
 
 function tabIcon(t) {
-  return TAB_ICON[isMarkupTab(t) ? 'markup' : t.kind] || '·';
+  return icon(TAB_ICON[isMarkupTab(t) ? 'markup' : t.kind] || 'file');
 }
 
 function errText(err) {
@@ -677,24 +682,28 @@ function stashActive() {
 }
 
 function renderTabs() {
+  for (const row of document.querySelectorAll('.file-row[data-path]')) {
+    row.classList.toggle('active-file', row.dataset.path === active);
+    row.classList.toggle('open', !!tab(row.dataset.path));
+  }
   document.getElementById('tabs').innerHTML = tabs.map(t => `
-    <div class="tab ${t.path === active ? 'active' : ''} ${t.dirty ? 'dirty' : ''}"
-         onclick="switchTab('${escapeAttr(t.path)}')"
-         oncontextmenu="tabFileCtx(event,'${escapeAttr(t.path)}')"
+    <div role="tab" aria-selected="${t.path === active}" tabindex="${t.path === active ? 0 : -1}" data-path="${escapeAttr(t.path)}" class="tab ${t.path === active ? 'active' : ''} ${t.dirty ? 'dirty' : ''}"
+         onclick="switchTab(this.dataset.path)"
+         oncontextmenu="tabFileCtx(event,this.dataset.path)"
          draggable="true"
-         ondragstart="tabDragStart(event,'${escapeAttr(t.path)}')"
-         ondragover="tabDragOver(event,'${escapeAttr(t.path)}')"
+         ondragstart="tabDragStart(event,this.dataset.path)"
+         ondragover="tabDragOver(event,this.dataset.path)"
          ondragleave="tabDragLeave(event)"
-         ondrop="tabDrop(event,'${escapeAttr(t.path)}')"
+         ondrop="tabDrop(event,this.dataset.path)"
          ondragend="tabDragEnd(event)"
          title="${escapeAttr(t.path)}">
       <span class="ti">${tabIcon(t)}</span>
       <span class="tn">${escapeHtml(t.name)}</span>
-      <span class="tx" onclick="closeTab('${escapeAttr(t.path)}', event)">✕</span>
+      <span class="tx" role="button" tabindex="0" aria-label="Close ${escapeAttr(t.name)}" onclick="closeTab(this.closest('.tab').dataset.path, event)">${icon('close')}</span>
     </div>`).join('') +
     // Always last, so "new" sits where the next tab would appear.
-    `<div class="tab-new" id="tab-new" onclick="toggleNewMenu(event)"
-          title="New notebook, file, folder, agent or terminal">+</div>`;
+    `<button class="tab-new" id="tab-new" aria-label="Create new" aria-haspopup="menu" aria-expanded="false" aria-controls="new-menu" onclick="toggleNewMenu(event)"
+          title="New notebook, file, folder, environment, agent or terminal">${icon('plus')}</button>`;
 }
 
 let tabDragPath = null;
@@ -756,7 +765,10 @@ function reorderTab(fromPath, toPath, after) {
 function closeNewMenu() {
   document.getElementById('new-menu').classList.remove('on');
   const plus = document.getElementById('tab-new');
-  if (plus) plus.classList.remove('on');
+  if (plus) {
+    plus.classList.remove('on'); plus.setAttribute('aria-expanded', 'false');
+    if (document.getElementById('new-menu').contains(document.activeElement)) plus.focus();
+  }
 }
 
 function toggleNewMenu(ev) {
@@ -769,6 +781,10 @@ function toggleNewMenu(ev) {
   menu.style.left = Math.min(r.left, window.innerWidth - 270) + 'px';
   menu.classList.add('on');
   document.getElementById('tab-new').classList.add('on');
+  document.getElementById('tab-new').setAttribute('aria-expanded', 'true');
+  menu.style.left = Math.max(8, Math.min(r.left, innerWidth - menu.offsetWidth - 8)) + 'px';
+  menu.style.top = Math.max(8, Math.min(r.bottom + 4, innerHeight - menu.offsetHeight - 8)) + 'px';
+  menu.querySelector('[role=menuitem]').focus();
 }
 
 /** One entry from the + menu. Everything lands in the browsed directory. */

@@ -49,11 +49,11 @@ function setTermStatus() {
 
 function renderTermTabs() {
   document.getElementById('term-tabs').innerHTML = terms.map(t => `
-    <div class="tterm ${t.id === activeTerm ? 'active' : ''} ${t.alive ? '' : 'dead'}"
+    <div role="tab" tabindex="${t.id === activeTerm ? 0 : -1}" aria-selected="${t.id === activeTerm}" class="tterm ${t.id === activeTerm ? 'active' : ''} ${t.alive ? '' : 'dead'}"
          onclick="focusTerm('${t.id}')" title="${escapeAttr(t.cwd)}">
-      <span class="ti">${t.kind === 'shell' ? '❯' : (t.kind === 'codex' ? 'C' : '✳')}</span>
+      <span class="ti">${icon(t.kind === 'shell' ? 'terminal' : (t.kind === 'codex' ? 'code' : 'agent'))}</span>
       <span class="tn">${escapeHtml(t.label)}</span>
-      <span class="tx" onclick="closeTerminal('${t.id}', event)">✕</span>
+      <span class="tx" role="button" tabindex="0" aria-label="Close ${escapeAttr(t.label)} terminal" onclick="closeTerminal('${t.id}', event)">${icon('close')}</span>
     </div>`).join('');
   document.getElementById('term-empty').classList.toggle('off', terms.length > 0);
   setTermStatus();
@@ -73,6 +73,7 @@ async function openTerminal(cwd, kind) {
     flash('Cannot open a terminal: ' + errText(err));
     return;
   }
+  ensurePanel('terminal');
   const t = attachTerm(data);
   loadSessions();          // it belongs to this session now; show the count
   return t;
@@ -93,22 +94,9 @@ function attachTerm(info) {
 
   const term = new window.Terminal({
     cursorBlink: true,
-    fontSize: 12,
-    fontFamily: 'JetBrains Mono, Menlo, Monaco, monospace',
-    // Light, to match the notebook pane beside it. The ANSI colours can't just
-    // be the defaults: those are chosen for a dark background, and yellow or
-    // bright-white on white is invisible. These are darkened to keep Claude's
-    // own colouring legible, and `brightWhite` is deliberately a grey.
-    theme: {
-      background: '#ffffff', foreground: '#1e293b',
-      cursor: '#830051', cursorAccent: '#ffffff',
-      selectionBackground: '#fbcfe8', selectionForeground: '#1e293b',
-      black: '#1e293b', red: '#b91c1c', green: '#15803d', yellow: '#a16207',
-      blue: '#1d4ed8', magenta: '#a21caf', cyan: '#0e7490', white: '#64748b',
-      brightBlack: '#94a3b8', brightRed: '#dc2626', brightGreen: '#16a34a',
-      brightYellow: '#ca8a04', brightBlue: '#2563eb', brightMagenta: '#c026d3',
-      brightCyan: '#0891b2', brightWhite: '#334155',
-    },
+    fontSize: AppAppearance.get().fontSize,
+    fontFamily: 'Menlo, Consolas, monospace',
+    theme: AppAppearance.terminalTheme(),
   });
   const fit = new window.FitAddon.FitAddon();
   term.loadAddon(fit);
@@ -227,7 +215,7 @@ async function bootTerminals() {
 /** Resize the visible terminal to its host box. */
 function fitTerm() {
   const t = findTerm(activeTerm);
-  if (!t) return;
+  if (!t || document.getElementById('agent-pane').inert) return;
   try { t.fit.fit(); } catch (e) { return; }
   if (t.ws && t.ws.readyState === WebSocket.OPEN) {
     t.ws.send(JSON.stringify({type: 'resize', cols: t.term.cols, rows: t.term.rows}));
@@ -238,39 +226,10 @@ restoreAgentKind();
 if (booted) bootTerminals();
 else window.addEventListener('workspace-ready', bootTerminals, {once: true});
 
-// ---------- Layout (file column | notebook | splitter | terminal) ----------
-const FILES_WIDTH = 230;
-const TERM_MIN_WIDTH = 220;
-let termWidth = TERM_MIN_WIDTH;
-
-function filesVisible() {
-  return !document.getElementById('app').classList.contains('files-hidden');
-}
-
-function applyLayout() {
-  document.getElementById('app').style.gridTemplateColumns =
-    `${filesVisible() ? FILES_WIDTH : 0}px 1fr 6px ${termWidth}px`;
-}
-
-// ---------- Splitter ----------
-const splitter = document.getElementById('splitter');
-let dragging = false;
-splitter.addEventListener('mousedown', () => {
-  dragging = true;
-  splitter.classList.add('dragging');
-  document.body.style.userSelect = 'none';
-});
-window.addEventListener('mousemove', (e) => {
-  if (!dragging) return;
-  const filesW = filesVisible() ? FILES_WIDTH : 0;
-  termWidth = Math.min(Math.max(window.innerWidth - e.clientX, TERM_MIN_WIDTH),
-                       window.innerWidth - 360 - filesW);
-  applyLayout();
-});
-window.addEventListener('mouseup', () => {
-  if (!dragging) return;
-  dragging = false;
-  splitter.classList.remove('dragging');
-  document.body.style.userSelect = '';
-  fitTerm();
+document.addEventListener('appearance-change', () => {
+  for (const t of terms) {
+    t.term.options.theme = AppAppearance.terminalTheme();
+    t.term.options.fontSize = AppAppearance.get().fontSize;
+  }
+  scheduleTerminalFit();
 });

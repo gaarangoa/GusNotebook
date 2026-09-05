@@ -9,18 +9,18 @@ try {
   // Our own palette rather than defaultHighlightStyle, whose colours assume a
   // different background than this app's light theme.
   const style = language.HighlightStyle.define([
-    {tag: [t.keyword, t.moduleKeyword, t.controlKeyword], color: "#7c3aed"},
-    {tag: [t.string, t.special(t.string)], color: "#0f7b3f"},
-    {tag: [t.comment, t.lineComment, t.blockComment], color: "#8b95a5", fontStyle: "italic"},
-    {tag: [t.number, t.bool, t.null], color: "#b45309"},
-    {tag: [t.function(t.variableName), t.function(t.propertyName)], color: "#1d4ed8"},
-    {tag: [t.className, t.typeName, t.definition(t.className)], color: "#0e7490"},
-    {tag: t.operator, color: "#475569"},
-    {tag: [t.self, t.atom], color: "#a21caf"},
-    {tag: t.definition(t.variableName), color: "#0f172a"},
+    {tag: [t.keyword, t.moduleKeyword, t.controlKeyword], color: "var(--syntax-keyword)"},
+    {tag: [t.string, t.special(t.string)], color: "var(--syntax-string)"},
+    {tag: [t.comment, t.lineComment, t.blockComment], color: "var(--syntax-comment)", fontStyle: "italic"},
+    {tag: [t.number, t.bool, t.null], color: "var(--syntax-number)"},
+    {tag: [t.function(t.variableName), t.function(t.propertyName)], color: "var(--syntax-function)"},
+    {tag: [t.className, t.typeName, t.definition(t.className)], color: "var(--syntax-type)"},
+    {tag: t.operator, color: "var(--secondary)"},
+    {tag: [t.self, t.atom], color: "var(--magenta)"},
+    {tag: t.definition(t.variableName), color: "var(--text)"},
   ]);
   window.CM = {
-    EditorState: state.EditorState, Prec: state.Prec,
+    EditorState: state.EditorState, Prec: state.Prec, Compartment: state.Compartment,
     EditorView: view.EditorView, keymap: view.keymap,
     highlightActiveLine: view.highlightActiveLine,
     lineNumbers: view.lineNumbers,

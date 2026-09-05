@@ -2,6 +2,10 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="{{ BASE_URL }}/static/js/appearance.js"></script>
+<script src="{{ BASE_URL }}/static/js/icons.js"></script>
+<link rel="stylesheet" href="{{ BASE_URL }}/static/theme.css">
 <title>GusNotebook</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><rect width='64' height='64' rx='14' fill='rgb(15,23,42)'/><path d='M20 15h20a8 8 0 0 1 8 8v26H26a10 10 0 0 1-10-10V19a4 4 0 0 1 4-4Z' fill='none' stroke='rgb(103,232,249)' stroke-width='5' stroke-linejoin='round'/><path d='M27 26h12M27 36h16' stroke='rgb(244,114,182)' stroke-width='4' stroke-linecap='round'/><path d='M16 19c3-2 7-2 10 0v30c-3-2-7-2-10 0V19Z' fill='rgb(34,211,238)' opacity='.9'/></svg>">
 <link rel="stylesheet" href="{{ BASE_URL }}/static/vendor/xterm.css">
@@ -14,21 +18,38 @@
 </head>
 <body>
 
+<header class="app-header nb-title">
+  <span class="app-mark" data-icon="notebook"></span><span id="nb-label">GusNotebook</span>
+  <span class="path" id="nb-path" spellcheck="false" onkeydown="notebookNameKey(event)" onblur="commitNotebookNameEdit()" oncontextmenu="activeFileCtx(event)"></span>
+  <span class="grow"></span>
+  <nav class="header-tools" aria-label="Workspace controls">
+    <button class="files-btn icon-button" id="toggle-files" onclick="toggleFiles()" aria-controls="files" aria-expanded="true" title="Toggle files" aria-label="Toggle files"><span data-icon="files"></span></button>
+    <button class="files-btn icon-button" id="toggle-terminal" onclick="togglePanel('terminal')" aria-controls="agent-pane" aria-expanded="true" title="Toggle agents and terminals" aria-label="Toggle agents and terminals"><span data-icon="panel"></span></button>
+    <button class="files-btn icon-button" id="focus-toggle" onclick="toggleNotebookFocus()" aria-pressed="false" title="Focus notebook" aria-label="Focus notebook"><span data-icon="focus"></span></button>
+    <span class="header-divider"></span>
+    <button class="files-btn icon-button" id="theme-toggle" onclick="AppAppearance.toggle()" title="Switch theme" aria-label="Switch theme"><span class="theme-light-icon" data-icon="sun"></span><span class="theme-dark-icon" data-icon="moon"></span></button>
+    <button class="files-btn icon-button" id="history-button" onclick="openHistory()" title="Change history" aria-label="Change history"><span data-icon="history"></span></button>
+    <button class="files-btn icon-button" id="nb-reload" onclick="reloadNotebookFromDisk()" title="Reload notebook" aria-label="Reload notebook"><span data-icon="refresh"></span></button>
+    <button class="files-btn icon-button" id="settings-button" onclick="openSettings()" title="Settings" aria-label="Settings"><span data-icon="settings"></span></button>
+  </nav>
+</header>
+
 <div class="app" id="app">
-  <div class="files" id="files">
+  <div class="files" id="files" role="region" aria-label="Project files">
+    <div id="file-splitter" class="file-splitter" role="separator" tabindex="0" aria-label="Resize files panel" aria-orientation="vertical" aria-controls="files"></div>
     <div class="files-head">
       <span class="grow">Files</span>
       <!-- Creating things lives on the tab bar's + menu; what's left here is
            navigation, which is what this panel is for. -->
       <button class="files-btn" id="hidden-btn" onclick="toggleHidden()"
-              title="Show hidden files">.*</button>
+              title="Show hidden files"><span data-icon="eye"></span></button>
       <button class="files-btn" id="file-upload-btn" onclick="chooseUploads()"
-              title="Upload files into this directory">⇧</button>
+              title="Upload files into this directory"><span data-icon="upload"></span></button>
       <input id="file-upload" type="file" multiple hidden
              onchange="uploadFiles(this.files)">
-      <button class="files-btn" onclick="browseHome()" title="Home directory">⌂</button>
-      <button class="files-btn" onclick="browseUp()" title="Parent directory">↑</button>
-      <button class="files-btn" onclick="refreshFiles()" title="Refresh">↻</button>
+      <button class="files-btn" onclick="browseHome()" title="Home directory"><span data-icon="home"></span></button>
+      <button class="files-btn" onclick="browseUp()" title="Parent directory"><span data-icon="up"></span></button>
+      <button class="files-btn" onclick="refreshFiles()" title="Refresh"><span data-icon="refresh"></span></button>
     </div>
     <div class="crumbs" id="crumbs"></div>
     <div class="file-list" id="file-list"></div>
@@ -37,12 +58,12 @@
          Clicking one inserts its code as a cell; Claude reads the same files as
          a plugin, so a skill is written once and serves both. -->
     <div class="strip collapsed" id="skills">
-      <div class="strip-head" onclick="toggleSkills()">
-        <span class="caret">▼</span>
+      <div class="strip-head" role="button" tabindex="0" aria-expanded="false" aria-controls="skill-list" onclick="toggleSkills()">
+        <span class="caret" data-icon="chevronDown"></span>
         <span class="grow">Skills</span>
         <span class="cur" id="skills-cur"></span>
         <button class="files-btn" onclick="newSkill(event)"
-                title="New skill — a snippet and when to use it">+</button>
+                title="New skill — a snippet and when to use it"><span data-icon="plus"></span></button>
       </div>
       <div class="skill-list" id="skill-list"></div>
     </div>
@@ -51,71 +72,56 @@
          you click it. Switching sessions is occasional; the file tree is what
          you use constantly, so it gets the room by default. -->
     <div class="strip collapsed" id="sessions">
-      <div class="strip-head" onclick="toggleSessions()">
-        <span class="caret">▼</span>
+      <div class="strip-head" role="button" tabindex="0" aria-expanded="false" aria-controls="session-list" onclick="toggleSessions()">
+        <span class="caret" data-icon="chevronDown"></span>
         <span class="grow">Sessions</span>
         <span class="cur" id="sessions-cur"></span>
         <button class="files-btn" onclick="newSession(event)"
-                title="New session — its own tabs and kernels">+</button>
+                title="New session — its own tabs and kernels"><span data-icon="plus"></span></button>
       </div>
       <div class="session-list" id="session-list"></div>
     </div>
   </div>
 
   <div class="left">
-    <div class="nb-title">
-      <span id="nb-label">GusNotebook</span>
-      <span class="path" id="nb-path" spellcheck="false"
-            onkeydown="notebookNameKey(event)"
-            onblur="commitNotebookNameEdit()"
-            oncontextmenu="activeFileCtx(event)"></span>
-      <!-- The one way into settings: here rather than the toolbar, which hides
-           on text and image tabs, and settings aren't notebook-specific. -->
-      <span class="grow"></span>
-      <button class="files-btn" id="history-button" onclick="openHistory()" title="Review and undo grouped changes">History</button>
-      <button class="files-btn" id="nb-reload" onclick="reloadNotebookFromDisk()"
-              title="Reload this notebook from disk">Reload</button>
-      <button class="files-btn" onclick="openSettings()"
-              title="Settings — code folding and agent instructions">⚙</button>
-    </div>
 
-    <div class="tabs" id="tabs"></div>
+    <div class="tabs" id="tabs" role="tablist" aria-label="Open documents"></div>
 
     <!-- The + tab's menu. Fixed-position, so the tab strip's horizontal scroll
          can't clip it; coordinates come from the + tab's rect in openNewMenu(). -->
-    <div class="new-menu" id="new-menu">
-      <div class="new-item" onclick="newFromMenu('notebook')">
-        <span class="ni">◆</span>
+    <div class="new-menu" id="new-menu" role="menu" aria-label="Create">
+      <div class="new-item" role="menuitem" tabindex="-1" onclick="newFromMenu('notebook')">
+        <span class="ni" data-icon="notebook"></span>
         <span class="nl">Notebook</span>
         <span class="nh">.ipynb, with its own kernel</span>
       </div>
-      <div class="new-item" onclick="newFromMenu('text')">
-        <span class="ni">≡</span>
+      <div class="new-item" role="menuitem" tabindex="-1" onclick="newFromMenu('text')">
+        <span class="ni" data-icon="text"></span>
         <span class="nl">Text file</span>
         <span class="nh">the extension decides how it opens</span>
       </div>
-      <div class="new-item" onclick="newFromMenu('folder')">
-        <span class="ni">▸</span>
+      <div class="new-item" role="menuitem" tabindex="-1" onclick="newFromMenu('folder')">
+        <span class="ni" data-icon="folder"></span>
         <span class="nl">Folder</span>
         <span class="nh">in the browsed directory</span>
       </div>
-      <div class="new-item" onclick="newFromMenu('environment')">
-        <span class="ni">◇</span>
+      <div class="new-item" role="menuitem" tabindex="-1" onclick="newFromMenu('environment')">
+        <span class="ni" data-icon="environment"></span>
         <span class="nl">Environment</span>
         <span class="nh">Python and packages with uv</span>
       </div>
-      <div class="new-item" onclick="newFromMenu('claude')">
-        <span class="ni">✳</span>
+      <div class="new-item" role="menuitem" tabindex="-1" onclick="newFromMenu('claude')">
+        <span class="ni" data-icon="agent"></span>
         <span class="nl">Claude Code</span>
         <span class="nh">agent in the browsed directory</span>
       </div>
-      <div class="new-item" onclick="newFromMenu('codex')">
-        <span class="ni">C</span>
+      <div class="new-item" role="menuitem" tabindex="-1" onclick="newFromMenu('codex')">
+        <span class="ni" data-icon="code"></span>
         <span class="nl">Codex</span>
         <span class="nh">agent in the browsed directory</span>
       </div>
-      <div class="new-item" onclick="newFromMenu('terminal')">
-        <span class="ni">❯</span>
+      <div class="new-item" role="menuitem" tabindex="-1" onclick="newFromMenu('terminal')">
+        <span class="ni" data-icon="terminal"></span>
         <span class="nl">Terminal</span>
         <span class="nh">shell in the browsed directory</span>
       </div>
@@ -124,46 +130,47 @@
     <!-- What a cell is, from the ⌥ in its gutter. One menu reused by every cell
          — `typeMenuCell` says which one it's open for — rather than one per cell
          in a notebook that might have hundreds. -->
-    <div class="new-menu" id="type-menu">
-      <div class="new-item" onclick="typeFromMenu('code')">
-        <span class="ni">[ ]</span>
+    <div class="new-menu" id="type-menu" role="menu" aria-label="Cell type">
+      <div class="new-item" role="menuitem" tabindex="-1" onclick="typeFromMenu('code')">
+        <span class="ni" data-icon="code"></span>
         <span class="nl">Code</span>
         <span class="nh">runs on the kernel</span>
       </div>
-      <div class="new-item" onclick="typeFromMenu('markdown')">
-        <span class="ni">▤</span>
+      <div class="new-item" role="menuitem" tabindex="-1" onclick="typeFromMenu('markdown')">
+        <span class="ni" data-icon="text"></span>
         <span class="nl">Markdown</span>
         <span class="nh">prose; ⇧⏎ renders it</span>
       </div>
-      <div class="new-item" onclick="typeFromMenu('raw')">
-        <span class="ni">≡</span>
+      <div class="new-item" role="menuitem" tabindex="-1" onclick="typeFromMenu('raw')">
+        <span class="ni" data-icon="text"></span>
         <span class="nl">Raw</span>
         <span class="nh">text, never run</span>
       </div>
     </div>
 
-    <div class="toolbar" id="toolbar">
-      <button class="tb" onclick="addCell('code')">+ Code</button>
-      <button class="tb" onclick="addCell('markdown')">+ Markdown</button>
-      <button class="tb" onclick="addCell('raw')">+ Raw</button>
+    <div class="toolbar" id="toolbar" role="toolbar" aria-label="Notebook actions">
+      <button class="tb primary" id="run-selected" onclick="runSelected()" title="Run selected cell (Ctrl/⌘ Enter)"><span data-icon="play"></span>Run</button>
+      <button class="tb" onclick="addCell('code')"><span data-icon="plus"></span>Code</button>
+      <button class="tb" onclick="addCell('markdown')"><span data-icon="plus"></span>Markdown</button>
+      <button class="tb" onclick="addCell('raw')"><span data-icon="plus"></span>Raw</button>
       <div class="tb-sep"></div>
       <!-- acts on the cell the caret is in, so cells themselves stay button-free -->
-      <button class="tb" onclick="deleteSelected()" title="Delete current cell">Delete</button>
+      <button class="tb" onclick="deleteSelected()" title="Delete current cell"><span data-icon="trash"></span>Delete</button>
       <div class="tb-sep"></div>
       <button class="tb" id="kernel-stop" onclick="interruptKernel()"
-              title="Interrupt the running cell">■ Stop</button>
-      <button class="tb" onclick="restartKernel()">↻ Restart</button>
+              title="Interrupt the running cell"><span data-icon="stop"></span>Stop</button>
+      <button class="tb" onclick="restartKernel()"><span data-icon="refresh"></span>Restart</button>
 
       <!-- The kernel badge IS the environment picker: status now, click to switch. -->
       <div class="venv-pick">
-        <button class="kernel-badge" id="venv-btn" onclick="toggleVenvMenu(event)"
+        <button class="kernel-badge" id="venv-btn" aria-expanded="false" aria-controls="venv-menu" onclick="toggleVenvMenu(event)"
                 title="Python environment for this notebook">
           <span class="dot" id="k-dot"></span>
           <span id="k-status">…</span>
           <span class="venv-name" id="venv-name"></span>
-          <span class="caret">▾</span>
+          <span class="caret" data-icon="chevronDown"></span>
         </button>
-        <div class="venv-menu" id="venv-menu"></div>
+        <div class="venv-menu" id="venv-menu" role="group" aria-label="Notebook environment and kernel actions"></div>
       </div>
     </div>
 
@@ -201,9 +208,9 @@
     <div class="hint">⇧⏎ run+next · ⌘/ comment · ⇧⌘M code⇄md · ⇧⌘↑↓ move cell · ⌘S save</div>
   </div>
 
-  <div class="splitter" id="splitter"></div>
+  <div class="splitter" id="splitter" role="separator" tabindex="0" aria-label="Resize terminal panel" aria-orientation="vertical" aria-controls="agent-pane"></div>
 
-  <div class="right">
+  <div class="right" id="agent-pane" role="region" aria-label="Agents and terminals">
     <div class="bar">
       <select class="agent-select" id="agent-kind" onchange="rememberAgentKind()"
               title="Agent provider for the next session">
@@ -211,28 +218,30 @@
         <option value="codex">Codex</option>
       </select>
       <button class="term-btn" onclick="openSelectedAgent()"
-              title="New agent session in the directory shown in Files">+ Agent</button>
+              title="New agent session in the directory shown in Files"><span data-icon="agent"></span>Agent</button>
       <button class="term-btn" onclick="openTerminal(null,'shell')"
-              title="New terminal in the directory shown in Files">+ Terminal</button>
+              title="New terminal in the directory shown in Files"><span data-icon="terminal"></span>Terminal</button>
       <span class="status disconnected" id="ws-status">No session</span>
     </div>
     <div class="term-tabs" id="term-tabs"></div>
     <div id="terminal-stack">
       <div class="term-empty" id="term-empty">
         <div class="big">No session open</div>
-        <div>Choose Claude or Codex, then use <code>+ Agent</code>; use
-             <code>+ Terminal</code> for a plain shell. All start in the
+        <div>Choose Claude or Codex, then use <code>Agent</code>; use
+             <code>Terminal</code> for a plain shell. All start in the
              directory shown in Files.</div>
       </div>
     </div>
   </div>
 </div>
 
+<button id="panel-backdrop" class="panel-backdrop" hidden aria-label="Close side panel" onclick="closePanelDrawer()"></button>
+
 <!-- ---------- Environments ---------- -->
 <div class="modal-back" id="environment-back" onclick="if (event.target === this) closeEnvironments()">
   <div class="modal environment-modal" role="dialog" aria-modal="true" aria-labelledby="environment-title">
     <div class="mhead"><span class="grow" id="environment-title">Environments</span>
-      <button class="tb" onclick="closeEnvironments()" aria-label="Close environments">×</button></div>
+      <button class="tb" onclick="closeEnvironments()" aria-label="Close environments"><span data-icon="close"></span></button></div>
     <div class="environment-tabs" role="tablist" aria-label="Environment view">
       <button id="environment-create-tab" role="tab" aria-controls="environment-create" onclick="environmentView('create')">Create environment</button>
       <button id="environment-packages-tab" role="tab" aria-controls="environment-packages" onclick="environmentView('packages')">Installed packages</button>
@@ -299,7 +308,7 @@
 <div class="modal-back" id="history-back" onclick="if (event.target === this) closeHistory()">
   <div class="modal history-modal" role="dialog" aria-modal="true" aria-labelledby="history-title">
     <div class="mhead"><span class="grow" id="history-title">Change history</span>
-      <button class="tb" onclick="closeHistory()" aria-label="Close history">×</button></div>
+      <button class="tb" onclick="closeHistory()" aria-label="Close history"><span data-icon="close"></span></button></div>
     <div class="mbody">
       <p>Changes are grouped from each agent request and cover the notebook and text tabs open when recording starts.
          Other processes can also change these files. Review the diff before restoring.</p>
@@ -315,7 +324,7 @@
   <div class="modal dirpick">
     <div class="mhead">
       <span class="grow" id="dirpick-title">Select environment</span>
-      <button class="help-close" onclick="dirPickCancel()">✕</button>
+      <button class="help-close" onclick="dirPickCancel()"><span data-icon="close"></span></button>
     </div>
     <div class="mbody">
       <div class="dirpick-crumbs" id="dirpick-crumbs"></div>
@@ -356,7 +365,7 @@
   <div class="modal provenance">
     <div class="mhead">
       <span class="grow">Copy provenance</span>
-      <button class="help-close" onclick="provenanceDone(false)">✕</button>
+      <button class="help-close" onclick="provenanceDone(false)"><span data-icon="close"></span></button>
     </div>
     <div class="mbody">
       <label class="prov-field">
@@ -395,137 +404,48 @@
 </div>
 
 <div class="modal-back" id="settings-back" onclick="if (event.target === this) closeSettings()">
-  <div class="modal">
-    <div class="mhead">
-      <span class="grow">Settings</span>
-      <button class="help-close" onclick="closeSettings()">✕</button>
+  <div class="modal settings-modal" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+    <div class="mhead"><span class="grow" id="settings-title">Settings</span>
+      <button class="help-close" onclick="closeSettings()" aria-label="Close settings"><span data-icon="close"></span></button></div>
+    <div class="settings-tabs" role="tablist" aria-label="Settings category">
+      <button id="settings-appearance-tab" role="tab" aria-controls="settings-appearance" aria-selected="true" onclick="settingsSection('appearance')"><span data-icon="sun"></span>Appearance</button>
+      <button id="settings-notebook-tab" role="tab" aria-controls="settings-notebook" aria-selected="false" tabindex="-1" onclick="settingsSection('notebook')"><span data-icon="notebook"></span>Notebook</button>
+      <button id="settings-agents-tab" role="tab" aria-controls="settings-agents" aria-selected="false" tabindex="-1" onclick="settingsSection('agents')"><span data-icon="agent"></span>Agents</button>
     </div>
     <div class="mbody">
-      <!-- Inline LLM model settings: hidden while no API is in use, not
-           removed. The fields stay in the DOM on purpose — openSettings fills
-           them and saveSettings round-trips their values, so hiding loses
-           nothing. Restore by dropping .llm-hidden (app.css) and the
-           LLM_SETTINGS_HIDDEN flag (static/js/actions.js). -->
-      <div class="llm-hidden">
-        <div class="field">
-          <label for="set-model">Inline LLM model</label>
-          <div class="row">
-            <select id="set-model" onchange="pickModel(this.value)"></select>
-          </div>
-          <input type="text" id="set-model-custom" style="margin-top:6px"
-                 placeholder="or type any deployment name the gateway exposes">
-          <div class="fhelp">
-            Used by <b>+ AI</b> cells to turn what you type into Python. Separate
-            from the <b>Help</b> button on errors, which has its own model
-            (<code>HELP_MODEL</code>).
-          </div>
+      <div id="settings-error" class="environment-error" role="alert" hidden></div>
+      <section id="settings-appearance" role="tabpanel" aria-labelledby="settings-appearance-tab">
+        <h2>Make the workspace yours</h2><p class="settings-intro">Preview changes here. Save keeps your preferences in this browser.</p>
+        <div class="settings-grid">
+          <div class="field"><label for="set-theme">Color theme</label><select id="set-theme" onchange="previewAppearance()"><option value="system">Follow system</option><option value="light">Light</option><option value="dark">Dark</option></select></div>
+          <div class="field"><label for="set-density">Interface density</label><select id="set-density" onchange="previewAppearance()"><option value="comfortable">Comfortable</option><option value="compact">Compact</option></select></div>
         </div>
+        <div class="field"><label for="set-font-size">Code and terminal font size</label><div class="row"><input id="set-font-size" type="number" min="11" max="22" step="1" oninput="previewAppearance()"><span class="unit">px</span></div></div>
+        <div class="appearance-sample" aria-label="Theme preview"><div class="sample-caption"><span data-icon="code"></span>Python preview</div><pre><span class="sample-keyword">import</span> pandas <span class="sample-keyword">as</span> pd
 
-        <div class="field">
-          <label for="set-instructions">Standing instructions <span style="font-weight:400;color:#94a3b8">(optional)</span></label>
-          <textarea id="set-instructions"
-                    placeholder="e.g. use polars instead of pandas; always annotate plot axes"></textarea>
-          <div class="fhelp">Added to every + AI request, so you don't repeat yourself.</div>
-        </div>
-
-        <div class="field">
-          <label for="set-max-tokens">Max tokens per generation</label>
-          <input type="number" id="set-max-tokens" min="100" max="16000" step="100">
-        </div>
-      </div>
-
-      <div class="field">
-        <label>Code folding</label>
-        <label class="check-row">
-          <input type="checkbox" id="set-fold-focus">
-          <span>Open folded code when the cell gets focus</span>
-        </label>
-        <div class="row" style="margin-top:6px">
-          <input type="number" id="set-fold-lines" min="1" max="60" step="1">
-        </div>
-        <div class="fhelp">
-          Number of code lines shown before the folded overlay. Leave focus
-          opening off to open folded code only from the "more lines" control.
-        </div>
-      </div>
-
-      <!-- A separate field, not shared with the inline LLM's: different job.
-           That one writes one cell; an agent has tools and edits files, so its
-           guardrails read nothing like a code-style note. -->
-      <div class="field">
-        <label for="set-claude">Instructions for agents (Claude and Codex)
-          <span style="font-weight:400;color:#94a3b8">(optional)</span></label>
-        <textarea id="set-claude"
-                  placeholder="e.g. never run migrations; ask before touching anything in prod/; put new code in the notebook, not scratch files"></textarea>
-        <div class="fhelp">
-          Guardrails and house style for every agent terminal, added at launch —
-          so <b>new</b> sessions pick this up, not ones already running. A session
-          can add its own on top (▤ on its row in <b>Sessions</b>). Nothing is
-          written into your project: no <code>CLAUDE.md</code> or
-          <code>AGENTS.md</code> is created or edited.
-        </div>
-      </div>
-
-      <!-- Not instructions: these are rules Claude Code enforces itself, so they
-           hold whether or not the model cooperates. Hence the separate field. -->
-      <div class="field">
-        <label>What Claude Code may <i>not</i> do
-          <span style="font-weight:400;color:#94a3b8">(nothing is blocked by default)</span></label>
-        <div class="rlist" id="set-restrict"></div>
-        <textarea id="set-restrict-extra" spellcheck="false"
-                  style="min-height:52px;margin-top:6px"
-                  placeholder="Extra deny rules, one per line — e.g. Bash(rm *) or Read(**/secrets/**)"></textarea>
-        <div class="fhelp">
-          These rules apply to Claude sessions only and are enforced by Claude
-          Code itself, not asked for in the prompt — a blocked
-          call fails rather than relying on Claude to decline. Applies to
-          <b>new</b> terminals: the rules are fixed at launch. A session can add
-          more of its own (▤ on its row in <b>Sessions</b>); the two are combined,
-          so a session can only tighten this. Blocklists match on command
-          patterns and are leaky at the edges — an unusual spelling of a command
-          can slip past, so treat this as a guardrail, not a sandbox.
-        </div>
-      </div>
-
-      <!-- Gateway credentials and status: hidden with the inline LLM — no API
-           in use. Same deal as above: the DOM stays, values round-trip. -->
-      <div class="llm-hidden">
-        <div class="field">
-          <label for="set-gw-url">Gateway URL</label>
-          <input type="text" id="set-gw-url"
-                 placeholder="https://your-ai-gateway.example.com">
-        </div>
-
-        <div class="field">
-          <label for="set-gw-key">Gateway API key</label>
-          <input type="password" id="set-gw-key" autocomplete="off"
-                 spellcheck="false" placeholder="AI_GATEWAY_KEY">
-          <div class="row" style="margin-top:6px">
-            <select id="set-gw-store">
-              <option value="session">Keep for this session only</option>
-              <option value="disk">Save to settings.json</option>
-            </select>
-          </div>
-          <div class="fhelp">
-            <b>This session</b> holds the key in the app's memory — it survives page
-            reloads but is forgotten when the app stops, and never reaches disk.
-            <b>settings.json</b> keeps it across restarts (gitignored,
-            owner-read-only). Never shown back in the clear. Leave blank to keep
-            using the environment or <code>.env</code>.
-          </div>
-        </div>
-
-        <div class="field" style="margin-bottom:0">
-          <label>Status</label>
-          <div class="gw-note" id="set-gateway"></div>
-        </div>
+results = pd.read_csv(<span class="sample-string">"data.csv"</span>)</pre><p>Readable code, tables, and terminals in every theme.</p></div>
+        <div class="settings-layout"><div><strong>Panel layout</strong><p>Your panel sizes and visibility are saved automatically.</p></div><button class="btn" onclick="resetLayout()">Reset layout</button></div>
+      </section>
+      <section id="settings-notebook" role="tabpanel" aria-labelledby="settings-notebook-tab" hidden>
+        <h2>Notebook behavior</h2><p class="settings-intro">Control how long cells open while you work.</p>
+        <div class="field"><label class="check-row"><input type="checkbox" id="set-fold-focus"><span>Expand folded code when focused</span></label><div class="fhelp">When off, use the cell’s “more lines” control to expand it.</div></div>
+        <div class="field"><label for="set-fold-lines">Lines shown in folded code</label><input type="number" id="set-fold-lines" min="1" max="60" step="1"><div class="fhelp">Between 1 and 60 lines. Saved in this browser.</div></div>
+        <details class="settings-details"><summary>Notebook shortcuts</summary><dl class="shortcut-list"><dt>Run selected cell</dt><dd>Ctrl / ⌘ Enter</dd><dt>Run and advance</dt><dd>Shift Enter</dd><dt>Save document</dt><dd>Ctrl / ⌘ S</dd><dt>Undo typing</dt><dd>Ctrl / ⌘ Z</dd></dl></details>
+      </section>
+      <section id="settings-agents" role="tabpanel" aria-labelledby="settings-agents-tab" hidden>
+        <h2>Agent instructions</h2><p class="settings-intro">These settings apply when you start a new agent terminal.</p>
+        <div class="field"><label for="set-claude">Instructions for Claude and Codex <span class="optional">(optional)</span></label><textarea id="set-claude" rows="5" placeholder="For example: document assumptions and keep analysis code in the notebook."></textarea><div class="fhelp">Workspaces can add their own instructions in Sessions.</div></div>
+        <details class="settings-details"><summary>How instructions are applied</summary><p>New agent terminals receive these instructions at launch. Existing terminals keep their original instructions. GusNotebook passes the instructions directly to the agent; it does not create CLAUDE.md or AGENTS.md in your project.</p></details>
+        <details class="settings-details"><summary>Claude permissions and advanced rules</summary><p class="settings-intro">Choose actions to restrict in new Claude terminals. Nothing is blocked by default.</p><div class="rlist" id="set-restrict"></div><div class="field"><label for="set-restrict-extra">Additional deny rules</label><textarea id="set-restrict-extra" spellcheck="false" rows="3" placeholder="One rule per line, for example Read(**/secrets/**)"></textarea></div><p>Claude Code enforces these rules. Workspace rules are added to them. Rules match command patterns; they are not a sandbox.</p></details>
+      </section>
+      <div class="llm-hidden" hidden>
+        <select id="set-model" onchange="pickModel(this.value)"></select><input id="set-model-custom" type="text">
+        <textarea id="set-instructions"></textarea><input id="set-max-tokens" type="number">
+        <input id="set-gw-url" type="text"><input id="set-gw-key" type="password" autocomplete="off">
+        <select id="set-gw-store"><option value="session">Session</option><option value="disk">Disk</option></select><div id="set-gateway"></div>
       </div>
     </div>
-    <div class="mfoot">
-      <span class="grow"></span>
-      <button class="btn" onclick="closeSettings()">Cancel</button>
-      <button class="btn primary" onclick="saveSettings()">Save</button>
-    </div>
+    <div class="mfoot"><span class="grow"></span><button class="btn" onclick="closeSettings()">Cancel</button><button class="btn primary" id="settings-save" onclick="saveSettings()">Save settings</button></div>
   </div>
 </div>
 
@@ -537,7 +457,7 @@
   <div class="modal">
     <div class="mhead">
       <span class="grow" id="skill-title">New skill</span>
-      <button class="help-close" onclick="closeSkill()">✕</button>
+      <button class="help-close" onclick="closeSkill()"><span data-icon="close"></span></button>
     </div>
     <div class="mbody">
       <div class="field">
@@ -590,7 +510,7 @@
   <div class="modal">
     <div class="mhead">
       <span class="grow" id="sinstr-title">Instructions</span>
-      <button class="help-close" onclick="closeSessionInstr()">✕</button>
+      <button class="help-close" onclick="closeSessionInstr()"><span data-icon="close"></span></button>
     </div>
     <div class="mbody">
       <div class="field">
@@ -642,6 +562,7 @@
      them all wait on the document, and they already sit after it. -->
 <script>const BASE = "{{ BASE_URL }}";</script>
 <script src="{{ BASE_URL }}/static/js/core.js"></script>
+<script src="{{ BASE_URL }}/static/js/layout.js"></script>
 <script src="{{ BASE_URL }}/static/js/browser.js"></script>
 <script src="{{ BASE_URL }}/static/js/cells.js"></script>
 <script src="{{ BASE_URL }}/static/js/editor.js"></script>
@@ -651,6 +572,7 @@
 <script src="{{ BASE_URL }}/static/js/terminals.js"></script>
 <script src="{{ BASE_URL }}/static/js/history.js"></script>
 <script src="{{ BASE_URL }}/static/js/environments.js"></script>
+<script src="{{ BASE_URL }}/static/js/accessibility.js"></script>
 
 </body>
 </html>

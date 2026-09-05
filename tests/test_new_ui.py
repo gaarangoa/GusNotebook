@@ -653,11 +653,11 @@ def main():
         pg.evaluate("switchTab(tabs.find(t => t.name === 'analysis.ipynb').path)")
         pg.wait_for_function("activeTab().name === 'analysis.ipynb'")
         go_to(pg, DEEP)
-        pg.get_by_role("button", name="+ Agent", exact=True).click()
+        pg.get_by_role("button", name="New agent session in the directory shown in Files", exact=True).click()
         pg.wait_for_function("terms.length === 3", timeout=30000)
         check("new agent follows the Files directory", pg.evaluate("terms[2].cwd"),
               str(DEEP.resolve()))
-        pg.get_by_role("button", name="+ Terminal", exact=True).click()
+        pg.get_by_role("button", name="New terminal in the directory shown in Files", exact=True).click()
         pg.wait_for_function("terms.length === 4", timeout=30000)
         check("new terminal follows the Files directory", pg.evaluate("terms[3].cwd"),
               str(DEEP.resolve()))
@@ -671,7 +671,7 @@ def main():
               ["Claude", "Codex"])
         if shutil.which("codex"):
             pg.select_option("#agent-kind", "codex")
-            pg.get_by_role("button", name="+ Agent", exact=True).click()
+            pg.get_by_role("button", name="New agent session in the directory shown in Files", exact=True).click()
             pg.wait_for_function("terms.length === 3", timeout=30000)
             check("picker launches Codex", pg.evaluate("terms[2].kind"), "codex")
             check("Codex follows the Files directory", pg.evaluate("terms[2].cwd"),
@@ -749,6 +749,7 @@ def main():
         check("gateway status hidden",
               pg.evaluate("!document.getElementById('set-gateway').offsetParent"),
               True)
+        pg.click("#settings-agents-tab")
         check("agent instructions still visible",
               pg.evaluate("!!document.getElementById('set-claude').offsetParent"),
               True)
@@ -940,9 +941,9 @@ def main():
         labels = [t.strip() for t in pg.locator("#toolbar button.tb").all_inner_texts()]
         print("     toolbar:", labels)
         check("plain cell types are present",
-              all(label in labels for label in ("+ Code", "+ Markdown", "+ Raw")), True)
+              all(label in labels for label in ("Code", "Markdown", "Raw")), True)
         check("kernel controls still there",
-              "■ Stop" in labels and "↻ Restart" in labels, True)
+              "Stop" in labels and "Restart" in labels, True)
         check("bottom add-row removed", pg.locator(".add-row button").count(), 0)
 
         print("\n-- the + tab is where you create things")
@@ -958,8 +959,8 @@ def main():
               ["Notebook", "Text file", "Folder", "Environment", "Claude Code", "Codex",
                "Terminal"])
         check("icons present",
-              all(t.strip() for t in pg.locator("#new-menu .ni").all_inner_texts()),
-              True)
+              pg.locator("#new-menu .ni svg.icon").count(),
+              7)
         pg.keyboard.press("Escape")
         pg.click(".nb-title", position={"x": 5, "y": 5})
         pg.wait_for_timeout(300)
@@ -1227,6 +1228,7 @@ def main():
         check("its own field, not the + AI one", pg.evaluate(
             "document.getElementById('set-claude') !== "
             "document.getElementById('set-instructions')"), True)
+        pg.click("#settings-agents-tab")
         pg.fill("#set-claude", "SUITE_GLOBAL_RULE")
         pg.click("#settings-back .btn.primary")
         pg.wait_for_selector("#settings-back.on", state="hidden", timeout=15000)
@@ -1304,6 +1306,8 @@ def main():
         check("all four presets unticked to start", pg.evaluate(
             "[...document.querySelectorAll('#set-restrict input')]"
             ".map(b => b.checked)"), [False] * 4)
+        pg.click("#settings-agents-tab")
+        pg.locator("#settings-agents details").filter(has=pg.locator("#set-restrict")).locator("summary").click()
         pg.check("#set-restrict input[value=no_execute]")
         pg.fill("#set-restrict-extra", "# a comment\nBash(rm *)")
         pg.click("#settings-back .btn.primary")
@@ -2030,8 +2034,8 @@ def main():
         check("and the stylesheet and scripts beside it",
               [(pkg_dir / "static" / "app.css").is_file(),
                sorted(p.name for p in (pkg_dir / "static" / "js").glob("*.js"))],
-              [True, ["actions.js", "auth.js", "browser.js", "cells.js", "core.js",
-                      "editor.js", "environments.js", "events.js", "history.js", "panels.js", "terminals.js"]])
+              [True, ["accessibility.js", "actions.js", "appearance.js", "auth.js", "browser.js", "cells.js", "core.js",
+                      "editor.js", "environments.js", "events.js", "history.js", "icons.js", "layout.js", "panels.js", "terminals.js"]])
         # Work is separate again: the file browser and new tabs start where the
         # user launched the app, not where the code happens to be installed.
         work = pathlib.Path(get("/api/files")["cwd"])

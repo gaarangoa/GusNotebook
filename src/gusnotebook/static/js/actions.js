@@ -450,7 +450,7 @@ async function runCell(id, advance = false) {
   }
 }
 
-/** Run the cell the caret is in. Reached via ⇧⏎; no toolbar button. */
+/** Run the cell the caret is in. Used by the Run toolbar button and keyboard shortcuts. */
 function runSelected() {
   if (selected) runCell(selected);
   else if (cells.length) runCell(cells[0].id);
@@ -735,8 +735,28 @@ function hasRestrictions(r) {
 // only keeps the (now unreachable) model picker from blocking a save of the
 // visible fields.
 const LLM_SETTINGS_HIDDEN = true;
+let settingsAppearance = null;
+let settingsOpener = null;
+let settingsSaving = false;
+function settingsSection(name) {
+  for (const section of ['appearance', 'notebook', 'agents']) {
+    const chosen = name === section;
+    document.getElementById('settings-' + section).hidden = !chosen;
+    const button = document.getElementById('settings-' + section + '-tab');
+    button.setAttribute('aria-selected', String(chosen));
+    button.tabIndex = chosen ? 0 : -1;
+  }
+}
+function previewAppearance() {
+  const size = document.getElementById('set-font-size').value;
+  AppAppearance.update({theme: document.getElementById('set-theme').value,
+    density: document.getElementById('set-density').value,
+    ...(size ? {fontSize: Number(size)} : {})}, false);
+}
 
 async function openSettings() {
+  if (settingsSaving || document.getElementById('settings-back').classList.contains('on')) return;
+  settingsOpener = document.activeElement;
   const back = document.getElementById('settings-back');
   // Cleared first so "are the fields filled in yet?" has one honest answer,
   // rather than the previous open's data standing in for this one.
@@ -806,7 +826,14 @@ async function openSettings() {
            escapeHtml(settingsData.state_dir)}</code>`
       : '');
 
+  settingsAppearance = AppAppearance.get();
+  document.getElementById('set-theme').value = settingsAppearance.theme;
+  document.getElementById('set-density').value = settingsAppearance.density;
+  document.getElementById('set-font-size').value = settingsAppearance.fontSize;
+  document.getElementById('settings-error').hidden = true;
+  settingsSection('appearance');
   back.classList.add('on');
+  document.getElementById('settings-appearance-tab').focus();
 }
 
 /** Selecting a listed model clears the free-text box, and vice versa. */
@@ -815,15 +842,19 @@ function pickModel(value) {
 }
 
 function closeSettings() {
+  if (settingsSaving) return;
+  if (settingsAppearance) AppAppearance.update(settingsAppearance, false);
+  settingsAppearance = null;
   document.getElementById('settings-back').classList.remove('on');
+  if (settingsOpener && settingsOpener.isConnected) settingsOpener.focus();
 }
 
 async function saveSettings() {
+  if (settingsSaving) return;
   const custom = document.getElementById('set-model-custom').value.trim();
   const foldLines = parseInt(document.getElementById('set-fold-lines').value, 10);
-  codeFoldLines = Number.isFinite(foldLines) ? Math.min(60, Math.max(1, foldLines)) : 10;
-  foldOpenOnFocus = document.getElementById('set-fold-focus').checked;
-  writeFoldPreferences();
+  const nextFoldLines = Number.isFinite(foldLines) ? Math.min(60, Math.max(1, foldLines)) : 10;
+  const nextFoldFocus = document.getElementById('set-fold-focus').checked;
   const body = {
     inline_llm_model: custom || document.getElementById('set-model').value,
     inline_llm_instructions: document.getElementById('set-instructions').value,
@@ -842,11 +873,24 @@ async function saveSettings() {
     flash('Pick a model, or type a deployment name.');
     return;
   }
+  const appearance = AppAppearance.get();
+  const controls = [...document.querySelectorAll('#settings-back button, #settings-back input, #settings-back select, #settings-back textarea')]
+    .filter(control => !control.disabled);
+  settingsSaving = true;
+  controls.forEach(control => { control.disabled = true; });
+  document.getElementById('settings-save').textContent = 'Saving…';
   try {
     settingsData = await api('/api/settings',
                              {method: 'POST', body: JSON.stringify(body)});
+    const foldsChanged = codeFoldLines !== nextFoldLines || foldOpenOnFocus !== nextFoldFocus;
+    codeFoldLines = nextFoldLines;
+    foldOpenOnFocus = nextFoldFocus;
+    writeFoldPreferences();
+    AppAppearance.update(appearance);
+    settingsAppearance = null;
+    settingsSaving = false;
     closeSettings();
-    if (isNotebookTab()) render();
+    if (isNotebookTab() && foldsChanged) render();
     // Say out loud that a restriction isn't retroactive. A user who thinks a
     // guardrail is live on a terminal already running is the failure mode.
     flash(hasRestrictions(body.claude_restrictions)
@@ -857,9 +901,16 @@ async function saveSettings() {
           ? 'Saved'
           : 'Inline LLM → ' + body.inline_llm_model);
   } catch (err) {
-    flash('Cannot save settings: ' + errText(err));
+    const error = document.getElementById('settings-error');
+    error.textContent = 'Cannot save settings: ' + errText(err);
+    error.hidden = false;
+  } finally {
+    settingsSaving = false;
+    controls.forEach(control => { control.disabled = false; });
+    document.getElementById('settings-save').textContent = 'Save settings';
   }
 }
+
 
 // ---------- Error help (one model call) ----------
 async function getHelp(id) {
@@ -885,14 +936,14 @@ async function getHelp(id) {
         <div class="help-head">
           <span class="help-tag">Help</span>
           <span class="help-meta">${escapeHtml(meta)}</span>
-          <button class="help-close" onclick="event.stopPropagation();closeHelp('${id}')">✕</button>
+          <button class="help-close" onclick="event.stopPropagation();closeHelp('${id}')">${icon('close')}</button>
         </div>
         <div class="help-body">${DOMPurify.sanitize(marked.parse(data.markdown || ''))}</div>
       </div>`;
   } catch (err) {
     panel.innerHTML = `<div class="help-box error-box">
       <div class="help-head"><span class="help-tag">Help failed</span>
-      <button class="help-close" onclick="event.stopPropagation();closeHelp('${id}')">✕</button></div>
+      <button class="help-close" onclick="event.stopPropagation();closeHelp('${id}')">${icon('close')}</button></div>
       <div class="help-body"><p>${escapeHtml(err.message)}</p></div></div>`;
   }
 }
