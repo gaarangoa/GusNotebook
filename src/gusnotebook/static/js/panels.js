@@ -38,24 +38,25 @@ async function loadSkills() {
 }
 
 function renderSkills() {
-  // A count in the shut header, matching how Sessions names the current one:
-  // the strip has to say whether there's anything in it before you open it.
-  document.getElementById('skills-cur').textContent =
-    skillList.length ? `${skillList.length}` : '';
-
+  document.querySelector('#skills .strip-head').title = `${skillList.length} skills. Click a name to insert its code; right-click for actions.`;
   document.getElementById('skill-list').innerHTML = skillList.map(s => `
-    <div class="skill-row" role="button" tabindex="0" onclick="insertSkill('${escapeAttr(s.id)}')"
-         title="${escapeAttr(s.description || s.name)}&#10;&#10;Click to add as a cell. Use Edit to change this skill.">
-      <span class="ic">${icon('code')}</span>
+    <div class="skill-row" role="button" tabindex="0" data-skill="${escapeAttr(s.id)}"
+         onclick="insertSkill(this.dataset.skill)" oncontextmenu="skillContext(event, this.dataset.skill)"
+         title="${escapeAttr(s.description || s.name)}&#10;Click to add as a cell. Right-click or press F2 to edit.">
       <span class="nm">${escapeHtml(s.name)}</span>
-      <span class="ds">${escapeHtml(s.description || '')}</span>
-      <span role="button" tabindex="0" aria-label="Edit skill" class="ed" onclick="openSkill('${escapeAttr(s.id)}', event)"
-            title="Edit this skill">${icon('edit')}</span>
     </div>`).join('') ||
-    // Not just "none": an empty list has to say what the thing is for, since
-    // there's no example on screen to infer it from.
-    '<div class="skill-empty">No skills yet. A skill is a snippet plus when to ' +
-    'use it — click <b>+</b> to write one. Claude reads them too.</div>';
+    '<div class="skill-empty">No skills yet. Choose <b>New</b> to write a reusable snippet. Claude reads skills too.</div>';
+}
+
+function skillContext(event, id) {
+  event.preventDefault(); event.stopPropagation();
+  const row = event.currentTarget;
+  row.focus();
+  const box = row.getBoundingClientRect();
+  showFileCtx(event.clientX || box.left, event.clientY || box.bottom, [
+    {label: 'Insert code', action: () => insertSkill(id)},
+    {label: 'Edit skill…', action: () => openSkill(id)},
+  ], 'Skill actions');
 }
 
 /** Put a skill's code in a new cell below the current one.
@@ -240,42 +241,35 @@ async function loadSessions() {
 }
 
 function renderSessions() {
-  // The header carries the current session's name and what's live in it, so a
-  // shut list still answers "where am I, and is anything running?".
   const cur = sessionList.find(s => s.current);
-  const live = cur ? (cur.kernels || 0) + (cur.terminals_live || 0) : 0;
-  document.getElementById('sessions-cur').textContent =
-    cur ? cur.name + (live ? ` · ${live} live` : '') : '';
-
+  document.querySelector('#sessions .strip-head').title = cur ? `Current session: ${cur.name}` : 'Sessions';
   document.getElementById('session-list').innerHTML = sessionList.map(s => {
-    // Counts, not just names: "2 kernels live" is the point of not tearing down.
-    const bits = [];
-    if (s.tabs.length) bits.push(`${s.tabs.length}t`);
-    if (s.kernels) bits.push(`<span class="live">${s.kernels}k</span>`);
-    if (s.terminals_live) bits.push(`<span class="live">${s.terminals_live}✳</span>`);
+    const status = `${s.tabs.length} tabs · ${s.kernels || 0} kernels · ${s.terminals_live || 0} terminals`;
+    const instructions = s.instructions ? ' · Agent instructions set' : '';
+    const restrictions = hasRestrictions(s.restrictions) ? ' · Restrictions set' : '';
     return `
     <div role="button" tabindex="0" class="session-row ${s.current ? 'current' : ''}"
-         onclick="switchSession('${escapeAttr(s.id)}')"
-         ondblclick="renameSession('${escapeAttr(s.id)}', event)"
-         title="${escapeAttr(s.root)}&#10;double-click to rename">
-      <span class="ic">${icon(s.current ? 'chevronDown' : 'chevron')}</span>
+         data-session="${escapeAttr(s.id)}" aria-current="${s.current ? 'true' : 'false'}"
+         onclick="switchSession(this.dataset.session)"
+         ondblclick="renameSession(this.dataset.session, event)"
+         oncontextmenu="sessionContext(event, this.dataset.session)"
+         title="${escapeAttr(s.root)}&#10;${escapeAttr(status + instructions + restrictions)}&#10;Right-click for actions; F2 to rename.">
       <span class="nm">${escapeHtml(s.name)}</span>
-      <span class="meta">${bits.join(' ')}</span>
-      <span role="button" tabindex="0" aria-label="Open session in a new window" class="pop" onclick="openSessionWindow('${escapeAttr(s.id)}', event)"
-            title="Open this session in a new window">${icon('external')}</span>
-      <span role="button" tabindex="0" aria-label="Session instructions" class="note ${s.instructions || hasRestrictions(s.restrictions) ? 'set' : ''}"
-            onclick="openSessionInstr('${escapeAttr(s.id)}', event)"
-            title="${s.instructions
-                     ? 'Instructions for agents in this session:&#10;' + escapeAttr(s.instructions)
-                     : 'Instructions for agents in this session'}${
-                   hasRestrictions(s.restrictions)
-                     ? '&#10;&#10;Restricted: ' + Object.keys(s.restrictions).length +
-                       ' setting(s)' : ''}">${icon('edit')}</span>
-      <span role="button" tabindex="0" aria-label="Close session" class="x" onclick="deleteSession('${escapeAttr(s.id)}', event)"
-            title="Close this session — its tabs and kernels shut down">${icon('close')}</span>
     </div>`;
-  }).join('') ||
-    '<div class="files-msg">no sessions</div>';
+  }).join('') || '<div class="files-msg">No sessions</div>';
+}
+
+function sessionContext(event, id) {
+  event.preventDefault(); event.stopPropagation();
+  const row = event.currentTarget;
+  row.focus();
+  const box = row.getBoundingClientRect();
+  showFileCtx(event.clientX || box.left, event.clientY || box.bottom, [
+    {label: 'Rename session…', action: () => renameSession(id)},
+    {label: 'Agent settings…', action: () => openSessionInstr(id)},
+    {label: 'Open in new window', action: () => openSessionWindow(id)},
+    {label: 'Close session…', action: () => deleteSession(id), danger: true},
+  ], 'Session actions');
 }
 
 async function switchSession(sid) {

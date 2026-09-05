@@ -38,11 +38,61 @@ def main():
         page.evaluate('path => browse(path)', str(work))
         expect(page.locator('html')).to_have_attribute('data-theme', 'light')
         page.frame_locator('iframe[data-output-frame]').locator('table').wait_for()
-        assert page.locator('.app-header').bounding_box()['height'] == 38
+        header = page.locator('.app-header').bounding_box()
+        toolbar = page.locator('#toolbar').bounding_box()
+        assert header['height'] == 38
+        assert header['x'] == toolbar['x'] and header['width'] == toolbar['width']
+        for selector in ['#app', '#files', '#agent-pane', '.app-header']:
+            assert page.locator(selector).bounding_box()['y'] == 0, selector
+        for selector in ['#files', '#agent-pane']:
+            assert page.locator(selector).bounding_box()['height'] == 960, selector
         assert page.locator('#tabs').bounding_box()['y'] == 0
         assert page.locator('#toolbar').bounding_box()['y'] == 38
         assert page.locator('#notebook-pane').bounding_box()['y'] <= 78
         assert page.locator('#nb-path, #nb-label').count() == 0
+        file_row = page.locator('.file-row').first
+        expect(file_row).to_have_css('font-size', '12px')
+        assert file_row.bounding_box()['height'] == 24
+        # Name-only Skills/Sessions keep creation and secondary actions accessible.
+        assert page.locator('#skills svg, #sessions svg').count() == 0
+        for section in ['skills', 'sessions']:
+            assert page.locator('#' + section + ' .strip-head').bounding_box()['height'] == 26
+        page.locator('#skills .strip-new').click()
+        expect(page.locator('#skill-back')).to_be_visible()
+        page.fill('#skill-name', 'Compact skill')
+        page.fill('#skill-body', '# Reusable snippet\n\n```python\nprint("compact")\n```')
+        page.locator('#skill-back .btn.primary').click()
+        page.wait_for_function('skillList.some(s => s.id === "compact-skill")')
+        page.locator('#skills .strip-head').press('Enter')
+        skill = page.locator('.skill-row').filter(has_text='compact-skill')
+        expect(skill).to_have_text('compact-skill')
+        assert skill.bounding_box()['height'] == 26
+        skill.click(button='right')
+        page.get_by_role('menu', name='Skill actions').get_by_role('menuitem', name='Edit skill…').click()
+        expect(page.locator('#skill-name')).to_have_value('compact-skill')
+        page.keyboard.press('Escape')
+        skill.press('F2')
+        expect(page.locator('#skill-back')).to_be_visible()
+        page.keyboard.press('Escape')
+        page.locator('#sessions .strip-head').press('Enter')
+        session = page.locator('.session-row.current')
+        assert session.bounding_box()['height'] == 26
+        session.press('Shift+F10')
+        page.get_by_role('menu', name='Session actions').get_by_role('menuitem', name='Agent settings…').click()
+        expect(page.locator('#sinstr-back')).to_be_visible()
+        page.keyboard.press('Escape')
+        session.click(button='right')
+        page.get_by_role('menu', name='Session actions').get_by_role('menuitem', name='Close session…').click()
+        expect(page.locator('#ask-back')).to_be_visible()
+        page.keyboard.press('Escape')
+        expect(session).to_be_visible()
+        page.locator('#sessions .strip-new').click()
+        expect(page.locator('#ask-back')).to_be_visible()
+        page.keyboard.press('Escape')
+        print('PASS: compact name-only lists retain creation, editing and keyboard context actions', flush=True)
+        page.evaluate('selectCell(cells[1].id)')
+        expect(page.locator('.cell.is-current')).to_have_css('border-left-width', '2px')
+        expect(page.locator('.cell.is-current .cell-body')).to_have_css('border-left-width', '0px')
         page.screenshot(path=str(screenshots / 'light.png'))
 
         page.locator('#workspace-more').focus()
@@ -216,11 +266,13 @@ def main():
             page.click('#toggle-files')
             expect(page.locator('#toggle-files')).to_have_attribute('aria-expanded', 'true')
             assert page.evaluate('!document.getElementById("files").inert')
+            assert page.locator('#files').bounding_box()['y'] == 0
             page.keyboard.press('Escape')
             expect(page.locator('#toggle-files')).to_be_focused()
             if width < 820:
                 page.click('#toggle-terminal')
                 assert page.evaluate('!document.getElementById("agent-pane").inert')
+                assert page.locator('#agent-pane').bounding_box()['y'] == 0
                 page.keyboard.press('Escape')
             page.screenshot(path=str(screenshots / f'dark-{width}.png'))
         page.click('#settings-button')

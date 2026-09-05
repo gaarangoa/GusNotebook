@@ -18,24 +18,6 @@
 </head>
 <body>
 
-<header class="app-header">
-  <span class="app-mark" role="img" aria-label="GusNotebook" title="GusNotebook" data-icon="notebook"></span>
-  <div class="tabs" id="tabs" role="tablist" aria-label="Open documents"></div>
-  <nav class="header-tools" aria-label="Workspace controls">
-    <button class="files-btn icon-button" id="toggle-files" onclick="toggleFiles()" aria-controls="files" aria-expanded="true" title="Toggle files" aria-label="Toggle files"><span data-icon="files"></span></button>
-    <button class="files-btn icon-button" id="toggle-terminal" onclick="togglePanel('terminal')" aria-controls="agent-pane" aria-expanded="true" title="Toggle agents and terminals" aria-label="Toggle agents and terminals"><span data-icon="panel"></span></button>
-    <button class="files-btn icon-button" id="settings-button" onclick="openSettings()" title="Settings" aria-label="Settings"><span data-icon="settings"></span></button>
-    <button class="files-btn icon-button" id="workspace-more" onclick="toggleWorkspaceMenu(event)" aria-haspopup="menu" aria-expanded="false" aria-controls="workspace-menu" title="More workspace actions" aria-label="More workspace actions"><span data-icon="more"></span></button>
-  </nav>
-  <div class="workspace-menu" id="workspace-menu" role="menu" aria-label="Workspace actions" hidden>
-    <button id="focus-toggle" role="menuitemcheckbox" tabindex="-1" aria-checked="false" onclick="closeWorkspaceMenu(); toggleNotebookFocus()"><span data-icon="focus"></span>Focus notebook<span class="menu-check" data-icon="check"></span></button>
-    <button id="theme-toggle" role="menuitem" tabindex="-1" onclick="closeWorkspaceMenu(); AppAppearance.toggle()"><span class="theme-light-icon" data-icon="sun"></span><span class="theme-dark-icon" data-icon="moon"></span><span id="theme-label">Switch theme</span></button>
-    <div class="menu-separator" role="separator"></div>
-    <button id="history-button" role="menuitem" tabindex="-1" onclick="closeWorkspaceMenu(); openHistory()"><span data-icon="history"></span>Change history</button>
-    <button id="nb-reload" role="menuitem" tabindex="-1" onclick="closeWorkspaceMenu(); reloadNotebookFromDisk()"><span data-icon="refresh"></span>Reload notebook</button>
-  </div>
-</header>
-
 <div class="app" id="app">
   <div class="files" id="files" role="region" aria-label="Project files">
     <div id="file-splitter" class="file-splitter" role="separator" tabindex="0" aria-label="Resize files panel" aria-orientation="vertical" aria-controls="files"></div>
@@ -61,11 +43,9 @@
          a plugin, so a skill is written once and serves both. -->
     <div class="strip collapsed" id="skills">
       <div class="strip-head" role="button" tabindex="0" aria-expanded="false" aria-controls="skill-list" onclick="toggleSkills()">
-        <span class="caret" data-icon="chevronDown"></span>
         <span class="grow">Skills</span>
-        <span class="cur" id="skills-cur"></span>
-        <button class="files-btn" onclick="newSkill(event)"
-                title="New skill — a snippet and when to use it"><span data-icon="plus"></span></button>
+        <button class="strip-new" onclick="newSkill(event)"
+                title="New skill">New</button>
       </div>
       <div class="skill-list" id="skill-list"></div>
     </div>
@@ -75,17 +55,32 @@
          you use constantly, so it gets the room by default. -->
     <div class="strip collapsed" id="sessions">
       <div class="strip-head" role="button" tabindex="0" aria-expanded="false" aria-controls="session-list" onclick="toggleSessions()">
-        <span class="caret" data-icon="chevronDown"></span>
         <span class="grow">Sessions</span>
-        <span class="cur" id="sessions-cur"></span>
-        <button class="files-btn" onclick="newSession(event)"
-                title="New session — its own tabs and kernels"><span data-icon="plus"></span></button>
+        <button class="strip-new" onclick="newSession(event)"
+                title="New session">New</button>
       </div>
       <div class="session-list" id="session-list"></div>
     </div>
   </div>
 
   <div class="left">
+    <header class="app-header">
+      <span class="app-mark" role="img" aria-label="GusNotebook" title="GusNotebook" data-icon="notebook"></span>
+      <div class="tabs" id="tabs" role="tablist" aria-label="Open documents"></div>
+      <nav class="header-tools" aria-label="Workspace controls">
+        <button class="files-btn icon-button" id="toggle-files" onclick="toggleFiles()" aria-controls="files" aria-expanded="true" title="Toggle files" aria-label="Toggle files"><span data-icon="files"></span></button>
+        <button class="files-btn icon-button" id="toggle-terminal" onclick="togglePanel('terminal')" aria-controls="agent-pane" aria-expanded="true" title="Toggle agents and terminals" aria-label="Toggle agents and terminals"><span data-icon="panel"></span></button>
+        <button class="files-btn icon-button" id="settings-button" onclick="openSettings()" title="Settings" aria-label="Settings"><span data-icon="settings"></span></button>
+        <button class="files-btn icon-button" id="workspace-more" onclick="toggleWorkspaceMenu(event)" aria-haspopup="menu" aria-expanded="false" aria-controls="workspace-menu" title="More workspace actions" aria-label="More workspace actions"><span data-icon="more"></span></button>
+      </nav>
+      <div class="workspace-menu" id="workspace-menu" role="menu" aria-label="Workspace actions" hidden>
+        <button id="focus-toggle" role="menuitemcheckbox" tabindex="-1" aria-checked="false" onclick="closeWorkspaceMenu(); toggleNotebookFocus()"><span data-icon="focus"></span>Focus notebook<span class="menu-check" data-icon="check"></span></button>
+        <button id="theme-toggle" role="menuitem" tabindex="-1" onclick="closeWorkspaceMenu(); AppAppearance.toggle()"><span class="theme-light-icon" data-icon="sun"></span><span class="theme-dark-icon" data-icon="moon"></span><span id="theme-label">Switch theme</span></button>
+        <div class="menu-separator" role="separator"></div>
+        <button id="history-button" role="menuitem" tabindex="-1" onclick="closeWorkspaceMenu(); openHistory()"><span data-icon="history"></span>Change history</button>
+        <button id="nb-reload" role="menuitem" tabindex="-1" onclick="closeWorkspaceMenu(); reloadNotebookFromDisk()"><span data-icon="refresh"></span>Reload notebook</button>
+      </div>
+    </header>
 
     <!-- The + tab's menu. Fixed-position, so the tab strip's horizontal scroll
          can't clip it; coordinates come from the + tab's rect in openNewMenu(). -->
@@ -168,8 +163,7 @@
           <span class="dot" id="k-dot"></span>
           <span id="k-status">…</span>
           <span class="venv-name" id="venv-name"></span>
-          <span class="caret" data-icon="chevronDown"></span>
-        </button>
+          </button>
         <div class="venv-menu" id="venv-menu" role="group" aria-label="Notebook environment and kernel actions"></div>
       </div>
     </div>

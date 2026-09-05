@@ -1027,7 +1027,7 @@ def main():
         # Collapsed still has to answer "where am I" — otherwise hiding the list
         # hides the one thing you always need to know.
         check("header names the current session",
-              pg.locator("#sessions-cur").inner_text().strip() != "", True)
+              bool(pg.locator("#sessions .strip-head").get_attribute("title")), True)
         pg.click("#sessions .strip-head")
         pg.wait_for_timeout(200)
         check("clicking the header opens it",
@@ -1036,8 +1036,10 @@ def main():
               pg.locator("#session-list .session-row.current").count(), 1)
         first_session = pg.evaluate("currentSession")
         first_root = pg.evaluate("fileState.path")
+        pg.locator("#session-list .session-row.current").click(button="right")
         check("each session can open in its own window",
-              pg.locator("#session-list .session-row .pop").count() >= 1, True)
+              pg.locator("#file-ctx").get_by_role("menuitem", name="Open in new window", exact=True).count(), 1)
+        pg.keyboard.press("Escape")
 
         go_to(pg, FIX)
         pg.evaluate("setTimeout(newSession, 0)")
@@ -1139,8 +1141,8 @@ def main():
         # The description is what tells you whether this is the snippet you want,
         # so a row without one is a row you can't choose from.
         check("every row carries a description", pg.evaluate(
-            "[...document.querySelectorAll('.skill-row .ds')]"
-            ".every(e => e.textContent.trim())"), True)
+            "[...document.querySelectorAll('.skill-row')]"
+            ".every(e => e.title.trim())"), True)
 
         pg.evaluate("setTimeout(() => newSkill(), 0)")
         pg.wait_for_selector("#skill-back.on", timeout=15000)
@@ -1239,10 +1241,9 @@ def main():
         pg.click("#sinstr-back .btn.primary")
         pg.wait_for_selector("#sinstr-back.on", state="hidden", timeout=15000)
         pg.wait_for_function("sessionList.some(s => s.instructions)", timeout=20000)
-        # Instructions you can't see are the ones that surprise you when an agent
-        # follows them, so a set note stays visible unhovered.
-        check("the row shows it's set",
-              pg.locator(".session-row.current .note.set").count(), 1)
+        # The compact row keeps instruction status in its tooltip.
+        check("the row tooltip reports instructions",
+              'Agent instructions set' in pg.locator('.session-row.current').get_attribute('title'), True)
 
         claude = post("/api/terminals", {"cwd": str(FIX), "kind": "claude"})
         argv = argv_of(claude["pid"])
@@ -1329,8 +1330,8 @@ def main():
                              timeout=20000)
         # Same rule as the instructions: a restriction you can't see is exactly
         # the one that surprises you when Claude obeys it.
-        check("the row's note stays visible for a restriction alone",
-              pg.locator(".session-row.current .note.set").count(), 1)
+        check("the row tooltip reports restrictions",
+              'Restrictions set' in pg.locator('.session-row.current').get_attribute('title'), True)
 
         locked = post("/api/terminals", {"cwd": str(FIX), "kind": "claude"})
         lpath, lspec = settings_of(locked["pid"])

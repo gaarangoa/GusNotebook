@@ -27,7 +27,6 @@ function syncModals() {
   }
   const top = topModal();
   document.getElementById('app').inert = !!top;
-  document.querySelector('.app-header').inert = !!top;
   for (const back of document.querySelectorAll('.modal-back')) back.inert = !!top && back !== top;
   if (top && !top.contains(document.activeElement)) {
     (focusableControls(top)[0] || top.querySelector('.modal')).focus();
@@ -63,6 +62,17 @@ document.addEventListener('keydown', event => {
   if (['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName) || target.isContentEditable) return;
   if (target.closest('#venv-menu') && event.key === 'Escape') {
     event.preventDefault(); closeVenvMenu(); return;
+  }
+  if (target.matches('.skill-row, .session-row') && (event.key === 'F2' || event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10'))) {
+    event.preventDefault();
+    const skill = target.dataset.skill;
+    if (event.key === 'F2') {
+      if (skill) openSkill(skill); else renameSession(target.dataset.session);
+    } else {
+      const context = {currentTarget: target, preventDefault() {}, stopPropagation() {}};
+      if (skill) skillContext(context, skill); else sessionContext(context, target.dataset.session);
+    }
+    return;
   }
   if (target.matches('#tabs [role="tab"]') && (event.key === 'F2' || event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10'))) {
     event.preventDefault();

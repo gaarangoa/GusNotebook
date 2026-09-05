@@ -171,13 +171,13 @@ function fileCtxEntry(e, path, kind) {
   showFileCtx(e.clientX, e.clientY, items);
 }
 
-function showFileCtx(x, y, items) {
+function showFileCtx(x, y, items, label = 'File actions') {
   closeFileCtx();
   const menu = document.createElement('div');
   menu.className = 'file-ctx';
   menu.id = 'file-ctx';
   menu.setAttribute('role', 'menu');
-  menu.setAttribute('aria-label', 'File actions');
+  menu.setAttribute('aria-label', label);
   menu._opener = document.activeElement;
   items.forEach(({label, action, danger}) => {
     const item = document.createElement('div');

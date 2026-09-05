@@ -73,106 +73,27 @@ body {
 }
 .strip-head {
   display: flex; align-items: center; gap: 6px;
-  height: 34px; flex: 0 0 34px;
-  padding: 0 8px 0 12px;
+  height: 26px; min-height: 26px; flex: 0 0 26px; padding: 0 10px;
   font-size: 12px; font-weight: 600; color: var(--secondary);
   cursor: pointer; user-select: none;
 }
 .strip-head:hover { background: var(--hover); }
-.strip-head .grow { flex: 0 0 auto; }
-/* Which session you're in, shown in the header while the list is shut —
-   otherwise collapsing it would hide the one thing you always need to know. */
-.strip-head .cur {
-  flex: 1 1 auto; min-width: 0; text-align: right;
-  font-size: 10px; font-weight: 500; color: var(--accent);
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+.strip-head .grow { flex: 1; }
+.strip-new {
+  min-height: 24px; padding: 0 4px; border: 0; border-radius: 3px;
+  background: transparent; color: var(--muted); font-family: inherit; font-size: 11px; line-height: 1.4; cursor: pointer;
 }
-.strip:not(.collapsed) .cur { display: none; }
-.strip-head .caret {
-  flex: 0 0 auto; font-size: 8px; color: var(--muted);
-  transition: transform .12s;
+.strip-new:hover { background: var(--hover); color: var(--accent); }
+.session-list, .skill-list { flex: 0 0 auto; max-height: 144px; overflow-y: auto; padding-bottom: 3px; }
+.strip.collapsed .session-list, .strip.collapsed .skill-list { display: none; }
+.session-row, .skill-row {
+  display: flex; align-items: center; min-height: 26px; padding: 4px 10px;
+  cursor: pointer; font-size: 12px; line-height: 18px; color: var(--secondary);
 }
-.strip.collapsed .caret { transform: rotate(-90deg); }
-/* flex: 0 0 auto — inside a flex column this would otherwise default to
-   shrinkable, and the file tree above (flex: 1) squeezes it to a clipped sliver
-   instead of giving up its own space. */
-.session-list {
-  flex: 0 0 auto;
-  max-height: 170px; overflow-y: auto; padding-bottom: 6px;
-}
-.strip.collapsed .session-list { display: none; }
-.session-row {
-  display: flex; align-items: center; gap: 7px;
-  padding: 4px 8px 4px 12px;
-  cursor: pointer; font-size: 12px; color: var(--secondary);
-}
-.session-row:hover { background: var(--hover); }
+.session-row:hover, .skill-row:hover { background: var(--hover); }
 .session-row.current { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
-.session-row .ic { flex: 0 0 12px; text-align: center; font-size: 9px; }
-.session-row .nm {
-  flex: 1 1 auto; min-width: 0;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
-/* What you left running elsewhere — the reason switching tears nothing down. */
-.session-row .meta {
-  flex: 0 0 auto; font-family: var(--mono); font-size: 9px; color: var(--muted);
-}
-.session-row.current .meta { color: var(--accent); }
-.session-row .live { color: var(--green); }
-.session-row .x, .session-row .pop {
-  flex: 0 0 auto; font-size: 11px; color: var(--border-strong); padding: 0 2px;
-  visibility: hidden;
-}
-.session-row:hover .x, .session-row:hover .pop { visibility: visible; }
-.session-row .x:hover { color: var(--red); }
-.session-row .pop:hover { color: var(--accent); }
-/* Per-session instructions for agents. Same hover-to-reveal as the ✕: a row
-   should read as a name and what's live in it, not a strip of icons. */
-.session-row .note {
-  flex: 0 0 auto; font-size: 10px; color: var(--border-strong); padding: 0 2px;
-  visibility: hidden;
-}
-.session-row:hover .note { visibility: visible; }
-.session-row .note:hover { color: var(--accent); }
-/* Set, so it stays visible unhovered — instructions you can't see are the ones
-   that surprise you when Claude follows them. */
-.session-row .note.set { visibility: visible; color: var(--accent); }
-
-/* Skills: the same collapsed-by-default strip as Sessions, above it. Reused
-   deliberately — two lists at the foot of the panel that behave differently
-   would be two things to learn. */
-.skill-list {
-  flex: 0 0 auto;
-  max-height: 190px; overflow-y: auto; padding-bottom: 6px;
-}
-.strip.collapsed .skill-list { display: none; }
-.skill-row {
-  display: flex; align-items: baseline; gap: 7px;
-  padding: 4px 8px 4px 12px;
-  cursor: pointer; font-size: 12px; color: var(--secondary);
-}
-.skill-row:hover { background: var(--hover); }
-.skill-row .ic { flex: 0 0 12px; text-align: center; font-size: 9px; color: var(--accent); }
-.skill-row .nm {
-  flex: 0 0 auto; font-family: var(--mono); font-size: 11px;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  max-width: 96px;
-}
-/* The description is the useful half: it's what tells you whether this is the
-   snippet you want, so it gets the remaining room rather than being a tooltip. */
-.skill-row .ds {
-  flex: 1 1 auto; min-width: 0; font-size: 10px; color: var(--muted);
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
-.skill-row .ed {
-  flex: 0 0 auto; font-size: 10px; color: var(--border-strong); padding: 0 2px;
-  visibility: hidden;
-}
-.skill-row:hover .ed { visibility: visible; }
-.skill-row .ed:hover { color: var(--accent); }
-.skill-empty {
-  padding: 6px 12px 8px; font-size: 10px; color: var(--muted); line-height: 1.5;
-}
+.session-row .nm, .skill-row .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.skill-empty { padding: 6px 10px; font-size: 12px; color: var(--muted); line-height: 1.5; }
 .files-btn {
   border: 1px solid var(--border);
   background: var(--panel);
@@ -1726,9 +1647,8 @@ button.tb.primary:hover { background: var(--accent-soft); }
 
 /* Shared workspace styling. Palette and density live in theme.css. */
 body { height: 100dvh; font-size: var(--ui-size); }
-body:not(.unlock-page) { display: grid; grid-template-rows: var(--workspace-bar-height) minmax(0, 1fr); }
 .app { height: 100%; min-height: 0; grid-template-rows: minmax(0, 1fr); grid-template-columns: 240px minmax(0, 1fr) 6px 360px; }
-.app-header { display: flex; align-items: center; height: var(--workspace-bar-height); padding: 0 6px; gap: 6px; background: var(--surface); border-bottom: 1px solid var(--border); min-width: 0; }
+.app-header { display: flex; flex: 0 0 var(--workspace-bar-height); align-items: center; height: var(--workspace-bar-height); padding: 0 6px; gap: 6px; background: var(--surface); border-bottom: 1px solid var(--border); min-width: 0; }
 .app-mark { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 24px; color: var(--accent); }
 .app-mark .icon { width: 16px; height: 16px; }
 .header-tools { display: flex; align-items: center; gap: 2px; flex-shrink: 0; }
@@ -1764,22 +1684,13 @@ button:disabled { opacity: .55; cursor: default; }
 .files-head .files-btn { width: 28px; min-height: 28px; padding: 4px; }
 .files-head .icon { width: 15px; height: 15px; }
 .crumbs { font-size: var(--small-size); min-height: 30px; }
-.file-list { padding: 5px; }
-.file-row { font-size: var(--ui-size); padding: var(--row-space) 8px; border-radius: 6px; gap: 8px; min-height: 30px; }
-.file-row .ic { flex-basis: 16px; }
+.file-list { padding: 3px; }
+.file-row { font-size: 12px; line-height: 18px; padding: 3px 7px; border-radius: 4px; gap: 6px; min-height: 24px; }
+.file-row .ic { flex-basis: 14px; }
 .file-row .sz { font-size: 11px; }
 .file-row.dim { color: var(--secondary); }
 .file-row.open { background: var(--accent-soft); color: var(--accent); }
 .file-row.active-file { box-shadow: inset 3px 0 var(--accent); font-weight: 600; }
-.strip-head { min-height: 38px; font-size: var(--ui-size); padding: 0 12px; }
-.strip-head .caret { width: 14px; }
-.strip-head .caret .icon { width: 14px; height: 14px; }
-.strip-head .cur, .session-row .meta, .skill-row .ds { font-size: var(--small-size); }
-.strip-head .files-btn { width: 28px; min-height: 28px; padding: 4px; }
-.session-row, .skill-row { font-size: var(--ui-size); padding: 7px 12px; gap: 8px; }
-.session-row .ic, .skill-row .ic { flex-basis: 16px; }
-.session-row .x, .session-row .pop, .session-row .note, .skill-row .ed { display: inline-flex; width: 24px; height: 24px; align-items: center; justify-content: center; }
-.session-row:focus-within .x, .session-row:focus-within .pop, .session-row:focus-within .note, .skill-row:focus-within .ed { visibility: visible; }
 .app-header .tabs { flex: 1 1 0; min-width: 0; height: 100%; min-height: 0; gap: 1px; padding: 0; border-bottom: 0; background: var(--surface); scrollbar-width: none; }
 .app-header .tabs::-webkit-scrollbar { display: none; }
 .app-header .tab { min-height: 0; max-width: 240px; font-size: 12px; padding: 0 4px 0 10px; border-right: 0; gap: 6px; background: var(--surface); }
@@ -1810,8 +1721,7 @@ button:disabled { opacity: .55; cursor: default; }
 .notebook { padding: 24px 24px 8px 14px; }
 .cell { grid-template-columns: 64px minmax(0, 1fr); margin-bottom: 12px; }
 .gutter-label { font-size: var(--small-size); }
-.cell-body { border-left: 3px solid transparent; padding: 4px 0 4px 8px; }
-.cell.is-current .cell-body { border-left-color: var(--accent); }
+.cell-body { padding: 4px 0 4px 11px; }
 .editor, .cm-editor, #text-editor { font-size: var(--editor-size); color: var(--text); line-height: 1.6; }
 .cm-editor .cm-content { color: var(--text); padding: 10px 0; }
 .cm-editor .cm-cursor { border-left-color: var(--text); }
@@ -1857,8 +1767,8 @@ button:disabled { opacity: .55; cursor: default; }
 .resizing-panels iframe { pointer-events: none; }
 .app.terminal-hidden .right { visibility: hidden; }
 .focus-mode .notebook { max-width: 1220px; margin: 0 auto; }
-.panel-backdrop { position: fixed; inset: var(--workspace-bar-height) 0 0; z-index: 35; border: 0; background: var(--overlay); }
-.app.files-drawer .files, .app.terminal-drawer .right { visibility: visible; position: fixed; top: var(--workspace-bar-height); bottom: 0; z-index: 40; box-shadow: var(--shadow); }
+.panel-backdrop { position: fixed; inset: 0; z-index: 35; border: 0; background: var(--overlay); }
+.app.files-drawer .files, .app.terminal-drawer .right { visibility: visible; position: fixed; top: 0; bottom: 0; z-index: 40; box-shadow: var(--shadow); }
 .app.files-drawer .files { left: 0; width: min(320px, 88vw); }
 .app.terminal-drawer .right { right: 0; width: min(520px, 94vw); }
 .files-drawer .file-splitter { display: none; }

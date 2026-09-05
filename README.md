@@ -83,8 +83,10 @@ switches directly between light and dark. Editors, terminals, tables, menus,
 and dialogs follow the theme; authored plots, images, and HTML previews keep
 their original colors.
 
-Documents and workspace controls share a compact 38 px row. The controls at its
-right show or hide **Files** and **Agents and terminals**, and open **Settings**.
+Documents and workspace controls share a compact 38 px row directly above the
+notebook toolbar. The Files and terminal panes extend to the top of the window.
+The controls at the right of the tab row show or hide **Files** and
+**Agents and terminals**, and open **Settings**.
 The **⋯** menu contains **Focus notebook**, theme switching, **Change history**,
 and **Reload notebook**. Right-click a tab for **Rename…**, or focus the tab and
 press F2. Drag either panel divider to resize it; widths and
@@ -97,6 +99,12 @@ buttons open drawers that close with Escape or a click outside.
 **Settings → Agents** contains standing instructions and expandable permission
 settings. Tabs support arrow-key navigation, the **+** menu works with the
 keyboard, and dialogs keep keyboard focus inside until closed.
+
+Skills and Sessions use compact name-only lists. Click a section heading to
+expand it, or **New** to add an entry. Right-click a skill to insert or edit it;
+right-click a session to rename it, edit agent settings, open it in a new window,
+or close it. F2 edits a focused skill or renames a focused session. Descriptions,
+activity counts, and session instruction status are available in tooltips.
 
 ## Python environments
 
