@@ -38,18 +38,6 @@
     <div class="crumbs" id="crumbs"></div>
     <div class="file-list" id="file-list"></div>
 
-    <!-- Skills: snippets and practices, shut by default like Sessions below it.
-         Clicking one inserts its code as a cell; Claude reads the same files as
-         a plugin, so a skill is written once and serves both. -->
-    <div class="strip collapsed" id="skills">
-      <div class="strip-head" role="button" tabindex="0" aria-expanded="false" aria-controls="skill-list" onclick="toggleSkills()">
-        <span class="grow">Skills</span>
-        <button class="strip-new" onclick="newSkill(event)"
-                title="New skill">New</button>
-      </div>
-      <div class="skill-list" id="skill-list"></div>
-    </div>
-
     <!-- Sessions at the foot of the panel, collapsed to just its header until
          you click it. Switching sessions is occasional; the file tree is what
          you use constantly, so it gets the room by default. -->
@@ -61,6 +49,19 @@
       </div>
       <div class="session-list" id="session-list"></div>
     </div>
+
+    <!-- Skills: snippets and practices, shut by default like Sessions above it.
+         Clicking one inserts its code as a cell; Claude reads the same files as
+         a plugin, so a skill is written once and serves both. -->
+    <div class="strip collapsed" id="skills">
+      <div class="strip-head" role="button" tabindex="0" aria-expanded="false" aria-controls="skill-list" onclick="toggleSkills()">
+        <span class="grow">Skills</span>
+        <button class="strip-new" onclick="newSkill(event)"
+                title="New skill">New</button>
+      </div>
+      <div class="skill-list" id="skill-list"></div>
+    </div>
+
   </div>
 
   <div class="left">

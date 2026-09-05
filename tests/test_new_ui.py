@@ -1128,11 +1128,11 @@ def main():
               "last session" in flash_text(pg, "last session"), True)
 
         print("\n-- skills: one markdown file, two consumers")
-        check("above Sessions, below the tree", pg.evaluate("""() => {
+        check("below Sessions and the file tree", pg.evaluate("""() => {
           const k = document.getElementById('skills').getBoundingClientRect();
           const s = document.getElementById('sessions').getBoundingClientRect();
           const f = document.getElementById('file-list').getBoundingClientRect();
-          return k.top >= f.bottom - 1 && k.bottom <= s.top + 1;
+          return s.top >= f.bottom - 1 && k.top >= s.bottom - 1;
         }"""), True)
         check("shut by default", pg.locator("#skill-list").is_visible(), False)
         pg.click("#skills .strip-head")

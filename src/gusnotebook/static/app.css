@@ -60,7 +60,7 @@ body {
 }
 .files-head .grow { flex: 1; }
 
-/* The collapsible strips at the foot of the panel — Skills, then Sessions.
+/* The collapsible strips at the foot of the panel — Sessions, then Skills.
    Shared shape, one name: both are occasional-use lists that would otherwise
    steal room from the file tree, which is what you use constantly. Each is
    capped when open, so a long list can't push the tree off the screen. */
