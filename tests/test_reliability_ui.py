@@ -255,6 +255,7 @@ def main():
             {"source": "print('changed')"}, method="PATCH")
         group = api(f"/api/history/{group_id}/finish", {})
         assert len(group["changes"]) == 2, group
+        page.click("#workspace-more")
         page.click("#history-button")
         page.get_by_text("Update report and notebook", exact=True).wait_for()
         page.get_by_role("button", name="Undo these changes").click()

@@ -42,7 +42,7 @@ function applyLayout() {
     button.setAttribute('aria-expanded', String(open));
     button.classList.toggle('on', open);
   }
-  document.getElementById('focus-toggle').setAttribute('aria-pressed', String(focus));
+  document.getElementById('focus-toggle').setAttribute('aria-checked', String(focus));
   for (const [id, current, min, max] of [['file-splitter', fw, 200, Math.min(480, width * .25)],
       ['splitter', tw, 300, Math.max(300, width - fw - 486)]]) {
     const separator = document.getElementById(id);

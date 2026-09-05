@@ -18,20 +18,22 @@
 </head>
 <body>
 
-<header class="app-header nb-title">
-  <span class="app-mark" data-icon="notebook"></span><span id="nb-label">GusNotebook</span>
-  <span class="path" id="nb-path" spellcheck="false" onkeydown="notebookNameKey(event)" onblur="commitNotebookNameEdit()" oncontextmenu="activeFileCtx(event)"></span>
-  <span class="grow"></span>
+<header class="app-header">
+  <span class="app-mark" role="img" aria-label="GusNotebook" title="GusNotebook" data-icon="notebook"></span>
+  <div class="tabs" id="tabs" role="tablist" aria-label="Open documents"></div>
   <nav class="header-tools" aria-label="Workspace controls">
     <button class="files-btn icon-button" id="toggle-files" onclick="toggleFiles()" aria-controls="files" aria-expanded="true" title="Toggle files" aria-label="Toggle files"><span data-icon="files"></span></button>
     <button class="files-btn icon-button" id="toggle-terminal" onclick="togglePanel('terminal')" aria-controls="agent-pane" aria-expanded="true" title="Toggle agents and terminals" aria-label="Toggle agents and terminals"><span data-icon="panel"></span></button>
-    <button class="files-btn icon-button" id="focus-toggle" onclick="toggleNotebookFocus()" aria-pressed="false" title="Focus notebook" aria-label="Focus notebook"><span data-icon="focus"></span></button>
-    <span class="header-divider"></span>
-    <button class="files-btn icon-button" id="theme-toggle" onclick="AppAppearance.toggle()" title="Switch theme" aria-label="Switch theme"><span class="theme-light-icon" data-icon="sun"></span><span class="theme-dark-icon" data-icon="moon"></span></button>
-    <button class="files-btn icon-button" id="history-button" onclick="openHistory()" title="Change history" aria-label="Change history"><span data-icon="history"></span></button>
-    <button class="files-btn icon-button" id="nb-reload" onclick="reloadNotebookFromDisk()" title="Reload notebook" aria-label="Reload notebook"><span data-icon="refresh"></span></button>
     <button class="files-btn icon-button" id="settings-button" onclick="openSettings()" title="Settings" aria-label="Settings"><span data-icon="settings"></span></button>
+    <button class="files-btn icon-button" id="workspace-more" onclick="toggleWorkspaceMenu(event)" aria-haspopup="menu" aria-expanded="false" aria-controls="workspace-menu" title="More workspace actions" aria-label="More workspace actions"><span data-icon="more"></span></button>
   </nav>
+  <div class="workspace-menu" id="workspace-menu" role="menu" aria-label="Workspace actions" hidden>
+    <button id="focus-toggle" role="menuitemcheckbox" tabindex="-1" aria-checked="false" onclick="closeWorkspaceMenu(); toggleNotebookFocus()"><span data-icon="focus"></span>Focus notebook<span class="menu-check" data-icon="check"></span></button>
+    <button id="theme-toggle" role="menuitem" tabindex="-1" onclick="closeWorkspaceMenu(); AppAppearance.toggle()"><span class="theme-light-icon" data-icon="sun"></span><span class="theme-dark-icon" data-icon="moon"></span><span id="theme-label">Switch theme</span></button>
+    <div class="menu-separator" role="separator"></div>
+    <button id="history-button" role="menuitem" tabindex="-1" onclick="closeWorkspaceMenu(); openHistory()"><span data-icon="history"></span>Change history</button>
+    <button id="nb-reload" role="menuitem" tabindex="-1" onclick="closeWorkspaceMenu(); reloadNotebookFromDisk()"><span data-icon="refresh"></span>Reload notebook</button>
+  </div>
 </header>
 
 <div class="app" id="app">
@@ -84,8 +86,6 @@
   </div>
 
   <div class="left">
-
-    <div class="tabs" id="tabs" role="tablist" aria-label="Open documents"></div>
 
     <!-- The + tab's menu. Fixed-position, so the tab strip's horizontal scroll
          can't clip it; coordinates come from the + tab's rect in openNewMenu(). -->

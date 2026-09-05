@@ -300,17 +300,6 @@ function showActive() {
     clearMarkupFocus();
   }
 
-  // The app's name on a notebook tab — the same text the markup ships with, so
-  // rendering a tab doesn't quietly rename the app back to something generic.
-  document.getElementById('nb-label').textContent =
-    kind === 'notebook' ? 'GusNotebook' : (t ? t.name.split('.').pop() : '');
-  const pathEl = document.getElementById('nb-path');
-  pathEl.textContent = t ? t.name : '';
-  pathEl.title = t ? t.path : '';
-  pathEl.dataset.path = t ? t.path : '';
-  pathEl.dataset.name = t ? t.name : '';
-  pathEl.contentEditable = kind === 'notebook' ? 'true' : 'false';
-  pathEl.classList.toggle('editable', kind === 'notebook');
   const nbReload = document.getElementById('nb-reload');
   if (nbReload) nbReload.style.display = kind === 'notebook' ? '' : 'none';
 
@@ -337,34 +326,17 @@ function showActive() {
   }
 }
 
-function notebookNameKey(event) {
-  const t = activeTab();
-  if (!t || t.kind !== 'notebook') return;
-  if (event.key === 'Enter') {
-    event.preventDefault();
-    event.currentTarget.blur();
-  } else if (event.key === 'Escape') {
-    event.preventDefault();
-    event.currentTarget.textContent = event.currentTarget.dataset.name || t.name;
-    event.currentTarget.blur();
-  }
-}
-
-async function commitNotebookNameEdit() {
-  const el = document.getElementById('nb-path');
-  const t = activeTab();
-  if (!el || !t || t.kind !== 'notebook') return;
+async function renameNotebook(t) {
+  const requested = await askName('Rename notebook', t.name, t.path, 'Rename');
+  if (requested === null) return;
   const oldPath = t.path;
   const oldName = t.name;
-  let name = el.textContent.trim();
-  if (!name || name === oldName) {
-    el.textContent = oldName;
-    return;
-  }
+  let name = requested.trim();
+  if (!name || name === oldName) return;
   if (!name.endsWith('.ipynb')) name += '.ipynb';
+  if (name === oldName) return;
   if (name.includes('/') || name.includes('\\')) {
     flash('Notebook name must not contain slashes');
-    el.textContent = oldName;
     return;
   }
   try {
@@ -387,15 +359,14 @@ async function commitNotebookNameEdit() {
     }
     t.path = newPath;
     t.name = name;
-    active = newPath;
-    rememberActive(newPath);
+    if (active === oldPath) active = newPath;
+    if (active === newPath) rememberActive(newPath);
     renderTabs();
     showActive();
     if (fileState.path) browse(fileState.path);
     loadSessions();
     flash(`Renamed notebook to ${name}`);
   } catch (err) {
-    el.textContent = oldName;
     flash('Rename failed: ' + errText(err));
   }
 }

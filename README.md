@@ -78,13 +78,16 @@ keeps it in generated browser URLs and authentication cookies.
 Open **Settings → Appearance** for **Light**, **Dark**, or **Follow system**,
 comfortable or compact spacing, and the code/terminal font size. Changes preview
 immediately; **Save settings** keeps them in this browser, and **Cancel** or
-**Escape** restores the previous appearance. The sun/moon button in the header
+**Escape** restores the previous appearance. **⋯ → Switch theme** in the tab row
 switches directly between light and dark. Editors, terminals, tables, menus,
 and dialogs follow the theme; authored plots, images, and HTML previews keep
 their original colors.
 
-The header controls show or hide **Files** and **Agents and terminals**, or
-enable **Focus notebook**. Drag either panel divider to resize it; widths and
+Documents and workspace controls share a compact 38 px row. The controls at its
+right show or hide **Files** and **Agents and terminals**, and open **Settings**.
+The **⋯** menu contains **Focus notebook**, theme switching, **Change history**,
+and **Reload notebook**. Right-click a tab for **Rename…**, or focus the tab and
+press F2. Drag either panel divider to resize it; widths and
 visibility are saved in this browser. Focused dividers also accept arrow keys
 (Shift for larger steps), Home, and End. Double-click a divider to reset its
 width, or use **Reset layout** in Appearance. On smaller screens, the panel

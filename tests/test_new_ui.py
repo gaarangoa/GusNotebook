@@ -709,8 +709,8 @@ def main():
         pg.wait_for_function("activeTab().kind === 'text'")
         check("toolbar hidden on a text tab", pg.locator("#toolbar").is_visible(), False)
         check("title-bar gear still there",
-              pg.locator(".nb-title button[onclick='openSettings()']").is_visible(), True)
-        pg.click(".nb-title button[onclick='openSettings()']")
+              pg.locator(".app-header button[onclick='openSettings()']").is_visible(), True)
+        pg.click(".app-header button[onclick='openSettings()']")
         pg.wait_for_function("!!settingsData", timeout=20000)
         check("opens from a text tab", pg.locator("#settings-back").is_visible(), True)
         check("and is populated, not blank",
@@ -737,7 +737,7 @@ def main():
         print("\n-- settings modal")
         pg.evaluate("switchTab(tabs.find(t => t.kind === 'notebook').path)")
         pg.wait_for_function("activeTab().kind === 'notebook'")
-        pg.click(".nb-title button[onclick='openSettings()']")
+        pg.click(".app-header button[onclick='openSettings()']")
         pg.wait_for_function("!!settingsData", timeout=20000)
         check("modal open", pg.locator("#settings-back").is_visible(), True)
         # No API in use right now: the inline LLM and gateway fields are
@@ -796,7 +796,7 @@ def main():
         check("modal closed", pg.locator("#settings-back").is_visible(), False)
 
         print("\n-- gateway credentials, and where the key is kept")
-        pg.click(".nb-title button[onclick='openSettings()']")
+        pg.click(".app-header button[onclick='openSettings()']")
         pg.wait_for_function("!!settingsData", timeout=20000)
         check("key field is a password field",
               pg.get_attribute("#set-gw-key", "type"), "password")
@@ -817,14 +817,14 @@ def main():
 
         # Reopening shows a mask, never the key — and saving the mask back must
         # not overwrite the stored key with bullets.
-        pg.click(".nb-title button[onclick='openSettings()']")
+        pg.click(".app-header button[onclick='openSettings()']")
         pg.wait_for_function("!!settingsData", timeout=20000)
         shown = pg.input_value("#set-gw-key")
         check("shown masked, not in the clear",
               "SUITE" not in shown and bool(shown), True)
         pg.click("button.btn.primary")
         pg.wait_for_selector("#settings-back:not(.on)", state="attached", timeout=20000)
-        pg.click(".nb-title button[onclick='openSettings()']")
+        pg.click(".app-header button[onclick='openSettings()']")
         pg.wait_for_function("!!settingsData", timeout=20000)
         check("mask round-trip kept the key",
               pg.evaluate("settingsData.key_source"), "session")
@@ -839,7 +839,7 @@ def main():
         check("still has a working key", pg.evaluate("settingsData.has_key"), True)
 
         # A model typed by hand wins over the dropdown.
-        pg.click(".nb-title button[onclick='openSettings()']")
+        pg.click(".app-header button[onclick='openSettings()']")
         pg.wait_for_function("!!settingsData", timeout=20000)
         pg.evaluate(
             "document.getElementById('set-model-custom').value = 'some-custom-deployment'")
@@ -853,7 +853,7 @@ def main():
 
         # Put the original settings back before the generation test — the suite
         # writes to the real settings.json, so it has to leave it as it found it.
-        pg.click(".nb-title button[onclick='openSettings()']")
+        pg.click(".app-header button[onclick='openSettings()']")
         pg.wait_for_function("!!settingsData", timeout=20000)
         pg.evaluate("(v) => document.getElementById('set-model-custom').value = v",
                     original)
@@ -962,7 +962,7 @@ def main():
               pg.locator("#new-menu .ni svg.icon").count(),
               7)
         pg.keyboard.press("Escape")
-        pg.click(".nb-title", position={"x": 5, "y": 5})
+        pg.click(".app-header", position={"x": 5, "y": 5})
         pg.wait_for_timeout(300)
         check("clicking away closes the menu",
               pg.locator("#new-menu").is_visible(), False)

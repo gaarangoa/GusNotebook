@@ -38,7 +38,33 @@ def main():
         page.evaluate('path => browse(path)', str(work))
         expect(page.locator('html')).to_have_attribute('data-theme', 'light')
         page.frame_locator('iframe[data-output-frame]').locator('table').wait_for()
+        assert page.locator('.app-header').bounding_box()['height'] == 38
+        assert page.locator('#tabs').bounding_box()['y'] == 0
+        assert page.locator('#toolbar').bounding_box()['y'] == 38
+        assert page.locator('#notebook-pane').bounding_box()['y'] <= 78
+        assert page.locator('#nb-path, #nb-label').count() == 0
         page.screenshot(path=str(screenshots / 'light.png'))
+
+        page.locator('#workspace-more').focus()
+        page.keyboard.press('ArrowDown')
+        expect(page.locator('#focus-toggle')).to_be_focused()
+        page.keyboard.press('ArrowDown')
+        expect(page.locator('#theme-toggle')).to_be_focused()
+        page.keyboard.press('Enter')
+        expect(page.locator('html')).to_have_attribute('data-theme', 'dark')
+        expect(page.locator('#workspace-more')).to_be_focused()
+        expect(page.locator('#workspace-menu')).not_to_be_visible()
+        page.click('#workspace-more')
+        page.click('#theme-toggle')
+        expect(page.locator('html')).to_have_attribute('data-theme', 'light')
+        page.click('#workspace-more')
+        page.keyboard.press('Escape')
+        expect(page.locator('#workspace-more')).to_have_attribute('aria-expanded', 'false')
+        expect(page.locator('#workspace-more')).to_be_focused()
+        page.click('#workspace-more')
+        page.click('#tab-new')
+        expect(page.locator('#workspace-menu')).not_to_be_visible()
+        page.keyboard.press('Escape')
 
         # Real edits and a real terminal must survive appearance changes in place.
         page.evaluate('''() => {
@@ -156,18 +182,37 @@ def main():
 
         page.evaluate('path => openFile(path)', str(work / 'notes.md'))
         page.wait_for_function('activeTab().kind === "text"')
+        page.click('#workspace-more')
+        expect(page.locator('#nb-reload')).not_to_be_visible()
+        page.keyboard.press('Escape')
         page.locator('#tabs .tab.active').focus()
         page.keyboard.press('ArrowLeft')
         page.wait_for_function('activeTab().kind === "notebook"')
         expect(page.locator('#tabs .tab.active')).to_be_focused()
+        page.click('#workspace-more')
         page.click('#focus-toggle')
-        expect(page.locator('#focus-toggle')).to_have_attribute('aria-pressed', 'true')
+        expect(page.locator('#focus-toggle')).to_have_attribute('aria-checked', 'true')
         assert page.evaluate('document.getElementById("files").inert && document.getElementById("agent-pane").inert')
+        page.click('#workspace-more')
         page.click('#focus-toggle')
         assert not page.evaluate('document.getElementById("files").inert')
-        for width in [1024, 768, 390]:
+        for width in [1024, 768, 390, 320]:
             page.set_viewport_size({'width': width, 'height': 844})
             page.wait_for_function('document.documentElement.scrollWidth <= innerWidth')
+            assert page.locator('#tabs').bounding_box()['width'] > 100
+            for control in ['#settings-button', '#workspace-more', '#tab-new']:
+                box = page.locator(control).bounding_box()
+                assert 0 <= box['x'] and box['x'] + box['width'] <= width, (control, box)
+            page.click('#workspace-more')
+            box = page.locator('#workspace-menu').bounding_box()
+            assert box['x'] >= 0 and box['x'] + box['width'] <= width
+            page.keyboard.press('Escape')
+            page.wait_for_function("""() => {
+              const strip = document.getElementById('tabs').getBoundingClientRect();
+              const chosen = document.querySelector('#tabs .tab.active').getBoundingClientRect();
+              const plus = document.getElementById('tab-new').getBoundingClientRect();
+              return chosen.left >= strip.left - 1 && chosen.right <= plus.left + 1;
+            }""")
             page.click('#toggle-files')
             expect(page.locator('#toggle-files')).to_have_attribute('aria-expanded', 'true')
             assert page.evaluate('!document.getElementById("files").inert')
@@ -188,6 +233,36 @@ def main():
         page.evaluate('selectCell(cells[1].id)')
         page.locator('#toolbar').get_by_role('button', name='Run selected cell', exact=False).click()
         expect(page.locator('#out-' + page.evaluate('cells[1].id'))).to_contain_text('42', timeout=60000)
+        # Rename through the relocated tab menu, preserving drafts and live variables.
+        page.set_viewport_size({'width': 1440, 'height': 960})
+        page.evaluate("""() => {
+          const view = cmViews.get(cells[1].id);
+          view.dispatch({changes: {from: view.state.doc.length, insert: '\\n# retained after rename'}});
+        }""")
+        page.locator('#tabs .tab.active').click(button='right')
+        page.locator('#file-ctx').get_by_role('menuitem', name='Rename…', exact=True).click()
+        expect(page.locator('#ask-input')).to_have_value(notebook.name)
+        page.fill('#ask-input', "compact review's")
+        page.click('#ask-ok')
+        page.wait_for_function("activeTab().name === \"compact review's.ipynb\"")
+        renamed = work / "compact review's.ipynb"
+        assert renamed.is_file() and not notebook.exists()
+        assert nbformat.read(renamed, as_version=4).cells[1].source.endswith('# retained after rename')
+        output = page.evaluate("""async () => {
+          const id = cells[2].id;
+          document.getElementById('ed-' + id).value = 'print(answer)';
+          await runCell(id);
+          return document.getElementById('out-' + id).innerText;
+        }""")
+        assert '42' in output, output
+        page.locator('#tabs .tab.active').press('F2')
+        expect(page.locator('#ask-input')).to_have_value(renamed.name)
+        page.keyboard.press('Escape')
+        page.click('#workspace-more')
+        page.click('#nb-reload')
+        page.wait_for_function("!document.getElementById('workspace-more').matches('[aria-expanded=true]')")
+        expect(page.locator('#tabs .tab.active')).to_contain_text(renamed.name)
+        print('PASS: tab-menu rename saves drafts and retains the live kernel; F2 and reload work', flush=True)
         # The unlock page uses the same saved theme before the app has loaded.
         page.context.clear_cookies()
         page.goto(url, wait_until='domcontentloaded')

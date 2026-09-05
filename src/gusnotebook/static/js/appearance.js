@@ -26,7 +26,7 @@ window.AppAppearance = (() => {
     if (toggle) {
       toggle.setAttribute('aria-label', `Theme: ${preferences.theme}. Switch to ${isDark() ? 'light' : 'dark'} mode`);
       toggle.title = toggle.getAttribute('aria-label');
-      toggle.setAttribute('aria-pressed', String(isDark()));
+      document.getElementById('theme-label').textContent = `Switch to ${isDark() ? 'light' : 'dark'} theme`;
     }
   }
   function update(next, persist = true) {

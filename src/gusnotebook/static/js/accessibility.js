@@ -64,6 +64,18 @@ document.addEventListener('keydown', event => {
   if (target.closest('#venv-menu') && event.key === 'Escape') {
     event.preventDefault(); closeVenvMenu(); return;
   }
+  if (target.matches('#tabs [role="tab"]') && (event.key === 'F2' || event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10'))) {
+    event.preventDefault();
+    if (event.key === 'F2') renameEntry(target.dataset.path);
+    else {
+      const box = target.getBoundingClientRect();
+      showPathCtx(box.left, box.bottom, target.dataset.path);
+    }
+    return;
+  }
+  if (target.id === 'workspace-more' && event.key === 'ArrowDown') {
+    event.preventDefault(); toggleWorkspaceMenu(event); return;
+  }
   const menu = target.closest('[role="menu"]');
   if (menu && ['ArrowDown', 'ArrowUp', 'Home', 'End', 'Escape'].includes(event.key)) {
     event.preventDefault();
@@ -71,11 +83,12 @@ document.addEventListener('keydown', event => {
       if (menu.id === 'new-menu') closeNewMenu();
       else if (menu.id === 'type-menu') closeTypeMenu();
       else if (menu.id === 'file-ctx') closeFileCtx();
+      else if (menu.id === 'workspace-menu') closeWorkspaceMenu();
       else { menu.classList.remove('on'); menu._opener?.focus(); }
       return;
     }
-    const items = [...menu.querySelectorAll('[role="menuitem"]')].filter(visibleControl);
-    const at = items.indexOf(target.closest('[role="menuitem"]'));
+    const items = [...menu.querySelectorAll('[role^="menuitem"]')].filter(visibleControl);
+    const at = items.indexOf(target.closest('[role^="menuitem"]'));
     const next = event.key === 'Home' ? 0 : event.key === 'End' ? items.length - 1
       : (at + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length;
     items[next]?.focus(); return;
@@ -94,7 +107,7 @@ document.addEventListener('keydown', event => {
     else chosen?.focus();
     return;
   }
-  if (['Enter', ' '].includes(event.key) && target.matches('[role="button"], [role="menuitem"], [role="tab"]')) {
+  if (['Enter', ' '].includes(event.key) && target.matches('[role="button"], [role^="menuitem"], [role="tab"]')) {
     event.preventDefault(); event.stopPropagation(); target.click();
   }
 });

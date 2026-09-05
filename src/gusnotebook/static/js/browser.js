@@ -196,22 +196,18 @@ function showFileCtx(x, y, items) {
   menu.firstElementChild?.focus();
 }
 
-function activeFileCtx(e) {
-  const t = activeTab();
-  if (!t || !t.path) return;
-  e.preventDefault();
-  e.stopPropagation();
-  showPathCtx(e.clientX, e.clientY, t.path);
-}
-
 function tabFileCtx(e, path) {
   e.preventDefault();
   e.stopPropagation();
-  showPathCtx(e.clientX, e.clientY, path);
+  const element = e.currentTarget;
+  element.focus();
+  const box = element.getBoundingClientRect();
+  showPathCtx(e.clientX || box.left, e.clientY || box.bottom, path);
 }
 
 function showPathCtx(x, y, path) {
   showFileCtx(x, y, [
+    {label: 'Rename…', action: () => renameEntry(path)},
     {label: 'Show in file tree', action: () => showInFileTree(path)},
     {label: 'Copy path', action: () => copyText(path, 'Path copied')},
     {label: 'Copy full name', action: () => copyText(baseName(path), 'Name copied')},
@@ -406,6 +402,8 @@ async function fileDrop(e, target, kind) {
 }
 
 async function renameEntry(path) {
+  const notebook = tab(path);
+  if (notebook?.kind === 'notebook') return renameNotebook(notebook);
   const old = path.split('/').pop();
   const name = await askName('Rename', old, path);
   if (!name || name === old) return;
@@ -682,6 +680,9 @@ function stashActive() {
 }
 
 function renderTabs() {
+  const strip = document.getElementById('tabs');
+  const previousActive = strip.querySelector('.tab.active')?.dataset.path;
+  const scroll = strip.scrollLeft;
   for (const row of document.querySelectorAll('.file-row[data-path]')) {
     row.classList.toggle('active-file', row.dataset.path === active);
     row.classList.toggle('open', !!tab(row.dataset.path));
@@ -704,7 +705,20 @@ function renderTabs() {
     // Always last, so "new" sits where the next tab would appear.
     `<button class="tab-new" id="tab-new" aria-label="Create new" aria-haspopup="menu" aria-expanded="false" aria-controls="new-menu" onclick="toggleNewMenu(event)"
           title="New notebook, file, folder, environment, agent or terminal">${icon('plus')}</button>`;
+  strip.scrollLeft = scroll;
+  if (previousActive !== active) revealActiveTab();
 }
+
+function revealActiveTab() {
+  const strip = document.getElementById('tabs');
+  const chosen = strip.querySelector('.tab.active');
+  if (!chosen) return;
+  const box = strip.getBoundingClientRect(), tabBox = chosen.getBoundingClientRect();
+  const right = box.right - (document.getElementById('tab-new')?.offsetWidth || 0);
+  if (tabBox.left < box.left) strip.scrollLeft -= box.left - tabBox.left;
+  else if (tabBox.right > right) strip.scrollLeft += tabBox.right - right;
+}
+new ResizeObserver(revealActiveTab).observe(document.getElementById('tabs'));
 
 let tabDragPath = null;
 
@@ -772,6 +786,7 @@ function closeNewMenu() {
 }
 
 function toggleNewMenu(ev) {
+  closeWorkspaceMenu();
   if (ev) ev.stopPropagation();
   const menu = document.getElementById('new-menu');
   if (menu.classList.contains('on')) { closeNewMenu(); return; }
@@ -802,4 +817,31 @@ function newFromMenu(what) {
 document.addEventListener('click', (e) => {
   if (!e.target.closest('#new-menu') && !e.target.closest('#tab-new')) closeNewMenu();
   if (!e.target.closest('#file-ctx')) closeFileCtx();
+});
+
+// Secondary workspace controls share the tab row without taking notebook space.
+function closeWorkspaceMenu() {
+  const menu = document.getElementById('workspace-menu');
+  if (menu.contains(document.activeElement)) document.getElementById('workspace-more').focus();
+  menu.hidden = true;
+  document.getElementById('workspace-more').setAttribute('aria-expanded', 'false');
+}
+function toggleWorkspaceMenu(event) {
+  event?.stopPropagation();
+  const menu = document.getElementById('workspace-menu');
+  if (!menu.hidden) { closeWorkspaceMenu(); return; }
+  closeNewMenu(); closeFileCtx(); closeTypeMenu(); closeVenvMenu();
+  const button = document.getElementById('workspace-more');
+  menu.hidden = false;
+  button.setAttribute('aria-expanded', 'true');
+  const box = button.getBoundingClientRect();
+  menu.style.top = (box.bottom + 5) + 'px';
+  menu.style.right = Math.max(6, innerWidth - box.right) + 'px';
+  menu.querySelector('button').focus();
+}
+document.addEventListener('click', event => {
+  if (!event.target.closest('#workspace-menu, #workspace-more')) closeWorkspaceMenu();
+});
+document.addEventListener('focusin', event => {
+  if (!event.target.closest('#workspace-menu, #workspace-more')) closeWorkspaceMenu();
 });
