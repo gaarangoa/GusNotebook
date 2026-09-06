@@ -15,8 +15,9 @@
   --syntax-keyword: #762fa9; --syntax-string: #24733f; --syntax-comment: #667387;
   --syntax-number: #995714; --syntax-function: #315cac; --syntax-type: #166b80;
   --mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
-  --ui-size: 13px; --small-size: 12px; --control-height: 32px; --row-space: 8px;
-  --editor-size: 14px;
+  --font-size: 10px;
+  --ui-size: var(--font-size); --small-size: var(--font-size); --editor-size: var(--font-size);
+  --control-height: 32px; --row-space: 8px;
 }
 :root[data-theme="dark"] {
   color-scheme: dark;
@@ -35,5 +36,5 @@
   --syntax-number: #ebc17d; --syntax-function: #a1bfff; --syntax-type: #8bd4e1;
 }
 :root[data-density="compact"] {
-  --ui-size: 12px; --small-size: 11px; --control-height: 28px; --row-space: 5px;
+  --control-height: 28px; --row-space: 5px;
 }

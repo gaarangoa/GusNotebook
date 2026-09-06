@@ -414,7 +414,7 @@
           <div class="field"><label for="set-theme">Color theme</label><select id="set-theme" onchange="previewAppearance()"><option value="system">Follow system</option><option value="light">Light</option><option value="dark">Dark</option></select></div>
           <div class="field"><label for="set-density">Interface density</label><select id="set-density" onchange="previewAppearance()"><option value="comfortable">Comfortable</option><option value="compact">Compact</option></select></div>
         </div>
-        <div class="field"><label for="set-font-size">Code and terminal font size</label><div class="row"><input id="set-font-size" type="number" min="11" max="22" step="1" oninput="previewAppearance()"><span class="unit">px</span></div></div>
+        <div class="field"><label for="set-font-size">Font size</label><div class="row"><input id="set-font-size" type="number" min="10" max="22" step="1" oninput="previewAppearance()"><span class="unit">px</span></div><div class="fhelp">Applies to the interface, code, outputs, tables, and terminals.</div></div>
         <div class="appearance-sample" aria-label="Theme preview"><div class="sample-caption"><span data-icon="code"></span>Python preview</div><pre><span class="sample-keyword">import</span> pandas <span class="sample-keyword">as</span> pd
 
 results = pd.read_csv(<span class="sample-string">"data.csv"</span>)</pre><p>Readable code, tables, and terminals in every theme.</p></div>
@@ -479,7 +479,7 @@ results = pd.read_csv(<span class="sample-string">"data.csv"</span>)</pre><p>Rea
       <div class="field" style="margin-bottom:0">
         <label for="skill-body">Practice and code</label>
         <textarea id="skill-body" spellcheck="false"
-                  style="min-height:230px;font-family:var(--mono);font-size:11.5px"
+                  style="min-height:230px;font-family:var(--mono);font-size:var(--editor-size)"
                   placeholder="Use when …&#10;Not for … — do X instead.&#10;&#10;```python&#10;import pandas as pd&#10;df = pd.read_csv(path, dtype=str)&#10;```"></textarea>
         <div class="fhelp">
           Markdown. The <b>first</b> fenced block is what clicking the skill puts

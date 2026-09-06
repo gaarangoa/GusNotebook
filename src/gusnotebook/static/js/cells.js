@@ -1021,8 +1021,11 @@ function htmlOutputSrcdoc(body, outputId) {
   const themeStyle = Object.entries(themeColors).map(([key, value]) => `--${key}:${value}`).join(';');
   const themeScript = `<script data-gusnb-output-theme>
     addEventListener('message', event => {
-      if (event.source !== parent || event.data?.type !== 'gusnotebook-output-theme' || !${themeable}) return;
+      if (event.source !== parent || event.data?.type !== 'gusnotebook-output-theme') return;
       const root = document.documentElement;
+      const size = event.data.fontSize;
+      if (Number.isFinite(size) && size >= 10 && size <= 22) root.style.setProperty('--output-font-size', size + 'px');
+      if (!${themeable}) return;
       for (const key of ['text', 'muted', 'panel', 'surface', 'border']) {
         const color = event.data.colors?.[key];
         if (typeof color === 'string' && /^#[0-9a-f]{6}$/i.test(color)) root.style.setProperty('--' + key, color);
@@ -1252,13 +1255,14 @@ function htmlOutputSrcdoc(body, outputId) {
 </script>`;
   return `<!doctype html><html><head><base target="_blank">
 <style>
-:root{${themeStyle};color-scheme:${themeable && AppAppearance.isDark() ? 'dark' : 'light'};}
-html,body{margin:0;padding:0;background:${themeable ? 'transparent' : 'var(--panel)'};color:var(--text);font:13px/1.55 -apple-system,BlinkMacSystemFont,"Inter",sans-serif;}
+:root{${themeStyle};--output-font-size:${AppAppearance.get().fontSize}px;color-scheme:${themeable && AppAppearance.isDark() ? 'dark' : 'light'};}
+html,body{margin:0;padding:0;background:${themeable ? 'transparent' : 'var(--panel)'};color:var(--text);font:var(--output-font-size)/1.55 -apple-system,BlinkMacSystemFont,"Inter",sans-serif;}
 body{overflow-x:auto;overflow-y:hidden;}
 *,*::before,*::after{animation:none!important;transition:none!important;}
 img,svg,canvas,video{max-width:100%;}
-table{border-collapse:collapse;font:13px/1.55 ui-monospace,Menlo,Consolas,monospace;margin:6px 0;}
-th,td{border:1px solid var(--border);padding:8px 12px;text-align:right;vertical-align:top;white-space:nowrap;}
+:where(button,input,select,textarea,h1,h2,h3,h4,h5,h6,pre,code,kbd,samp,small,sub,sup){font-size:inherit;}
+table{border-collapse:collapse;font:var(--output-font-size)/1.55 ui-monospace,Menlo,Consolas,monospace;margin:6px 0;}
+th,td{border:1px solid var(--border);padding:8px 12px;text-align:right;vertical-align:top;white-space:nowrap;font-size:inherit;}
 th{background:var(--surface);color:var(--muted);font-weight:600;}
 tbody th{text-align:left;background:var(--panel);color:var(--muted);font-weight:500;}
 tbody tr:hover td,tbody tr:hover th{background:var(--surface);}
@@ -1270,7 +1274,7 @@ table[border]{border:none;}
 document.addEventListener('appearance-change', () => {
   for (const frame of document.querySelectorAll('iframe[data-output-frame]')) {
     frame.contentWindow?.postMessage({type: 'gusnotebook-output-theme', colors: AppAppearance.colors(),
-      theme: AppAppearance.isDark() ? 'dark' : 'light'}, '*');
+      theme: AppAppearance.isDark() ? 'dark' : 'light', fontSize: AppAppearance.get().fontSize}, '*');
   }
 });
 

@@ -76,14 +76,16 @@ keeps it in generated browser URLs and authentication cookies.
 ## Appearance and layout
 
 Open **Settings → Appearance** for **Light**, **Dark**, or **Follow system**,
-comfortable or compact spacing, and the code/terminal font size. Changes preview
-immediately; **Save settings** keeps them in this browser, and **Cancel** or
+comfortable or compact spacing, and the font size for the interface, code,
+cell outputs, pandas tables, and terminals. The default is **10 px**. Existing
+saved font sizes are kept; select **10** here to update an existing browser.
+Changes preview immediately; **Save settings** keeps them in this browser, and **Cancel** or
 **Escape** restores the previous appearance. **⋯ → Switch theme** in the tab row
 switches directly between light and dark. Editors, terminals, tables, menus,
 and dialogs follow the theme; authored plots, images, and HTML previews keep
 their original colors.
 
-Documents and workspace controls share a compact 38 px row directly above the
+Documents and workspace controls share a compact 32 px row directly above the
 notebook toolbar. The Files and terminal panes extend to the top of the window.
 The controls at the right of the tab row show or hide **Files** and
 **Agents and terminals**, and open **Settings**.

@@ -1,13 +1,13 @@
 /* Loaded in <head> so the chosen palette is applied before the first paint. */
 window.AppAppearance = (() => {
   const key = 'gusnotebook.appearance';
-  const defaults = {theme: 'system', density: 'comfortable', fontSize: 14};
+  const defaults = {theme: 'system', density: 'comfortable', fontSize: 10};
   const media = matchMedia('(prefers-color-scheme: dark)');
   function clean(value = {}) {
     return {theme: ['light', 'dark', 'system'].includes(value.theme) ? value.theme : defaults.theme,
       density: ['comfortable', 'compact'].includes(value.density) ? value.density : defaults.density,
       fontSize: Number.isFinite(Number(value.fontSize))
-        ? Math.max(11, Math.min(22, Number(value.fontSize))) : defaults.fontSize};
+        ? Math.max(10, Math.min(22, Number(value.fontSize))) : defaults.fontSize};
   }
   function read() {
     try { return clean(JSON.parse(localStorage.getItem(key)) || defaults); }
@@ -19,7 +19,7 @@ window.AppAppearance = (() => {
     const root = document.documentElement;
     root.dataset.theme = isDark() ? 'dark' : 'light';
     root.dataset.density = preferences.density;
-    root.style.setProperty('--editor-size', preferences.fontSize + 'px');
+    root.style.setProperty('--font-size', preferences.fontSize + 'px');
     root.style.colorScheme = root.dataset.theme;
     document.dispatchEvent(new CustomEvent('appearance-change', {detail: {...preferences}}));
     const toggle = document.getElementById('theme-toggle');
