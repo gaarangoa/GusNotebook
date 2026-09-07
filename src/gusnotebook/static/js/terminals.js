@@ -97,6 +97,9 @@ function attachTerm(info) {
     fontSize: AppAppearance.get().fontSize,
     fontFamily: 'Menlo, Consolas, monospace',
     theme: AppAppearance.terminalTheme(),
+    // Agents can retain explicit ANSI/RGB colors when the app theme changes.
+    // Keep both their output and newly typed text readable on those backgrounds.
+    minimumContrastRatio: 4.5,
   });
   const fit = new window.FitAddon.FitAddon();
   term.loadAddon(fit);
