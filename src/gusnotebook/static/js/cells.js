@@ -1260,7 +1260,7 @@ html,body{margin:0;padding:0;background:${themeable ? 'transparent' : 'var(--pan
 body{overflow-x:auto;overflow-y:hidden;}
 *,*::before,*::after{animation:none!important;transition:none!important;}
 img,svg,canvas,video{max-width:100%;}
-:where(button,input,select,textarea,h1,h2,h3,h4,h5,h6,pre,code,kbd,samp,small,sub,sup){font-size:inherit;}
+:where(button,input,select,textarea,pre,code,kbd,samp,small,sub,sup){font-size:inherit;}
 table{border-collapse:collapse;font:var(--output-font-size)/1.55 ui-monospace,Menlo,Consolas,monospace;margin:6px 0;}
 th,td{border:1px solid var(--border);padding:8px 12px;text-align:right;vertical-align:top;white-space:nowrap;font-size:inherit;}
 th{background:var(--surface);color:var(--muted);font-weight:600;}
@@ -1977,8 +1977,6 @@ function cellHtml(c) {
       <span class="pt">${escapeHtml(c.claude_prompt)}</span>
       ${historySummary}
     </button>` : '';
-  const historyStrip = !promptStrip && !claudeStrip ? `<button class="cell-history-link" aria-label="Open cell history"
-      onclick="event.stopPropagation();openCellHistory('${c.id}')">History ${historySummary}</button>` : '';
 
   // Only on a cell whose source was replaced by something the user didn't type
   // — an agent or a snippet. Per cell, like JupyterLab: undoing here says
@@ -2021,6 +2019,8 @@ function cellHtml(c) {
                   onclick="event.stopPropagation();addCell('code', '${c.id}')">${icon('plus')}</button>
         </div>
         <div class="act-row">
+          <button class="act-btn" title="Cell history" aria-label="Open cell history"
+                  onclick="event.stopPropagation();openCellHistory('${c.id}')">${icon('history')}</button>
           <button class="act-btn" title="Copy provenance snapshot (⌥/Ctrl/⌘ click to attach file)"
                   onclick="event.stopPropagation();copyCellProvenance('${c.id}', event)">${icon('copy')}</button>
           <button class="act-btn danger" title="Delete this cell"
@@ -2035,7 +2035,7 @@ function cellHtml(c) {
       ${hdBtn}<span class="gutter-label"${c._running ? ' title="Cell is running"' : ''}>${labelHtml}</span>${viewBtns}${histBtns}${cellBtns}
     </div>
     <div class="cell-body">
-      ${promptStrip}${claudeStrip}${historyStrip}${undoStrip}${bodyInner}
+      ${promptStrip}${claudeStrip}${undoStrip}${bodyInner}
       <div class="output-area" onpointerdown="selectCell('${c.id}')">
         <div id="out-${c.id}" class="${outHidden ? 'output-hidden' : ''}">${
           outputSlotHtml(c)}</div>
