@@ -876,6 +876,10 @@
       if (script.matches('[type="application/json"][data-gusnb-viz-source]')) return;
       script.remove();
     });
+    fragment.querySelectorAll('iframe').forEach(function (frame) {
+      frame.setAttribute('sandbox', 'allow-scripts');
+      frame.setAttribute('referrerpolicy', 'no-referrer');
+    });
     fragment.querySelectorAll('*').forEach(function (el) {
       Array.from(el.attributes).forEach(function (attr) {
         var name = attr.name.toLowerCase();
@@ -909,6 +913,12 @@
     var data = event.clipboardData;
     if (!data) return;
     var html = data.getData('text/html') || '';
+    // The browser sanitizes rich clipboard HTML, removing srcdoc and the JSON
+    // history. GusNotebook also copies the complete source as plain text.
+    // Recover that representation, then apply the same paste sanitization.
+    var source = data.getData('text/plain') || '';
+    if (source.indexOf('data-gusnb-provenance="1"') !== -1 &&
+        source.indexOf('data-gusnb-viz-source') !== -1) html = source;
     if (!html || (html.indexOf('data-gusnb-viz="1"') === -1 &&
                   html.indexOf('data-gusnb-provenance="1"') === -1)) return;
     var template = document.createElement('template');

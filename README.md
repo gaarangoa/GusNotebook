@@ -73,6 +73,30 @@ If the proxy forwards the public URL prefix unchanged, set
 `APP_BASE_URL="/some/prefix"`. GusNotebook strips that prefix before routing and
 keeps it in generated browser URLs and authentication cookies.
 
+## Cell history
+
+Each cell has a persistent **History** timeline. Click the existing agent request
+above the cell (or **History** on a cell without a request) to see full requests,
+source changes, executions, decisions, agent preferences, and copied results.
+The latest request stays visible, with a compact count of earlier events.
+Use **Add note** for reasoning, data-processing choices, preferences, or work
+done elsewhere, and **Download log** to export the complete cell timeline as JSON.
+
+**Copy provenance snapshot** includes the cell's recorded history. Pasting it
+into an HTML tab and saving the report records its destination in the source
+cell's timeline. Copies and saved reports are separate events; reopening or
+saving the same report does not duplicate the link. Keep the source notebook
+and report open to discover links from external file edits as well.
+
+Cell history is stored in standard notebook metadata and survives restarting,
+moving the notebook, and undoing source replacements. It is independent of the
+20 most recent workspace change recordings. Existing shortened captions remain
+available as earlier requests with an unknown date; overwritten conversations
+cannot be reconstructed. The log covers actions observed by GusNotebook, not
+private agent reasoning or arbitrary clipboard/file activity in other apps.
+Execution entries keep the executed code and an output fingerprint; they do
+not duplicate large historical outputs. Copied snapshots retain the captured result.
+
 ## Appearance and layout
 
 Open **Settings → Appearance** for **Light**, **Dark**, or **Follow system**,

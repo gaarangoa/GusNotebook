@@ -298,7 +298,26 @@
   </div>
 </div>
 
-<!-- ---------- Change history and directory picker ---------- -->
+<!-- ---------- Cell timeline, change history and directory picker ---------- -->
+<div class="modal-back" id="cell-history-back" onclick="if (event.target === this) closeCellHistory()">
+  <div class="modal history-modal" role="dialog" aria-modal="true" aria-labelledby="cell-history-title">
+    <div class="mhead"><span class="grow" id="cell-history-title">Cell history</span>
+      <button class="tb" onclick="closeCellHistory()" aria-label="Close cell history"><span data-icon="close"></span></button></div>
+    <div class="mbody">
+      <p id="cell-history-summary"></p>
+      <p class="cell-history-help">Requests, changes, and where results were used. Copied snapshots are linked when their HTML report and source notebook are open here. Add a note for decisions or work done elsewhere.</p>
+      <div class="cell-history-tools"><button class="tb" onclick="refreshCellHistory()">Refresh</button>
+        <button class="tb" onclick="downloadCellHistory()">Download log</button></div>
+      <form id="cell-history-note-form" onsubmit="event.preventDefault(); addCellHistoryNote()">
+        <div class="field"><label for="cell-history-note">Decision, preference, or context</label>
+          <textarea id="cell-history-note" rows="3" maxlength="100000" placeholder="What changed, why, or where this result was used…" required></textarea></div>
+        <button class="tb" id="cell-history-note-save" type="submit">Add note</button>
+      </form>
+      <div id="cell-history-error" role="alert" hidden></div>
+      <div id="cell-history-list" aria-live="polite"></div>
+    </div>
+  </div>
+</div>
 <div class="modal-back" id="history-back" onclick="if (event.target === this) closeHistory()">
   <div class="modal history-modal" role="dialog" aria-modal="true" aria-labelledby="history-title">
     <div class="mhead"><span class="grow" id="history-title">Change history</span>

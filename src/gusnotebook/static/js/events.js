@@ -106,6 +106,14 @@ es.onerror = () => {
 };
 es.onmessage = (e) => {
   const msg = JSON.parse(e.data);
+  if (msg.type === 'cell_history_changed') {
+    updateCellHistorySummary(msg.notebook, msg.cell_id, msg.summary);
+    return;
+  }
+  if (msg.type === 'cell_history_warning') {
+    flash('History link could not be recorded: ' + msg.error);
+    return;
+  }
   if (msg.type === 'resync') {
     load().catch(err => flash(errText(err)));
     loadSessions();

@@ -1621,6 +1621,21 @@ button.tb.primary:hover { background: var(--accent-soft); }
 .history-group details { margin: 10px 0; }
 .history-group summary { cursor: pointer; overflow-wrap: anywhere; }
 .history-group pre { padding: 12px; background: var(--surface); overflow: auto; max-height: 400px; font-size: var(--ui-size); }
+.cell-history-trigger { display: flex; align-items: center; gap: 8px; width: 100%; min-width: 0; font: inherit; text-align: left; color: inherit; background: transparent; border: 0; cursor: pointer; }
+.cell-history-trigger:hover { color: var(--accent); }
+.cell-history-trigger .pt { overflow-wrap: anywhere; }
+.cell-history-count { color: var(--muted); font-weight: 400; margin-left: auto; flex: 0 0 auto; }
+.cell-history-link { display: flex; align-items: center; gap: 8px; width: 100%; padding: 2px 0; min-height: 20px; font: inherit; text-align: left; color: var(--muted); border: 0; background: none; cursor: pointer; }
+.cell-history-link:hover { color: var(--accent); }
+.ai-prompt .re { border: 0; background: transparent; }
+.cell-history-text { white-space: pre-wrap; overflow-wrap: anywhere; margin: 8px 0; line-height: 1.6; }
+.cell-history-help { color: var(--muted); margin: 8px 0 12px; line-height: 1.6; }
+.cell-history-tools { display: flex; gap: 6px; margin: 12px 0; }
+#cell-history-summary { overflow-wrap: anywhere; }
+#cell-history-note-form { padding-bottom: 16px; border-bottom: 1px solid var(--border); }
+#cell-history-error { color: var(--red); margin-top: 12px; }
+.history-file-link { font: inherit; padding: 0; border: 0; color: var(--accent); background: none; text-decoration: underline; cursor: pointer; overflow-wrap: anywhere; text-align: left; }
+@media (max-width: 760px) { .cell-history-count { flex-shrink: 1; }.history-heading { flex-wrap: wrap; gap: 4px; } }
 
 .environment-modal { width: 760px; }
 .environment-tabs { display: flex; gap: 4px; padding: 8px 16px 0; border-bottom: 1px solid var(--border); }

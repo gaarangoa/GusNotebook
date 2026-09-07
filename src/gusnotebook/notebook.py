@@ -5,10 +5,11 @@ Kept in nbformat v4 so the file stays openable in Jupyter / VS Code.
 
 import pathlib
 import threading
+from copy import deepcopy
 
 import nbformat
 
-from . import bus
+from . import bus, cellhistory
 from .persistence import ANY_VERSION, ExternalChangeError, atomic_write, disk_version
 
 
@@ -42,7 +43,7 @@ CLAUDE_KEY = "claude_prompt"
 PROMPT_MAX = 400
 
 
-def watch(registry, interval=0.4, stop=None, publish=None):
+def watch(registry, interval=0.4, stop=None, publish=None, on_tick=None):
     """Background thread: notify listeners when any open .ipynb changes on disk.
 
     Lets Claude edit a notebook with ordinary file tools and have the browser
@@ -64,6 +65,8 @@ def watch(registry, interval=0.4, stop=None, publish=None):
                     publish("notebook_changed", reason="external", notebook=key)
                 except (OSError, ValueError) as exc:
                     publish("notebook_read_error", notebook=key, error=str(exc))
+            if on_tick:
+                on_tick()
 
     t = threading.Thread(target=loop, name="gusnb-notebook-watch", daemon=True)
     t.start()
@@ -73,16 +76,17 @@ def watch(registry, interval=0.4, stop=None, publish=None):
 class Registry:
     """Every open notebook, keyed by path. Documents are created on demand."""
 
-    def __init__(self):
+    def __init__(self, publish=None):
         self._docs = {}
         self._lock = threading.RLock()
+        self.publish = publish or bus.publisher()
 
     def get(self, path):
         key = str(path)
         with self._lock:
             doc = self._docs.get(key)
             if doc is None:
-                doc = Notebook(pathlib.Path(key))
+                doc = Notebook(pathlib.Path(key), publish=self.publish)
                 doc.load()
                 self._docs[key] = doc
             return doc
@@ -113,12 +117,14 @@ class Registry:
 
 
 class Notebook:
-    def __init__(self, path):
+    def __init__(self, path, publish=None):
         self.path = pathlib.Path(path)
+        self.publish = publish or bus.publisher()
         self._nb = None
         self._mtime = 0
         self._version = None
         self._lock = threading.RLock()
+        self._history_counts = {}
 
     # --- persistence ---
 
@@ -151,10 +157,13 @@ class Notebook:
                     raise NotebookReadError(
                         f"Cannot read {self.path.name}: {exc}. "
                         "The original file has been preserved; repair it and reload.") from exc
+                audit_changed = self._nb is not None and cellhistory.reconcile(self._nb, candidate)
                 self._nb = candidate
                 self._ensure_ids()
                 self._version = version
                 self._mtime = self._disk_mtime()
+                if audit_changed:
+                    self._save()
             return self._nb
 
     def _disk_mtime(self):
@@ -191,6 +200,12 @@ class Notebook:
         text = nbformat.writes(self._nb)
         self._version = atomic_write(self.path, text, self._version)
         self._mtime = self._disk_mtime()
+        counts = {cell["id"]: len(cellhistory.entries(cell)) for cell in self._nb.cells}
+        for cell in self._nb.cells:
+            if counts[cell["id"]] != self._history_counts.get(cell["id"], 0):
+                self.publish("cell_history_changed", cell_id=cell["id"], notebook=str(self.path),
+                             summary=cellhistory.summary(cell))
+        self._history_counts = counts
 
     def save(self):
         with self._lock:
@@ -263,6 +278,7 @@ class Notebook:
             # How many replaced sources this cell can walk back. The browser
             # shows an undo only when there's something to undo.
             "undo_depth": len(meta.get(UNDO_KEY) or []),
+            "history_summary": cellhistory.summary(cell),
         }
 
     def find(self, cell_id):
@@ -297,9 +313,12 @@ class Notebook:
             return cell
         return nbformat.v4.new_code_cell(source)
 
-    def add_cell(self, cell_type="code", source="", index=None, after=None):
+    def add_cell(self, cell_type="code", source="", index=None, after=None, audit_context=None):
         with self._lock:
             cell = self._new_cell(cell_type, source)
+            cellhistory.append(cell, "created", context=audit_context, after=cellhistory.revision(cell))
+            if audit_context and audit_context.get("prompt"):
+                cellhistory.append(cell, "request", context=audit_context)
             cells = self.nb.cells
             if after is not None:
                 i, _ = self.find(after)
@@ -308,12 +327,12 @@ class Notebook:
                 index = len(cells)
             cells.insert(max(0, index), cell)
             self._save()
-            bus.publish("notebook_changed", reason="add",
+            self.publish("notebook_changed", reason="add",
                         cell_id=cell["id"], notebook=str(self.path))
             return self._cell_json(cell)
 
     def update_cell(self, cell_id, source=None, cell_type=None, undoable=False,
-                    expected_source=ANY_VERSION):
+                    expected_source=ANY_VERSION, audit_context=None):
         """Change a cell's source and/or type.
 
         `undoable` pushes the source being replaced onto the cell's own undo
@@ -330,7 +349,10 @@ class Notebook:
                 raise ExternalChangeError("This cell changed elsewhere; reload before saving your edit")
             if ((source is None or source == cell.get("source", "")) and
                     (cell_type is None or cell_type == self._cell_json(cell)["cell_type"])):
+                if audit_context and audit_context.get("prompt"):
+                    self.record_history(cell_id, "request", context=audit_context)
                 return self._cell_json(cell)
+            before = cellhistory.revision(cell)
             if undoable and source is not None and source != cell.get("source", ""):
                 self._push_undo(cell)
             if source is not None:
@@ -352,8 +374,9 @@ class Notebook:
                     new["metadata"]["cell_role"] = VIS_ROLE
                 self.nb.cells[i] = new
                 cell = new
+            cellhistory.changed(cell, before, context=audit_context)
             self._save()
-            bus.publish("notebook_changed", reason="update",
+            self.publish("notebook_changed", reason="update",
                         cell_id=cell_id, notebook=str(self.path))
             return self._cell_json(cell)
 
@@ -381,6 +404,7 @@ class Notebook:
             history = list(meta.get(UNDO_KEY) or [])
             if not history:
                 return self._cell_json(cell)
+            before = cellhistory.revision(cell)
             cell["source"] = history.pop()
             if history:
                 meta[UNDO_KEY] = history
@@ -395,8 +419,9 @@ class Notebook:
             # place it would credit a request for code that is no longer here.
             if not history:
                 meta.pop(CLAUDE_KEY, None)
+            cellhistory.changed(cell, before, kind="undo", context={"actor": "User"})
             self._save()
-            bus.publish("notebook_changed", reason="update",
+            self.publish("notebook_changed", reason="update",
                         cell_id=cell_id, notebook=str(self.path))
             return self._cell_json(cell)
 
@@ -411,17 +436,20 @@ class Notebook:
             if cell is None:
                 return None
             meta = dict(cell.get("metadata") or {})
+            meta.setdefault(cellhistory.KEY, cellhistory.entries(cell))
             if prompt:
                 meta["inline_prompt"] = prompt
             else:
                 meta.pop("inline_prompt", None)
             cell["metadata"] = meta
+            if prompt:
+                cellhistory.append(cell, "request", context={"actor": "Inline agent", "prompt": prompt})
             self._save()
-            bus.publish("notebook_changed", reason="update",
+            self.publish("notebook_changed", reason="update",
                         cell_id=cell_id, notebook=str(self.path))
             return self._cell_json(cell)
 
-    def set_claude_prompt(self, cell_id, prompt):
+    def set_claude_prompt(self, cell_id, prompt, record=True):
         """Caption a cell with the request that made Claude rewrite it.
 
         Same shape as set_prompt() and the same reasoning — metadata, so the
@@ -437,15 +465,54 @@ class Notebook:
             if len(text) > PROMPT_MAX:
                 text = text[:PROMPT_MAX - 1].rstrip() + "…"
             meta = dict(cell.get("metadata") or {})
+            meta.setdefault(cellhistory.KEY, cellhistory.entries(cell))
             if text:
                 meta[CLAUDE_KEY] = text
             else:
                 meta.pop(CLAUDE_KEY, None)
             cell["metadata"] = meta
+            if prompt and record:
+                cellhistory.append(cell, "request", context={"actor": "Agent", "prompt": prompt})
             self._save()
-            bus.publish("notebook_changed", reason="update",
+            self.publish("notebook_changed", reason="update",
                         cell_id=cell_id, notebook=str(self.path))
             return self._cell_json(cell)
+
+    def cell_history(self, cell_id):
+        with self._lock:
+            _, cell = self.find(cell_id)
+            return cellhistory.view(cell) if cell is not None else None
+
+    def record_history(self, cell_id, kind, *, context=None, **details):
+        with self._lock:
+            _, cell = self.find(cell_id)
+            if cell is None:
+                return None
+            before = deepcopy(cell.get("metadata", {}))
+            event = cellhistory.append(cell, kind, context=context, **details)
+            if event:
+                try:
+                    self._save()
+                except Exception:
+                    cell["metadata"] = before
+                    raise
+            return cellhistory.view(cell)
+
+    def record_export(self, cell_id, snapshot_id, destination):
+        with self._lock:
+            _, cell = self.find(cell_id)
+            if cell is None:
+                return
+            events = cellhistory.entries(cell)
+            copied = next((e for e in events if e.get("kind") == "copy" and
+                           e.get("snapshot_id") == snapshot_id), None)
+            if not copied or any(e.get("kind") == "export" and
+                                 e.get("snapshot_id") == snapshot_id and
+                                 e.get("destination") == destination for e in events):
+                return
+            self.record_history(cell_id, "export", context={"actor": "Observed in saved HTML"},
+                                snapshot_id=snapshot_id, destination=destination,
+                                copied_at=copied.get("at"))
 
     def delete_cell(self, cell_id):
         with self._lock:
@@ -456,7 +523,7 @@ class Notebook:
             if not self.nb.cells:
                 self.nb.cells.append(self._new_cell("code"))
             self._save()
-            bus.publish("notebook_changed", reason="delete",
+            self.publish("notebook_changed", reason="delete",
                         cell_id=cell_id, notebook=str(self.path))
             return True
 
@@ -469,17 +536,21 @@ class Notebook:
             del cells[i]
             cells.insert(max(0, min(index, len(cells))), cell)
             self._save()
-            bus.publish("notebook_changed", reason="move",
+            self.publish("notebook_changed", reason="move",
                         cell_id=cell_id, notebook=str(self.path))
             return True
 
-    def set_outputs(self, cell_id, outputs, execution_count=None):
+    def set_outputs(self, cell_id, outputs, execution_count=None, executed_source=None):
         with self._lock:
             _, cell = self.find(cell_id)
             if cell is None or cell.get("cell_type") != "code":
                 return
             cell["outputs"] = [nbformat.from_dict(o) for o in outputs]
             cell["execution_count"] = execution_count
+            cellhistory.append(cell, "run", context={"actor": "Kernel"},
+                               execution_count=execution_count,
+                               source=executed_source if executed_source is not None else cell.get("source", ""),
+                               output=cellhistory.output_summary(outputs))
             self._save()
 
     def clear_outputs(self, cell_id=None):
@@ -487,9 +558,11 @@ class Notebook:
             targets = self.nb.cells if cell_id is None else [self.find(cell_id)[1]]
             for cell in targets:
                 if cell is not None and cell.get("cell_type") == "code":
+                    if cell.get("outputs"):
+                        cellhistory.append(cell, "clear", context={"actor": "User"})
                     cell["outputs"] = []
                     cell["execution_count"] = None
             self._save()
-            bus.publish("notebook_changed", reason="clear",
+            self.publish("notebook_changed", reason="clear",
                         cell_id=cell_id, notebook=str(self.path))
             return True

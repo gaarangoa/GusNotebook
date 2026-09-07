@@ -3,7 +3,7 @@
 import threading
 import time
 
-from . import bus, notebook, paths, preview, sessions, terminals, textfile
+from . import bus, cellhistory, notebook, paths, preview, sessions, terminals, textfile
 from .history import History
 from .environments import EnvironmentManager
 from .kernel import KernelPool
@@ -12,7 +12,7 @@ from .kernel import KernelPool
 class Runtime:
     def __init__(self):
         self.bus = bus.Bus()
-        self.notebooks = notebook.Registry()
+        self.notebooks = notebook.Registry(publish=self.bus.publish)
         self.texts = textfile.TextRegistry()
         self.previews = preview.PreviewPool()
         self.kernels = KernelPool()
@@ -35,11 +35,34 @@ class Runtime:
         self.watcher = None
         self.workers = set()
         self.workers_lock = threading.Lock()
+        self.artifact_versions = {}
+        self.artifact_notebooks = ()
+
+    def observe_artifacts(self):
+        registered = tuple(self.notebooks.paths())
+        if registered != self.artifact_notebooks:
+            self.artifact_versions.clear()
+            self.artifact_notebooks = registered
+        for path in self.texts.paths():
+            if not path.lower().endswith((".html", ".htm")):
+                continue
+            version = None
+            try:
+                doc = self.texts.get(path)
+                version = doc.disk_version()
+                if self.artifact_versions.get(path) == version:
+                    continue
+                source = doc.to_json()["text"]
+                cellhistory.record_links(self.notebooks, doc.path, source)
+                self.artifact_versions[path] = version
+            except (OSError, ValueError) as exc:
+                self.bus.publish("cell_history_warning", path=path, error=str(exc))
+                self.artifact_versions[path] = version
 
     def start(self):
         if self.watcher is None:
             self.watcher = notebook.watch(self.notebooks, stop=self.stop,
-                                         publish=self.bus.publish)
+                                         publish=self.bus.publish, on_tick=self.observe_artifacts)
 
     def close(self):
         self.stop.set()

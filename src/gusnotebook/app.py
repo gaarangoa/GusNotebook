@@ -16,6 +16,7 @@ import queue
 import sys
 import threading
 import time
+import uuid
 from pathlib import Path
 
 from flask import (Blueprint, Flask, Response, current_app, render_template,
@@ -287,8 +288,8 @@ def get_markup_focus(session_id=None):
 # strip. Recorded by the same `UserPromptSubmit` hook that injects the focused
 # cell, which already has the payload in hand.
 #
-# One in-memory record per workspace, like the focus above. Two agents can be
-# active at once, so prompt attribution must not cross their workspace boundary.
+# Records are scoped by workspace and terminal. Keep the workspace's latest
+# request as a fallback for older CLI callers without a terminal header.
 _prompts = _resource("prompts")
 
 # How long a prompt stays attributable. A cell rewritten by `gusnb set` from a
@@ -299,11 +300,14 @@ _prompts = _resource("prompts")
 PROMPT_TTL = 30 * 60
 
 
-def set_prompt_text(text, session_id=None):
+def set_prompt_text(text, session_id=None, context=None):
     session_id = session_id or "default"
     text = (text or "").strip()
     with _focus_guard:
-        _prompts[session_id] = {"text": text or None, "at": time.time()}
+        entry = {"text": text or None, "at": time.time(), "context": context or {}}
+        _prompts[session_id] = entry
+        if context and context.get("terminal"):
+            _prompts[(session_id, context["terminal"])] = entry
 
 
 def recent_prompt(session_id=None):
@@ -315,6 +319,31 @@ def recent_prompt(session_id=None):
     if not text or time.time() - at > PROMPT_TTL:
         return None
     return text
+
+
+def agent_preferences(session=None):
+    settings = llm.load_settings()
+    return {"workspace_instructions": settings.get("claude_instructions") or "",
+            "session_instructions": session.instructions if session else "",
+            "restrictions": restrictions_for(session)}
+
+
+def cell_audit_context(agent=False):
+    session = request_session_id() or "default"
+    terminal = request.headers.get("X-Terminal-Id")
+    if agent:
+        with _focus_guard:
+            recent = _prompts.get((session, terminal) if terminal else session) or {}
+            if recent.get("text") and time.time() - recent.get("at", 0) <= PROMPT_TTL:
+                return {"actor": "Agent", **recent.get("context", {}), "prompt": recent["text"]}
+    return {"actor": "User" if from_browser() else "Terminal", "session": session,
+            **({"terminal": terminal} if terminal else {})}
+
+
+def record_focused_history(kind, session_id=None, **details):
+    key, cell_id = get_focus(session_id=session_id or request_session_id())
+    if key and cell_id:
+        return get_nb(key).record_history(cell_id, kind, **details)
 
 
 def get_focus(key=None, session_id=None):
@@ -850,6 +879,7 @@ def api_update_session(sid):
     """Switch to a session, rename it, move its root, or set its guardrails."""
     body = request.get_json(silent=True) or {}
     try:
+        previous_preferences = agent_preferences(store.get(sid))
         if "name" in body:
             store.rename(sid, body["name"])
         if "root" in body:
@@ -877,6 +907,11 @@ def api_update_session(sid):
                     store.drop_tab(p, sid)
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
+    next_preferences = agent_preferences(store.get(sid))
+    if previous_preferences != next_preferences:
+        record_focused_history("settings", session_id=sid, context={"actor": "User"},
+                               preferences_before=previous_preferences, preferences=next_preferences,
+                               summary="Session agent preferences updated (for new terminals)")
     bus.publish("sessions_changed", session=sid)
     current_id = sid if body.get("switch") else request_session_id()
     return jsonify(session_json(store.get(sid), current_id))
@@ -1028,6 +1063,7 @@ def api_save_text():
         server = previews.peek(path)
         if server:
             server.sync_saved(body["text"])
+        runtime().observe_artifacts()
         return jsonify(saved)
     except textfile.ExternalChangeError as e:
         bus.publish("text_external_changed", path=str(path),
@@ -1116,6 +1152,7 @@ def api_add_cell():
         source=body.get("source", ""),
         index=body.get("index"),
         after=body.get("after"),
+        audit_context=cell_audit_context(agent=not from_browser()),
     )
     return jsonify(cell)
 
@@ -1130,18 +1167,50 @@ def api_update_cell(cell_id):
     cell = doc.update_cell(
         cell_id, source=body.get("source"), cell_type=body.get("cell_type"),
         undoable=undoable,
-        expected_source=body.get("expected_source", textfile.ANY_VERSION))
+        expected_source=body.get("expected_source", textfile.ANY_VERSION),
+        audit_context=cell_audit_context(agent=undoable and not from_browser()))
     if cell is None:
         return jsonify({"error": "no such cell"}), 404
-    # An undoable write is by definition one the user didn't type — `gusnb set`
-    # or `here`, i.e. an agent or a snippet. That's the moment to caption the cell
-    # with what was asked for, and it's the only moment we can: the CLI has the
-    # cell id but no idea what prompt sent it.
+    # Caption a terminal's replacement with its recent request. Browser edits
+    # and snippets must not inherit an unrelated agent's last prompt.
     if undoable and body.get("source") is not None:
-        text = recent_prompt(request_session_id())
+        text = cell_audit_context(agent=not from_browser()).get("prompt")
         if text:
-            cell = doc.set_claude_prompt(cell_id, text) or cell
+            cell = doc.set_claude_prompt(cell_id, text, record=False) or cell
     return jsonify(cell)
+
+
+@routes.route("/api/cells/<cell_id>/history", methods=["GET", "POST"])
+def api_cell_history(cell_id):
+    doc = get_nb(doc_key())
+    if doc.cell_json(cell_id) is None:
+        return jsonify(error="no such cell"), 404
+    if request.method == "POST":
+        body = request.get_json(silent=True) or {}
+        kind = body.get("kind", "note")
+        if kind == "note":
+            note = body.get("note")
+            if not isinstance(note, str) or not note.strip() or len(note) > 100000:
+                return jsonify(error="A note between 1 and 100,000 characters is required"), 400
+            doc.record_history(cell_id, "note", context=cell_audit_context(), note=note.strip())
+        elif kind == "copy":
+            snapshot = body.get("snapshot_id")
+            if not isinstance(snapshot, str) or not 16 <= len(snapshot) <= 80 or not all(
+                    c.isalnum() or c in "-_" for c in snapshot):
+                return jsonify(error="Invalid snapshot ID"), 400
+            # A receipt describes a successful clipboard write, not an export.
+            existing = doc.cell_history(cell_id)["events"]
+            if not any(e.get("kind") == "copy" and e.get("snapshot_id") == snapshot for e in existing):
+                doc.record_history(cell_id, "copy", context=cell_audit_context(), snapshot_id=snapshot,
+                                   output_mime=str(body.get("output_mime") or ""),
+                                   attachment=str(body.get("attachment") or ""),
+                                   note=str(body.get("note") or ""),
+                                   source=str(body.get("source") or ""),
+                                   summary="Output copied" if body.get("output_mime") else "Source provenance copied")
+                runtime().artifact_versions.clear()
+        else:
+            return jsonify(error="Unsupported cell history event"), 400
+    return jsonify(doc.cell_history(cell_id))
 
 
 @routes.route("/api/cells/<cell_id>/undo", methods=["POST"])
@@ -1264,11 +1333,21 @@ def api_set_prompt():
     and never fatal: a prompt has to go through whether or not this lands.
     """
     body = request.get_json(silent=True) or {}
+    if not isinstance(body.get("prompt", ""), str):
+        return jsonify(error="prompt must be text"), 400
     session = request_session()
+    terminal = request.headers.get("X-Terminal-Id", "cli")
+    running = terms.get(terminal)
+    context = {"actor": running.kind.title() if running else "Agent", "terminal": terminal,
+               "session": session.id if session else "default", "request_id": uuid.uuid4().hex,
+               "preferences": getattr(running, "audit_preferences", agent_preferences(session)),
+               "preferences_source": "Terminal launch" if running else "Settings when request was received"}
     if session and body.get("prompt"):
         runtime().history.begin(session.id, request.headers.get("X-Terminal-Id", "cli"),
                                 body["prompt"], session.tabs)
-    set_prompt_text(body.get("prompt"), request_session_id())
+    set_prompt_text(body.get("prompt"), request_session_id(), context)
+    if body.get("prompt"):
+        record_focused_history("request", context={**context, "prompt": body["prompt"]})
     return jsonify({"status": "ok"})
 
 
@@ -1493,7 +1572,7 @@ def _run_cell(key, cell_id, run_id=None):
                     with _run_control_lock:
                         _cancelled_runs.pop(run_id, None)
 
-        nb.set_outputs(cell_id, outputs, count)
+        nb.set_outputs(cell_id, outputs, count, executed_source=source)
         bus.publish("cell_done", cell_id=cell_id, execution_count=count,
                     outputs=[dict(o) for o in outputs], notebook=key,
                     kernel_status=k.status, python=k.python, run_id=run_id)
@@ -1854,6 +1933,7 @@ def api_new_terminal():
     except (ValueError, OSError) as e:
         return jsonify({"error": str(e)}), 400
     store.add_terminal(s.id, cur.id if cur else None)
+    s.audit_preferences = agent_preferences(cur)
     return jsonify(s.to_json())
 
 
@@ -1939,7 +2019,13 @@ def api_settings():
 @routes.route("/api/settings", methods=["POST"])
 def api_save_settings():
     body = request.get_json(silent=True) or {}
+    before = agent_preferences(request_session())
     llm.save_settings(body)
+    after = agent_preferences(request_session())
+    if before != after:
+        record_focused_history("settings", context={"actor": "User"},
+                               preferences_before=before, preferences=after,
+                               summary="Workspace agent preferences updated (for new terminals)")
     return jsonify(llm.settings_view())
 
 

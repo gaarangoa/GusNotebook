@@ -42,6 +42,7 @@ const modalClosers = {
   'settings-back': closeSettings, 'environment-back': closeEnvironments, 'history-back': closeHistory,
   'dirpick-back': dirPickCancel, 'ask-back': () => askDone(false), 'prov-back': () => provenanceDone(false),
   'skill-back': closeSkill, 'sinstr-back': closeSessionInstr,
+  'cell-history-back': closeCellHistory,
 };
 document.addEventListener('keydown', event => {
   const modal = topModal();

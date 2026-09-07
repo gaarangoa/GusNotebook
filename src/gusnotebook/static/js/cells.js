@@ -1440,6 +1440,8 @@ function provenanceSummary(payload) {
     `Captured: ${payload.timestamp}`,
   ];
   if (payload.output_mime) lines.push(`Output: ${payload.output_mime}`);
+  if (payload.snapshot_id) lines.push(`Snapshot: ${payload.snapshot_id}`);
+  if (payload.history?.length) lines.push(`Cell history: ${payload.history.length} recorded events (included in snapshot)`);
   if (!payload.output_mime) lines.push('Output: none captured');
   if (payload.comment) {
     lines.push('Comment:');
@@ -1666,8 +1668,10 @@ function provenanceHtml(c, visual, details) {
   details = details || {};
   const payload = {
     kind: 'gusnotebook-provenance-snapshot',
-    version: 2,
-    notebook: active || '',
+    version: 3,
+    snapshot_id: details.snapshot_id || [...crypto.getRandomValues(new Uint8Array(16))].map(n => n.toString(16).padStart(2, '0')).join(''),
+    history: details.history || [],
+    notebook: details.notebook || active || '',
     notebook_name: notebookName(active),
     cell_id: c.id,
     cell_index: cells.findIndex(x => x.id === c.id) + 1,
@@ -1683,7 +1687,7 @@ function provenanceHtml(c, visual, details) {
   const summary = provenanceSummary(payload);
   const outputId = `gusnb-viz-${c.id}-${Date.now().toString(36)}`;
   const render = visual ? provenanceRenderHtml(visual, outputId) : provenancePlaceholder(payload);
-  const html = `<figure class="gusnb-viz" data-gusnb-viz="1" data-gusnb-provenance="1" data-gusnb-notebook="${escapeAttr(payload.notebook)}" data-gusnb-cell-id="${escapeAttr(c.id)}">
+  const html = `<figure class="gusnb-viz" data-gusnb-viz="1" data-gusnb-provenance="1" data-gusnb-notebook="${escapeAttr(payload.notebook)}" data-gusnb-cell-id="${escapeAttr(c.id)}" data-gusnb-snapshot="${escapeAttr(payload.snapshot_id)}">
   <div class="gusnb-viz-render" data-gusnb-viz-render>${render}</div>
   <pre data-gusnb-viz-panel contenteditable="false" hidden>${escapeHtml(summary)}</pre>
   <script type="application/json" data-gusnb-viz-source>${jsonForHtml(payload)}</script>
@@ -1726,6 +1730,8 @@ async function copyRichHtml(html, plain) {
 async function copyCellProvenance(id, event) {
   const c = getCell(id);
   if (!c) return;
+  const target = {path: active, id};
+  const notebookTab = activeTab();
   const visual = visualOutput(c);
   const wantsAttachment = !visual || (event && (event.altKey || event.metaKey || event.ctrlKey));
   const defaultPath = active ? active.split('/').slice(0, -1).join('/') + '/' : '';
@@ -1735,12 +1741,21 @@ async function copyCellProvenance(id, event) {
       : 'No rendered output was found. Link a data or figure file, add context, or copy as source-only.')
     : {};
   if (details == null) return;
-  const block = provenanceHtml(c, visual, details);
+  let copied = false;
   try {
+    await flushNotebook(notebookTab);
+    const history = await api(cellHistoryUrl(target));
+    const block = provenanceHtml(c, visual, {...details, notebook: target.path, history: history.events});
     await copyRichHtml(block.html, block.text);
+    copied = true;
+    const updated = await api(cellHistoryUrl(target), {method: 'POST', body: JSON.stringify({
+      kind: 'copy', snapshot_id: block.payload.snapshot_id, output_mime: block.payload.output_mime,
+      source: block.payload.code, attachment: details.path || '', note: details.comment || '',
+    })});
+    updateCellHistorySummary(target.path, id, updated.summary);
     flash(visual ? 'Copied provenance snapshot' : 'Copied source provenance');
   } catch (err) {
-    flash('Copy failed: ' + errText(err));
+    flash((copied ? 'Copied, but the history receipt could not be saved: ' : 'Copy failed: ') + errText(err));
   }
 }
 
@@ -1941,12 +1956,13 @@ function cellHtml(c) {
         <span class="ai-hint">⇧⏎ sends to the active agent · replaces this cell</span>
       </div>`;
   }
+  const historySummary = `<span class="cell-history-count" data-cell-history-summary="${escapeAttr(c.id)}">${escapeHtml(cellHistorySummaryText(c.history_summary))}</span>`;
   const promptStrip = (!isAi && c.prompt) ? `
     <div class="ai-prompt" title="${escapeAttr(c.prompt)}">
-      <span class="tag">AI</span>
-      <span class="pt">${escapeHtml(c.prompt)}</span>
-      <span class="re" onclick="event.stopPropagation();regenerate('${c.id}')"
-            title="Ask again with the same prompt">${icon('refresh')}</span>
+      <button class="cell-history-trigger" onclick="event.stopPropagation();openCellHistory('${c.id}')" aria-label="Open cell history">
+        <span class="tag">AI</span><span class="pt">${escapeHtml(c.prompt)}</span>${historySummary}</button>
+      <button class="re" onclick="event.stopPropagation();regenerate('${c.id}')"
+            title="Ask again with the same prompt" aria-label="Ask again with the same prompt">${icon('refresh')}</button>
     </div>` : '';
 
   // What the user asked Claude, on a cell a terminal rewrote. Same shape as the
@@ -1955,10 +1971,14 @@ function cellHtml(c) {
   // in a terminal — replaying it out of that context would mean something else.
   // The ↶ Undo replace strip below is what walks the write back.
   const claudeStrip = c.claude_prompt ? `
-    <div class="ai-prompt claude" title="${escapeAttr(c.claude_prompt)}">
+    <button class="ai-prompt claude cell-history-trigger" title="Open cell history" aria-label="Open cell history"
+            onclick="event.stopPropagation();openCellHistory('${c.id}')">
       <span class="tag">${icon('agent')}</span>
       <span class="pt">${escapeHtml(c.claude_prompt)}</span>
-    </div>` : '';
+      ${historySummary}
+    </button>` : '';
+  const historyStrip = !promptStrip && !claudeStrip ? `<button class="cell-history-link" aria-label="Open cell history"
+      onclick="event.stopPropagation();openCellHistory('${c.id}')">History ${historySummary}</button>` : '';
 
   // Only on a cell whose source was replaced by something the user didn't type
   // — an agent or a snippet. Per cell, like JupyterLab: undoing here says
@@ -2015,7 +2035,7 @@ function cellHtml(c) {
       ${hdBtn}<span class="gutter-label"${c._running ? ' title="Cell is running"' : ''}>${labelHtml}</span>${viewBtns}${histBtns}${cellBtns}
     </div>
     <div class="cell-body">
-      ${promptStrip}${claudeStrip}${undoStrip}${bodyInner}
+      ${promptStrip}${claudeStrip}${historyStrip}${undoStrip}${bodyInner}
       <div class="output-area" onpointerdown="selectCell('${c.id}')">
         <div id="out-${c.id}" class="${outHidden ? 'output-hidden' : ''}">${
           outputSlotHtml(c)}</div>
