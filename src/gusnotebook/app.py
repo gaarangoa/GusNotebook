@@ -1025,7 +1025,7 @@ def api_open():
             server = previews.open(path)
         except OSError as e:
             return jsonify({"error": f"could not start preview server: {e}"}), 400
-        data["preview_origin"] = server.origin_for(request.host.split(":")[0])
+        data["preview_origin"] = server.origin_for(request.host)
         data["preview_version"] = server.version()
     if remember:
         store.add_tab(str(path), session.id if session else None)
@@ -1080,7 +1080,7 @@ def api_text_version():
     if textfile.kind_of(path) != "text" or not path.is_file():
         return jsonify({"error": "no such text file"}), 404
     server = previews.peek(path)
-    host = request.host.split(":")[0]
+    host = request.host
     return jsonify({"path": str(path),
                     "disk_version": textfile.disk_version(path),
                     "preview_origin": server.origin_for(host) if server else None,
@@ -1106,7 +1106,7 @@ def api_preview():
         return jsonify({"error": "valid parent origin is required"}), 400
     try:
         server = previews.open(path)
-        host = request.host.split(":")[0]
+        host = request.host
         return jsonify(server.render(source, nonce, parent_origin, host))
     except (OSError, UnicodeError) as e:
         return jsonify({"error": f"could not render preview: {e}"}), 400
@@ -1115,7 +1115,7 @@ def api_preview():
 @routes.route("/api/previews")
 def api_previews():
     """Live preview origins, primarily for lifecycle/status UI and tests."""
-    return jsonify({"previews": previews.info(request.host.split(":")[0])})
+    return jsonify({"previews": previews.info(request.host)})
 
 
 @routes.route("/api/raw")
@@ -2145,6 +2145,7 @@ def create_app(config=None):
         TRUST_PROXY=False, START_WATCHERS=True, WORK_DIR=str(paths.work_dir()),
         APP_URL="http://127.0.0.1:8888", PREVIEW_HOST="127.0.0.1",
         APP_BASE_URL=os.environ.get("APP_BASE_URL", ""),
+        PREVIEW_SINGLE_PORT=False,
     )
     application.config.update(config or {})
     if not application.config["AUTH_REQUIRED"]:
@@ -2186,6 +2187,9 @@ def create_app(config=None):
         application.extensions["gusnotebook"] = state
         state.notebook_path, _work = _launch_notebook()
         state.previews.set_bind_host(application.config["PREVIEW_HOST"])
+        state.previews.single_port = application.config["PREVIEW_SINGLE_PORT"]
+        if state.previews.single_port:
+            application.wsgi_app = preview.PreviewMiddleware(application.wsgi_app, state.previews)
         try:
             state.notebooks.get(state.notebook_path)
         except notebook_mod.NotebookReadError as exc:
@@ -2226,6 +2230,7 @@ def main(argv=None):
     import webbrowser
     from werkzeug.serving import make_server
     from .persistence import atomic_write
+    from . import tunnels
 
     parser = argparse.ArgumentParser(prog="gusnotebook", description=__doc__.split("\n")[0])
     parser.add_argument("-p", "--port", type=int, default=int(os.environ.get("PORT", 8888)))
@@ -2239,53 +2244,116 @@ def main(argv=None):
                         help="trust one explicitly configured reverse proxy")
     parser.add_argument("--allowed-host", action="append", default=[],
                         help="additional hostname used to reach this server")
+    tunnels.add_arguments(parser)
     args = parser.parse_args(argv)
+    if args.tunnel:
+        if args.trust_proxy or args.allowed_host or args.debug or os.environ.get("APP_BASE_URL"):
+            parser.error("tunnel mode uses its own loopback connection; omit proxy, debug, allowed-host and APP_BASE_URL settings")
+        # Private Dev Tunnels authenticates the connecting CLI. Never expose this
+        # account-authenticated mode on a network interface or public web relay.
+        args.host = "127.0.0.1"
+
+    def stop_server(_signum, _frame):
+        raise KeyboardInterrupt
+
+    signal.signal(signal.SIGTERM, stop_server)
+    tunnel_cli = None
+    if args.tunnel or args.connect or args.list_tunnels:
+        try:
+            if args.tunnel or args.connect:
+                tunnels.tunnel_name(args.tunnel or args.connect)
+            tunnel_cli = tunnels.DevTunnels()
+            tunnel_cli.login(args.tunnel_login, device=args.device_code or bool(args.tunnel))
+            if args.list_tunnels:
+                tunnel_cli.list()
+                return
+            if args.connect:
+                tunnels.connect_client(tunnel_cli, args.connect, args.no_browser)
+                return
+        except tunnels.TunnelError as exc:
+            parser.exit(1, str(exc) + "\n")
+        except KeyboardInterrupt:
+            return
+    elif args.tunnel_login or args.device_code:
+        parser.error("--tunnel-login and --device-code require --tunnel, --connect or --list-tunnels")
     allowed = ["localhost", "127.0.0.1", "::1"] + args.allowed_host
+    if args.tunnel:
+        allowed.append("gusnotebook.localhost")
     if args.host not in {"0.0.0.0", "::"}:
         allowed.append(args.host)
     link_host = "127.0.0.1" if args.host in {"0.0.0.0", "::"} else args.host
+    if args.tunnel:
+        link_host = "gusnotebook.localhost"
     if ":" in link_host:
         link_host = "[" + link_host + "]"
     # Reserve the port before opening documents or pruning persistent sessions.
     # A second launch on an occupied port must leave the live server's state alone.
     server = make_server(args.host, args.port, lambda _env, _start: (), threaded=True)
     base = f"http://{link_host}:{server.server_port}"
+    internal_base = f"http://127.0.0.1:{server.server_port}" if args.tunnel else base
+    tunnel = None
+    application = None
     try:
-        application = create_app({"APP_URL": base, "PREVIEW_HOST": args.host,
+        name = tunnel_cli.prepare(args.tunnel, server.server_port) if args.tunnel else None
+        application = create_app({"APP_URL": internal_base, "PREVIEW_HOST": args.host,
                                   "ALLOWED_HOSTS": allowed, "TRUST_PROXY": args.trust_proxy,
-                                  "AUTH_REQUIRED": not args.no_auth,
+                                  "AUTH_REQUIRED": not (args.no_auth or args.tunnel),
+                                  "PREVIEW_SINGLE_PORT": bool(args.tunnel),
                                   "DEBUG": args.debug})
-    except BaseException:
+        server.app = application
+        if args.tunnel:
+            print(f"Starting private GusNotebook tunnel {name}…", flush=True)
+            tunnel = tunnel_cli.host(name)
+            tunnel.wait_ready()
+            print(f"On your local computer: gusnotebook --connect {name}\n"
+                  "GitHub/Microsoft sign-in controls access; no separate notebook token is needed.", flush=True)
+    except BaseException as exc:
+        if tunnel:
+            tunnel.close()
+        if application:
+            close_app(application)
         server.server_close()
+        if isinstance(exc, tunnels.TunnelError):
+            parser.exit(1, str(exc) + "\n")
+        if isinstance(exc, KeyboardInterrupt):
+            return
         raise
     server.app = application
     url = base + "/"
     if application.config["AUTH_REQUIRED"]:
         url += "#token=" + application.config["AUTH_TOKEN"]
-    with application.app_context():
-        connection = paths.state(f"server-{server.server_port}.json")
-        atomic_write(connection, json.dumps({"url": base, "pid": os.getpid(),
-                     "token": application.config["AUTH_TOKEN"]}), mode=0o600)
-        print(f"GusNotebook — {url}\n  working in {paths.work_dir()}\n"
-              f"  state in   {paths.state_dir()}", flush=True)
-    if not args.no_browser:
-        threading.Timer(1.0, lambda: webbrowser.open(url)).start()
-    def stop_server(_signum, _frame):
-        raise KeyboardInterrupt
-
-    signal.signal(signal.SIGTERM, stop_server)
+    connection = None
     try:
+        with application.app_context():
+            connection = paths.state(f"server-{server.server_port}.json")
+            atomic_write(connection, json.dumps({"url": internal_base, "pid": os.getpid(),
+                         "token": application.config["AUTH_TOKEN"]}), mode=0o600)
+            print(f"GusNotebook — {url}\n  working in {paths.work_dir()}\n"
+                  f"  state in   {paths.state_dir()}", flush=True)
+        if not args.no_browser and not args.tunnel:
+            threading.Timer(1.0, lambda: webbrowser.open(url)).start()
+        if tunnel:
+            def watch_tunnel():
+                tunnel.done.wait()
+                if not tunnel.stopping:
+                    print(tunnel.failure, flush=True)
+                    server.shutdown()
+            threading.Thread(target=watch_tunnel, name="gusnb-tunnel-watch", daemon=True).start()
         server.serve_forever()
     except KeyboardInterrupt:
         pass
     finally:
+        if tunnel:
+            tunnel.close()
         close_app(application)
         server.server_close()
         try:
-            if json.loads(connection.read_text()).get("pid") == os.getpid():
+            if connection and json.loads(connection.read_text()).get("pid") == os.getpid():
                 connection.unlink()
         except (OSError, ValueError):
             pass
+    if tunnel and tunnel.failure:
+        parser.exit(1, tunnel.failure + "\n")
 
 
 if __name__ == "__main__":

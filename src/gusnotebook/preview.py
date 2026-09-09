@@ -14,6 +14,8 @@ import atexit
 import html
 import json
 import hmac
+import io
+from http import HTTPStatus
 from http.cookies import SimpleCookie
 import mimetypes
 import re
@@ -104,13 +106,14 @@ class _Handler(BaseHTTPRequestHandler):
 class PreviewServer:
     """One localhost origin rooted at one visual document's directory."""
 
-    def __init__(self, path, bind_host="127.0.0.1"):
+    def __init__(self, path, bind_host="127.0.0.1", single_port=False):
         self.path = Path(path).resolve()
         self.root = self.path.parent
         self._lock = threading.RLock()
         self._source = self.path.read_text(encoding="utf-8")
         self._language = self.path.suffix.lstrip(".").lower()
         self._access = secrets.token_urlsafe(32)
+        self.virtual_host = "preview-" + secrets.token_hex(16) + ".gusnotebook.localhost" if single_port else None
         self._hosts = {"localhost", "127.0.0.1", "::1", bind_host}
         self._nonce = ""
         self._parent_origin = "*"
@@ -133,8 +136,16 @@ class PreviewServer:
 
     def origin_for(self, host):
         """The origin as reached from `host` — the browser's own Host header."""
-        self._hosts.add(host)
-        return f"http://{host}:{self.port}"
+        parsed = urlsplit("http://" + host)
+        if self.virtual_host:
+            self._hosts.add(self.virtual_host)
+            # *.localhost resolves to loopback in browsers. A separate hostname
+            # keeps authored scripts away from the app even on one tunnel port.
+            port = f":{parsed.port}" if parsed.port else ""
+            return f"http://{self.virtual_host}{port}"
+        self._hosts.add(parsed.hostname)
+        hostname = f"[{parsed.hostname}]" if ":" in parsed.hostname else parsed.hostname
+        return f"http://{hostname}:{self.port}"
 
     def render(self, source, nonce, parent_origin, host=None):
         """Set the transient browser buffer and return a cache-busted URL."""
@@ -280,6 +291,7 @@ class PreviewPool:
         self._servers = {}
         self._lock = threading.RLock()
         self._bind_host = "127.0.0.1"
+        self.single_port = False
         atexit.register(self.close_all)
 
     def set_bind_host(self, host):
@@ -291,7 +303,7 @@ class PreviewPool:
         with self._lock:
             server = self._servers.get(key)
             if server is None:
-                server = PreviewServer(key, bind_host=self._bind_host)
+                server = PreviewServer(key, bind_host=self._bind_host, single_port=self.single_port)
                 self._servers[key] = server
             return server
 
@@ -317,3 +329,54 @@ class PreviewPool:
         with self._lock:
             servers = list(self._servers.values())
         return [server.info(host) for server in servers]
+
+    def for_host(self, host):
+        with self._lock:
+            return next((server for server in self._servers.values() if server.virtual_host == host), None)
+
+
+class PreviewMiddleware:
+    """Route only known preview origins before the main control application.
+
+    Uses the existing preview capability, directory boundary, and response code;
+    it never forwards arbitrary URLs or grants the preview access to app APIs.
+    """
+
+    def __init__(self, app, pool):
+        self.app, self.pool = app, pool
+
+    def __call__(self, environ, start_response):
+        from werkzeug.wrappers import Request, Response
+        request = Request(environ)
+        host = urlsplit("http://" + request.host).hostname
+        if not host or host == "gusnotebook.localhost" or not host.endswith(".localhost"):
+            return self.app(environ, start_response)
+        server = self.pool.for_host(host)
+        if server is None:
+            return Response("Preview closed or unknown", status=404)(environ, start_response)
+        if request.method not in {"GET", "HEAD"}:
+            return Response("Method not allowed", status=405)(environ, start_response)
+
+        class Handler:
+            path = request.full_path
+            headers = request.headers
+
+            def __init__(self):
+                self.status = 200
+                self.response_headers = []
+                self.wfile = io.BytesIO()
+
+            def send_response(self, status):
+                self.status = status
+
+            def send_header(self, name, value):
+                self.response_headers.append((name, value))
+
+            def end_headers(self):
+                pass
+
+        handler = Handler()
+        server.serve(handler, head_only=request.method == "HEAD")
+        headers = handler.response_headers + [("Referrer-Policy", "no-referrer")]
+        start_response(f"{handler.status} {HTTPStatus(handler.status).phrase}", headers)
+        return [handler.wfile.getvalue()]

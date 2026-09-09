@@ -21,5 +21,6 @@ jobs:
       - run: python tests/test_reliability_ui.py
       - run: python tests/test_appearance_ui.py
       - run: python tests/test_terminal_theme_ui.py
+      - run: python tests/test_tunnels_ui.py
       - run: python tests/test_cell_history_ui.py
       - run: python tests/test_environments_ui.py

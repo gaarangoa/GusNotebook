@@ -73,10 +73,87 @@ If the proxy forwards the public URL prefix unchanged, set
 `APP_BASE_URL="/some/prefix"`. GusNotebook strips that prefix before routing and
 keeps it in generated browser URLs and authentication cookies.
 
+## Remote tunnels
+
+Run GusNotebook on a remote computer and connect from your laptop using a
+GitHub or Microsoft account, through
+[Microsoft Dev Tunnels](https://learn.microsoft.com/azure/developer/dev-tunnels/cli-commands).
+The browser interface runs locally; files, Python environments, kernels, and
+Claude/Codex terminals run on the remote computer. No inbound firewall port or
+public server IP is needed.
+
+Install GusNotebook and the
+[official `devtunnel` CLI](https://learn.microsoft.com/azure/developer/dev-tunnels/get-started#install)
+on both computers. On macOS, the CLI is available with
+`brew install --cask devtunnel`. On Linux, follow Microsoft's installer above.
+GusNotebook supports macOS and Linux, including WSL; native Windows hosting is
+not supported by its Unix terminal implementation. Use a current Chrome, Edge,
+or Firefox browser for the local connection.
+
+On the **remote** computer, inside your project directory:
+
+```bash
+gusnotebook --tunnel my-research --tunnel-login github
+```
+
+The first sign-in displays a device code and login URL that you can open on
+your laptop. Use `--tunnel-login microsoft` for a personal Microsoft or Entra
+account. Existing logins are reused; you can omit the provider after signing in.
+The remote command prints the tunnel's full name and the local connect command.
+
+On your **local** computer:
+
+```bash
+gusnotebook --connect my-research --tunnel-login github
+```
+
+Sign in with the **same account**. The command opens a local browser address
+such as `http://gusnotebook.localhost:8888/`, connected to the remote workspace.
+There is no separate notebook token or password in this mode. `--connect`
+does not create a local notebook or start a local kernel. From a checkout,
+prefix either command with `uv run`.
+
+Keep both commands running. **Ctrl-C on the local computer only disconnects
+that computer**; reconnecting brings back the remote kernels and terminals.
+Ctrl-C on the remote computer shuts down GusNotebook and its tunnel host.
+Use `--no-browser` to print the connection address without opening it, or
+`--device-code` for a local sign-in without a browser on that machine.
+
+```bash
+gusnotebook --list-tunnels         # names and running/offline status
+gusnotebook --connect FULL_NAME    # use the full name printed by the remote host
+```
+
+Tunnel names persist across restarts, subject to the service's expiration
+policy (new tunnels request 30 days). Restart with the same `--tunnel` name to
+reuse it. `--port 4477` chooses the port on the remote host; the connecting CLI
+reports the local forwarded port, which may differ if that port is occupied.
+
+Tunnels created by GusNotebook are private to the signed-in account. Hosting
+binds the app to **loopback only**, regardless of `HOST`/`--host`, and refuses
+tunnels with shared access rules, unrelated labels, extra ports, or another
+active host. Proxy/debug/custom-host settings cannot be combined with tunnel
+hosting. Normal launches retain their usual token authentication.
+
+All app traffic, including events, terminal WebSockets, and editable HTML/SVG
+previews, uses **one forwarded port**. Previews use separate `*.gusnotebook.localhost`
+browser origins to isolate their scripts while retaining relative assets,
+root-relative URLs, modules, and `fetch()`. These local hostnames resolve to
+loopback in the browser; no DNS or hosts-file setup is needed. Use the address
+printed by **`gusnotebook --connect`**, rather than the devtunnels.ms web-forwarding
+URL, so this complete workspace and preview workflow is available.
+
+If the CLI is outside PATH, set `GUSNOTEBOOK_DEVTUNNEL=/absolute/path/to/devtunnel`.
+Microsoft's CLI stores the account login; GusNotebook does not store the OAuth
+credentials. Sign out with `devtunnel user logout`. If the service connection
+fails permanently, the command exits with an error; rerun it after restoring
+connectivity. No cloud sign-in or public tunnel is required to run the repository's
+automated tunnel tests: they substitute an offline TCP relay for the external service.
+
 ## Cell history
 
 Each cell has a persistent **History** timeline. Click the existing agent request
-above the cell (or **History** on a cell without a request) to see full requests,
+above the cell or the clock icon in its right-side actions to see full requests,
 source changes, executions, decisions, agent preferences, and copied results.
 The latest request stays visible, with a compact count of earlier events.
 Use **Add note** for reasoning, data-processing choices, preferences, or work
