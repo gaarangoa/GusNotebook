@@ -352,9 +352,9 @@ def main():
         page.locator('#tabs .tab.active').press('F2')
         expect(page.locator('#ask-input')).to_have_value(renamed.name)
         page.keyboard.press('Escape')
-        page.click('#workspace-more')
-        page.click('#nb-reload')
-        page.wait_for_function("!document.getElementById('workspace-more').matches('[aria-expanded=true]')")
+        expect(page.locator('#workspace-menu')).not_to_be_visible()
+        expect(page.locator('#toolbar #nb-reload')).to_be_visible()
+        page.click('#toolbar #nb-reload')
         expect(page.locator('#tabs .tab.active')).to_contain_text(renamed.name)
         print('PASS: tab-menu rename saves drafts and retains the live kernel; F2 and reload work', flush=True)
         # The unlock page uses the same saved theme before the app has loaded.

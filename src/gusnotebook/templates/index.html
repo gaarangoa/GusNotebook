@@ -78,7 +78,6 @@
         <button id="theme-toggle" role="menuitem" tabindex="-1" onclick="closeWorkspaceMenu(); AppAppearance.toggle()"><span class="theme-light-icon" data-icon="sun"></span><span class="theme-dark-icon" data-icon="moon"></span><span id="theme-label">Switch theme</span></button>
         <div class="menu-separator" role="separator"></div>
         <button id="history-button" role="menuitem" tabindex="-1" onclick="closeWorkspaceMenu(); openHistory()"><span data-icon="history"></span>Change history</button>
-        <button id="nb-reload" role="menuitem" tabindex="-1" onclick="closeWorkspaceMenu(); reloadNotebookFromDisk()"><span data-icon="refresh"></span>Reload notebook</button>
       </div>
     </header>
 
@@ -155,6 +154,8 @@
       <button class="tb" id="kernel-stop" onclick="interruptKernel()"
               title="Interrupt the running cell"><span data-icon="stop"></span>Stop</button>
       <button class="tb" onclick="restartKernel()"><span data-icon="refresh"></span>Restart</button>
+      <button class="tb" id="nb-reload" onclick="reloadNotebookFromDisk()"
+              title="Reload notebook from disk" aria-label="Reload notebook from disk"><span data-icon="refresh"></span>Reload</button>
 
       <!-- The kernel badge IS the environment picker: status now, click to switch. -->
       <div class="venv-pick">

@@ -263,8 +263,8 @@ Documents and workspace controls share a compact 32 px row directly above the
 notebook toolbar. The Files and terminal panes extend to the top of the window.
 The controls at the right of the tab row show or hide **Files** and
 **Agents and terminals**, and open **Settings**.
-The **⋯** menu contains **Focus notebook**, theme switching, **Change history**,
-and **Reload notebook**. Right-click a tab for **Rename…**, or focus the tab and
+The **⋯** menu contains **Focus notebook**, theme switching, and **Change history**.
+**Reload** is in the notebook toolbar beside **Restart**. Right-click a tab for **Rename…**, or focus the tab and
 press F2. Drag either panel divider to resize it; widths and
 visibility are saved in this browser. Focused dividers also accept arrow keys
 (Shift for larger steps), Home, and End. Double-click a divider to reset its
