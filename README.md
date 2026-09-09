@@ -82,13 +82,50 @@ The browser interface runs locally; files, Python environments, kernels, and
 Claude/Codex terminals run on the remote computer. No inbound firewall port or
 public server IP is needed.
 
-Install GusNotebook and the
-[official `devtunnel` CLI](https://learn.microsoft.com/azure/developer/dev-tunnels/get-started#install)
-on both computers. On macOS, the CLI is available with
-`brew install --cask devtunnel`. On Linux, follow Microsoft's installer above.
+### Install the devtunnel CLI
+
+Install GusNotebook and Microsoft's `devtunnel` CLI on **both the remote and
+local computers**. The CLI is a separate tool; `uv sync` or installing
+GusNotebook does not install it. These commands follow
+[Microsoft's installation instructions](https://learn.microsoft.com/azure/developer/dev-tunnels/get-started#install).
+
+**macOS**, using Homebrew:
+
+```bash
+brew install --cask devtunnel
+devtunnel --version
+```
+
+**Linux or WSL**, using Microsoft's installer:
+
+```bash
+curl -fsSL https://aka.ms/DevTunnelCliInstall | bash
+export PATH="$HOME/bin:$PATH"
+devtunnel --version
+```
+
+The installer places the executable at `~/bin/devtunnel` and updates your shell
+startup file. The `export` above makes it available in the current terminal;
+open a new terminal for future sessions. Run these commands **inside WSL** if
+you use GusNotebook there.
+
+The same installer also works on macOS without Homebrew. If GusNotebook runs
+from a service or another shell that does not load your PATH, point it directly
+to the installed executable:
+
+```bash
+export GUSNOTEBOOK_DEVTUNNEL="$HOME/bin/devtunnel"
+```
+
+Set that variable in the service's environment when launching from a service.
+For updates, use `brew upgrade --cask devtunnel` on Homebrew installations, or
+rerun Microsoft's installer for script installations.
+
 GusNotebook supports macOS and Linux, including WSL; native Windows hosting is
 not supported by its Unix terminal implementation. Use a current Chrome, Edge,
 or Firefox browser for the local connection.
+
+### Start and connect
 
 On the **remote** computer, inside your project directory:
 
