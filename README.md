@@ -22,6 +22,24 @@ before discarding the browser version.
 
 ## Install
 
+To install directly from GitHub as a user-wide command (recommended):
+
+```bash
+uv tool install 'git+https://github.com/gaarangoa/GusNotebook.git@main'
+uv tool update-shell
+```
+
+Open a new terminal, then run `gusnotebook` from the directory you want to
+serve. uv manages the tool's environment automatically; no activation is needed.
+
+To install directly from GitHub into **system Python** instead:
+
+```bash
+uv pip install --system 'git+https://github.com/gaarangoa/GusNotebook.git@main'
+```
+
+To install the published release:
+
 ```bash
 uv tool install gusnotebook       # or: pipx install gusnotebook
 gusnotebook                       # serves the directory you're in
@@ -44,6 +62,16 @@ does. It opens on the first `.ipynb` it finds there, or creates
 
 Options: `--port`, `--host`, `--no-browser`. `NOTEBOOK=/path/to/x.ipynb` picks
 the launch document.
+
+The default port is **8888**. If another program is using it, choose a free
+port, for example:
+
+```bash
+gusnotebook --port 4477
+```
+
+From a checkout, use `uv run gusnotebook --port 4477`. You can also set the
+`PORT` environment variable to change the default.
 
 By default, the launch link includes a fresh access token. Opening it unlocks
 that browser; the token is removed from the address bar. API and terminal connections require
@@ -165,6 +193,14 @@ Tunnel names persist across restarts, subject to the service's expiration
 policy (new tunnels request 30 days). Restart with the same `--tunnel` name to
 reuse it. `--port 4477` chooses the port on the remote host; the connecting CLI
 reports the local forwarded port, which may differ if that port is occupied.
+
+If port 8888 is already in use on the remote computer, start the tunnel with:
+
+```bash
+gusnotebook --tunnel my-research --tunnel-login github --port 4477
+```
+
+The local `gusnotebook --connect my-research` command stays the same.
 
 Tunnels created by GusNotebook are private to the signed-in account. Hosting
 binds the app to **loopback only**, regardless of `HOST`/`--host`, and refuses
