@@ -309,6 +309,12 @@ the app. Choose **Use for [notebook]** to switch that notebook's interpreter;
 this restarts its kernel, clearing live variables. Finish or stop running
 cells before switching.
 
+New terminals opened from a notebook use that notebook's selected environment.
+Shell startup restores access to uv and activates the environment after loading
+your shell configuration. Existing terminals keep their current environment;
+open a new terminal after switching the notebook's interpreter. With remote
+tunnels, these terminals and uv run on the remote computer.
+
 The modal's **Installed packages** tab lists package names, versions, and local
 repository paths, with filtering and refresh. You can also click **Packages**
 beside an environment in the notebook's environment menu, or browse to an

@@ -36,7 +36,7 @@ import termios
 import threading
 from collections import deque
 
-from . import bus
+from . import bus, environments, shell_startup
 
 # Scrollback kept per session so a reattaching client sees recent history.
 # Agent TUIs redraw on resize, so this only has to cover a screen or
@@ -132,7 +132,7 @@ RESTRICTION_LABELS = {
     "no_network": "Reaching the network: WebFetch, WebSearch, curl, wget.",
 }
 
-def _venv_env(python=None):
+def _venv_env(python=None, path=None):
     """VIRTUAL_ENV and PATH for a venv, derived from `python` (or sys.executable).
 
     `python` should be the notebook's selected interpreter — e.g. .venv/bin/python.
@@ -143,9 +143,8 @@ def _venv_env(python=None):
     venv_dir = bin_dir.parent
     if not (venv_dir / "pyvenv.cfg").exists():
         return {}, None
-    path = os.environ.get("PATH", "")
-    if str(bin_dir) not in path.split(os.pathsep):
-        path = str(bin_dir) + os.pathsep + path
+    path = os.environ.get("PATH", "") if path is None else path
+    path = os.pathsep.join([str(bin_dir)] + [p for p in path.split(os.pathsep) if p != str(bin_dir)])
     activate = venv_dir / "bin" / "activate"
     return {"VIRTUAL_ENV": str(venv_dir), "PATH": path}, str(activate) if activate.exists() else None
 
@@ -565,6 +564,7 @@ class Session:
         self._buffered = 0
         self._clients = []              # queues, one per attached WebSocket
         self._lock = threading.RLock()
+        self._shell_startup = None
 
     # --- lifecycle ---
 
@@ -585,23 +585,29 @@ class Session:
         is_shell = self.kind == "shell"
         if self.kind == "claude":
             extra_env.update(bedrock_env())
-        venv_env, activate_script = _venv_env(self.python)
-        extra_env.update(venv_env)
-
+        child_env = {**os.environ, **extra_env, "TERM": "xterm-256color"}
+        uv = environments.uv_binary()
+        if uv:
+            uv_dir = str(pathlib.Path(uv).parent)
+            child_env["PATH"] = os.pathsep.join([uv_dir] + [p for p in child_env.get("PATH", "").split(os.pathsep)
+                                                          if p != uv_dir])
+        venv_env, activate_script = _venv_env(self.python, path=child_env.get("PATH", ""))
         command = self.command
-        if is_shell and activate_script:
-            shell = self.command[0]
-            command = [shell, "-l", "-c",
-                       f'source "{activate_script}" && exec "{shell}" -l -i']
+        if is_shell and pathlib.Path(command[0]).name in shell_startup.SUPPORTED:
+            command, self._shell_startup = shell_startup.prepare(command, activate_script, child_env, uv=uv)
+        else:
+            child_env.update(venv_env)
 
-        pid, fd = pty.fork()
+        try:
+            pid, fd = pty.fork()
+        except OSError:
+            self._drop_shell_startup()
+            raise
         if pid == 0:
             # Child: become the shell-less command in its own directory.
             try:
                 os.chdir(self.cwd)
-                os.environ["TERM"] = "xterm-256color"
-                os.environ.update(extra_env)
-                os.execvp(command[0], command)
+                os.execvpe(command[0], command, child_env)
             except Exception as e:                     # pragma: no cover - child
                 os.write(2, f"cannot start {self.command[0]}: {e}\r\n".encode())
             os._exit(1)
@@ -638,6 +644,7 @@ class Session:
 
     def _reap(self):
         self.alive = False
+        self._drop_shell_startup()
         try:
             _, status = os.waitpid(self.pid, os.WNOHANG)
             code = os.waitstatus_to_exitcode(status) if status else 0
@@ -649,6 +656,11 @@ class Session:
         self._fan_out(note)
         self._fan_out(None)           # wake senders so they can finish
         self._publish("terminal_closed", terminal=self.id, note=self.exit_note)
+
+    def _drop_shell_startup(self):
+        temporary, self._shell_startup = self._shell_startup, None
+        if temporary:
+            temporary.cleanup()
 
     def _drop_temp_files(self):
         """Remove the temp files this session's argv points at.
@@ -689,6 +701,7 @@ class Session:
         """Terminate the session for good (the user closed the tab)."""
         self.alive = False
         self._drop_temp_files()
+        self._drop_shell_startup()
         if self.pid:
             for sig in (signal.SIGTERM, signal.SIGKILL):
                 try:

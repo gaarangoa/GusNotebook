@@ -65,7 +65,7 @@ async function openTerminal(cwd, kind) {
   const root = cwd || fileState.path;
   let data;
   try {
-    data = await api('/api/terminals', {
+    data = await api('/api/terminals' + (isNotebookTab() ? nbq() : ''), {
       method: 'POST',
       body: JSON.stringify({...(root ? {cwd: root} : {}), kind}),
     });

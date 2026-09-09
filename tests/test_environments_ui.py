@@ -4,6 +4,7 @@ import importlib.metadata
 import json
 import os
 from pathlib import Path
+import shlex
 import sys
 import tempfile
 
@@ -39,7 +40,11 @@ py-modules = ["env_fixture"]
         page.on("pageerror", lambda error: errors.append(str(error)))
         page.goto(url, wait_until="domcontentloaded")
         page.wait_for_function("typeof cells !== 'undefined' && cells.length && activeTab().python")
-        notebook = page.evaluate("active")
+        # Keep the first notebook open: terminals must follow the active second
+        # notebook, whose selected environment will differ from the first.
+        notebook = str(work / "analysis.ipynb")
+        page.evaluate("async path => { await api('/api/open', {method:'POST', body:JSON.stringify({path})}); await openFile(path); }", notebook)
+        page.wait_for_function("active.endsWith('/analysis.ipynb') && activeTab().python")
 
         page.click("#tab-new")
         page.locator("#new-menu").get_by_text("Environment", exact=True).click()
@@ -113,6 +118,19 @@ py-modules = ["env_fixture"]
         assert "second edit" in run("import importlib\nimportlib.reload(env_fixture)\nprint(env_fixture.MESSAGE)")
         assert json.loads(Path(notebook).read_text())["metadata"]["kernelspec"]["notebook_python"] == interpreter
         print("PASS: notebook uses the new interpreter and sees local source edits without reinstalling", flush=True)
+
+        terminal_id = page.evaluate("async path => (await openTerminal(path, 'shell')).id", str(work))
+        page.wait_for_function("terms.length === 1 && terms[0].ws.readyState === 1")
+        probe = ("import sys, subprocess, env_fixture; print('TERMINAL_PREFIX=' + sys.prefix); "
+                 "print('TERMINAL_PACKAGE=' + env_fixture.MESSAGE); "
+                 "print('TERMINAL_UV=' + subprocess.check_output(['uv', '--version'], text=True).strip())")
+        page.evaluate("command => terms[0].ws.send(command)", "python -c " + shlex.quote(probe) + "\r")
+        rows = page.locator(".term-host.on .xterm-rows")
+        expect(rows).to_contain_text("TERMINAL_PREFIX=" + str(target))
+        expect(rows).to_contain_text("TERMINAL_PACKAGE=second edit")
+        expect(rows).to_contain_text("TERMINAL_UV=uv ")
+        page.evaluate("id => closeTerminal(id)", terminal_id)
+        print("PASS: new terminal uses the active second notebook's environment and can run uv", flush=True)
 
         page.click("#venv-btn")
         page.locator("#venv-menu .venv-item").filter(has_text=target.name).get_by_role("button", name="Packages", exact=True).click(timeout=30000)
