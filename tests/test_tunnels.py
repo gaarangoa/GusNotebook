@@ -61,6 +61,53 @@ class TunnelTests(unittest.TestCase):
             cli.connect("research")
         process.assert_not_called()
 
+    def test_new_tunnel_without_ports_can_be_prepared(self):
+        cli = DevTunnels("devtunnel-test")
+        cli.show = Mock(return_value=None)
+        cli.json = Mock(side_effect=[
+            {"tunnel": {"tunnelId": "research.usw2", "labels": ["gusnotebook"]}},
+            {"accessControlEntries": []},
+            # CLI 1.0.2030 returns this warning, without a ports field, when empty.
+            {"warning": "No ports found for tunnel research."},
+            {"port": {"portNumber": 4477, "protocol": "http"}},
+            {"accessControlEntries": []},
+        ])
+        self.assertEqual(cli.prepare("research", 4477), "research.usw2")
+        cli.json.assert_any_call("port", "create", "research.usw2", "--port-number", 4477,
+                                 "--protocol", "http", "--host-header", "unchanged",
+                                 "--origin-header", "unchanged")
+        self.assertEqual(cli.json.call_args.args,
+                         ("access", "list", "research.usw2", "--port-number", "4477"))
+
+    def test_port_responses_distinguish_empty_from_unrecognized(self):
+        cli = DevTunnels("devtunnel-test")
+        port = {"portNumber": 4477, "protocol": "http"}
+        for response, expected in [({"ports": [port]}, [port]), ({"ports": []}, []),
+                ({"warning": "No ports found for tunnel research."}, []),
+                ({"warning": "No ports found for tunnel research.usw2."}, [])]:
+            with self.subTest(response=response), patch("gusnotebook.tunnels.subprocess.run",
+                    return_value=Mock(returncode=0, stdout=json.dumps(response))):
+                self.assertEqual(cli.ports("research.usw2"), expected)
+        invalid = [{}, {"ports": None}, {"ports": {}}, {"warning": "Login required."},
+                {"warning": "No ports found for tunnel another."},
+                {"warning": "No ports found for tunnel research.", "error": "Request failed"}]
+        invalid += [{"ports": [{"portNumber": value}]} for value in [0, 65536, True, "4477", None]]
+        for response in invalid:
+            with self.subTest(response=response), patch("gusnotebook.tunnels.subprocess.run",
+                    return_value=Mock(returncode=0, stdout=json.dumps(response))):
+                with self.assertRaises(TunnelError):
+                    cli.ports("research.usw2")
+
+    def test_connect_to_empty_tunnel_requests_remote_start(self):
+        cli = DevTunnels("devtunnel-test")
+        cli.show = Mock(return_value={"tunnelId": "research.usw2", "labels": ["gusnotebook"]})
+        cli.json = Mock(side_effect=[{"accessControlEntries": []},
+                                    {"warning": "No ports found for tunnel research."}])
+        with patch("gusnotebook.tunnels.TunnelProcess") as process:
+            with self.assertRaisesRegex(TunnelError, "Start the remote app with --tunnel first"):
+                cli.connect("research")
+        process.assert_not_called()
+
     def test_only_not_found_creates_a_tunnel(self):
         cli = DevTunnels("devtunnel-test")
         with patch("gusnotebook.tunnels.subprocess.run", return_value=Mock(returncode=2, stdout="", stderr="")):

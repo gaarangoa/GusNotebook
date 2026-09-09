@@ -49,7 +49,8 @@ elif args[0] == "create":
 elif args[:2] == ["access", "list"]:
     output({"accessControlEntries": []})
 elif args[:2] == ["port", "list"]:
-    output({"ports": state()["ports"]})
+    ports = state()["ports"]
+    output({"ports": ports} if ports else {"warning": f"No ports found for tunnel {args[2]}."})
 elif args[:2] == ["port", "create"]:
     value = state()
     value["ports"] = [{"portNumber": int(args[args.index("--port-number") + 1]), "protocol": "http"}]

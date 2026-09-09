@@ -103,9 +103,16 @@ class DevTunnels:
                               "GusNotebook tunnel name; access rules were not changed.")
 
     def ports(self, name):
-        ports = self.json("port", "list", name).get("ports")
+        result = self.json("port", "list", name)
+        # An empty tunnel produces only a warning, not {"ports": []}. The CLI
+        # may remove the cluster suffix from the name in that warning.
+        if any(result == {"warning": f"No ports found for tunnel {candidate}."}
+               for candidate in (name, name.rsplit(".", 1)[0])):
+            return []
+        ports = result.get("ports")
         if not isinstance(ports, list):
-            raise TunnelError("Cannot read the tunnel's ports. Update the devtunnel CLI.")
+            raise TunnelError("Cannot read the tunnel's ports: unexpected devtunnel port list response. "
+                              "Check devtunnel --version and report this error.")
         for port in ports:
             if not isinstance(port, dict) or type(port.get("portNumber")) is not int or not 0 < port["portNumber"] < 65536:
                 raise TunnelError("Invalid port in the devtunnel response.")
