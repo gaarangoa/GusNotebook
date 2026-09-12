@@ -1,7 +1,7 @@
 /* Loaded in <head> so the chosen palette is applied before the first paint. */
 window.AppAppearance = (() => {
   const key = 'gusnotebook.appearance';
-  const defaults = {theme: 'system', density: 'comfortable', fontSize: 10};
+  const defaults = {theme: 'system', density: 'comfortable', fontSize: 12};
   const media = matchMedia('(prefers-color-scheme: dark)');
   function clean(value = {}) {
     return {theme: ['light', 'dark', 'system'].includes(value.theme) ? value.theme : defaults.theme,

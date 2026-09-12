@@ -15,7 +15,7 @@
   --syntax-keyword: #762fa9; --syntax-string: #24733f; --syntax-comment: #667387;
   --syntax-number: #995714; --syntax-function: #315cac; --syntax-type: #166b80;
   --mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
-  --font-size: 10px;
+  --font-size: 12px;
   --ui-size: var(--font-size); --small-size: var(--font-size); --editor-size: var(--font-size);
   --control-height: 32px; --row-space: 8px;
 }

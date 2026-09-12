@@ -58,7 +58,7 @@ def main():
             expect(frame.locator('h1')).to_have_css('font-size', f'{size * 2}px')
             for selector in ['body', 'table.dataframe', 'th', 'td']:
                 expect(frame.locator(selector).first).to_have_css('font-size', f'{size}px')
-        expect_font_size(10)
+        expect_font_size(12)
         header = page.locator('.app-header').bounding_box()
         toolbar = page.locator('#toolbar').bounding_box()
         assert header['height'] == 32
@@ -72,7 +72,7 @@ def main():
         assert page.locator('#notebook-pane').bounding_box()['y'] <= 78
         assert page.locator('#nb-path, #nb-label').count() == 0
         file_row = page.locator('.file-row').first
-        expect(file_row).to_have_css('font-size', '10px')
+        expect(file_row).to_have_css('font-size', '12px')
         assert file_row.bounding_box()['height'] == 24
         # Compact Skills/Sessions keep creation and secondary actions accessible.
         assert page.locator('#skills svg').count() == 0
@@ -162,12 +162,12 @@ def main():
         }''')
         page.evaluate('path => openTerminal(path, "shell")', str(work))
         page.wait_for_function('terms.length === 1 && terms[0].ws.readyState === 1')
-        assert page.evaluate('terms[0].term.options.fontSize') == 10
+        assert page.evaluate('terms[0].term.options.fontSize') == 12
         page.evaluate('window.reviewTerminal = terms[0].term; terms[0].ws.send("echo APPEARANCE_OK\\r")')
         page.click('#settings-button')
         expect(page.locator('#settings-back')).to_be_visible()
         expect(page.locator('#settings-back')).to_have_class('modal-back on')
-        expect(page.locator('#set-font-size')).to_have_value('10')
+        expect(page.locator('#set-font-size')).to_have_value('12')
         assert page.locator('#set-font-size').evaluate('el => el.checkValidity()')
         page.select_option('#set-theme', 'dark')
         page.select_option('#set-density', 'compact')
@@ -183,8 +183,8 @@ def main():
         page.keyboard.press('Escape')
         expect(page.locator('html')).to_have_attribute('data-theme', 'light')
         expect(page.locator('#settings-button')).to_be_focused()
-        assert page.evaluate('AppAppearance.get().density === "comfortable" && reviewTerminal.options.fontSize === 10')
-        expect_font_size(10)
+        assert page.evaluate('AppAppearance.get().density === "comfortable" && reviewTerminal.options.fontSize === 12')
+        expect_font_size(12)
         print('PASS: preview/cancel preserves editor identity, selection, undo, table frames and live terminals', flush=True)
 
         page.click('#settings-button')
