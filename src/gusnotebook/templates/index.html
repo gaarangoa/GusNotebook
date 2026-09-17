@@ -177,6 +177,10 @@
     <div class="textpane" id="textpane">
       <div class="thead">
         <span id="text-lang"></span>
+        <div id="markdown-view" class="markdown-view" role="group" aria-label="Markdown view" hidden>
+          <button class="files-btn" id="markdown-preview-button" aria-pressed="true" onclick="setMarkdownMode('preview')">Preview</button>
+          <button class="files-btn" id="markdown-source-button" aria-pressed="false" onclick="setMarkdownMode('source')">Source</button>
+        </div>
         <span class="html-live" id="html-live">edit directly · double-click SVG text</span>
         <span class="grow"></span>
         <span id="text-status"></span>
@@ -189,6 +193,7 @@
                   aria-label="File source"
                   oninput="markTextDirty()"
                   onkeydown="return onTextKey(event)"></textarea>
+        <article id="markdown-preview" class="markdown-preview md-rendered" aria-label="Rendered Markdown" tabindex="0"></article>
         <div class="html-preview" id="html-preview">
           <!-- The preview has a separate localhost port, so same-origin web APIs
                work inside it without granting access to GusNotebook itself. -->
@@ -578,6 +583,7 @@ results = pd.read_csv(<span class="sample-string">"data.csv"</span>)</pre><p>Rea
 <script src="{{ BASE_URL }}/static/js/core.js"></script>
 <script src="{{ BASE_URL }}/static/js/layout.js"></script>
 <script src="{{ BASE_URL }}/static/js/browser.js"></script>
+<script src="{{ BASE_URL }}/static/js/markdown.js"></script>
 <script src="{{ BASE_URL }}/static/js/cells.js"></script>
 <script src="{{ BASE_URL }}/static/js/editor.js"></script>
 <script src="{{ BASE_URL }}/static/js/actions.js"></script>

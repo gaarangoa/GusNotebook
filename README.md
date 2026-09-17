@@ -5,6 +5,12 @@ agents on the right. Files open in tabs, each open notebook gets its own IPython
 kernel, and either agent can read and rewrite **the cell you're parked on**
 without being told which one it is.
 
+Markdown files (`.md` and `.markdown`) open in a rendered **Preview**, with
+headings, lists, tables, code blocks, and images. Use **Source** to edit and
+**Save** or ⌘S to save the original Markdown. Relative links open document tabs;
+relative images load beside the file. The preview follows the app's theme and
+font settings, and refreshes after external edits while preserving unsaved drafts.
+
 HTML and SVG files open in an integrated visual browser rather than as source.
 Each tab gets a short-lived server on its own localhost port, rooted beside the
 file, so relative and root-relative assets, scripts, modules, and `fetch()` work

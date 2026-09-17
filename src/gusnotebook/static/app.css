@@ -352,6 +352,20 @@ body {
 }
 .textpane.markup textarea { display: none; }
 .textpane.markup .html-preview { display: flex; flex: 1 1 auto; }
+.markdown-view { display: inline-flex; gap: 2px; }
+.markdown-view[hidden] { display: none; }
+.markdown-view button[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); }
+.markdown-preview.md-rendered {
+  display: none; flex: 1 1 auto; min-width: 0; overflow: auto;
+  padding: 16px 20px; color: var(--text); background: var(--panel);
+  overflow-wrap: anywhere;
+}
+.textpane.markdown:not(.markdown-source) #text-editor { display: none; }
+.textpane.markdown:not(.markdown-source) .markdown-preview { display: block; }
+.markdown-preview.md-rendered:empty::after { content: 'Empty Markdown file — choose Source to write.'; }
+.markdown-preview img { max-width: 100%; height: auto; }
+.markdown-preview a { color: var(--accent); text-decoration: underline; }
+.markdown-preview input[type="checkbox"] { width: auto; margin-right: 4px; }
 .html-preview iframe {
   flex: 1 1 auto; min-width: 0; min-height: 0;
   width: 100%; border: 0; background: var(--panel);

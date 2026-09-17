@@ -249,7 +249,7 @@ async function reloadTextFromDisk(target, force) {
  */
 async function pollMarkupDisk() {
   const t = activeTab();
-  if (!isMarkupTab(t) || !t.diskVersion || t.saveInFlight || t.reloadInFlight ||
+  if (!(isMarkupTab(t) || isMarkdownTab(t)) || !t.diskVersion || t.saveInFlight || t.reloadInFlight ||
       markupDiskPollBusy) return;
   markupDiskPollBusy = true;
   try {
@@ -261,14 +261,14 @@ async function pollMarkupDisk() {
     // distinguish that live server from the dead origin retained by this page.
     // Re-render the current browser buffer on the new origin; this is safe even
     // while dirty because no disk content is read or discarded here.
-    if (Object.prototype.hasOwnProperty.call(data, 'preview_origin') &&
+    if (isMarkupTab(t) && Object.prototype.hasOwnProperty.call(data, 'preview_origin') &&
         data.preview_origin !== t.previewOrigin) {
       await renderMarkupEditor();
       if (active === t.path) flash(`${t.name} preview reconnected`);
       return;
     }
     if (data.disk_version === t.diskVersion &&
-        data.preview_version === t.previewVersion) return;
+        (!isMarkupTab(t) || data.preview_version === t.previewVersion)) return;
     if (t.dirty) {
       if (!t.externalConflict) markTextExternalConflict(t);
       return;
@@ -295,6 +295,7 @@ function showActive() {
   const textPane = document.getElementById('textpane');
   textPane.classList.toggle('on', kind === 'text');
   textPane.classList.toggle('markup', isMarkupTab(t));
+  showMarkdownFile(t);
   document.getElementById('imgpane').classList.toggle('on', kind === 'image');
   if (!isMarkupTab(t)) {
     clearMarkupFocus();
@@ -438,7 +439,9 @@ async function openFile(path, options = {}) {
                         previewOrigin: data.preview_origin,
                         previewVersion: data.preview_version,
                         diskVersion: data.disk_version,
-                        markupView: cached && cached.markupView});
+                        markupView: cached && cached.markupView,
+                        markdownMode: cached && cached.markdownMode,
+                        markdownScroll: cached && cached.markdownScroll});
     }
   }
 

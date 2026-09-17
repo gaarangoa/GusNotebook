@@ -16,7 +16,7 @@ MAX_BYTES = 2 * 1024 * 1024      # refuse to open more than 2 MB in a textarea
 MARKUP_SUFFIXES = {".html", ".htm", ".svg"}
 
 TEXT_SUFFIXES = {
-    ".py", ".txt", ".md", ".csv", ".tsv", ".json", ".yaml", ".yml", ".toml",
+    ".py", ".txt", ".md", ".markdown", ".csv", ".tsv", ".json", ".yaml", ".yml", ".toml",
     ".cfg", ".ini", ".sh", ".bash", ".zsh", ".sql", ".css", ".js",
     ".ts", ".jsx", ".tsx", ".xml", ".log", ".env", ".gitignore", ".r", ".R",
     ".rst", ".tex", ".c", ".h", ".cpp", ".java", ".go", ".rs", ".rb", ".pl",
