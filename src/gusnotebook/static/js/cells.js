@@ -284,6 +284,20 @@ async function pollMarkupDisk() {
 
 setInterval(pollMarkupDisk, 800);
 
+function showPdf(t, reload = false) {
+  if (!t || t.kind !== 'pdf') return;
+  const url = BASE + '/api/pdf?' + new URLSearchParams({path: t.path});
+  const viewer = document.getElementById('pdf-viewer');
+  // Leave the browser viewer alone during normal repaints to retain its page/zoom.
+  if (reload || viewer.dataset.path !== t.path) {
+    viewer.data = url + (reload ? '&v=' + Date.now() : '');
+    viewer.dataset.path = t.path;
+    viewer.setAttribute('aria-label', t.name);
+  }
+  document.getElementById('pdf-open').href = url;
+  document.getElementById('pdf-download').href = BASE + '/api/files/download?' + new URLSearchParams({path: t.path});
+}
+
 /** Show whichever pane the active tab needs, and fill it. */
 function showActive() {
   const t = activeTab();
@@ -297,6 +311,11 @@ function showActive() {
   textPane.classList.toggle('markup', isMarkupTab(t));
   showMarkdownFile(t);
   document.getElementById('imgpane').classList.toggle('on', kind === 'image');
+  document.getElementById('pdfpane').hidden = kind !== 'pdf';
+  if (!tabs.some(entry => entry.kind === 'pdf' && entry.path === document.getElementById('pdf-viewer').dataset.path)) {
+    document.getElementById('pdf-viewer').removeAttribute('data');
+    delete document.getElementById('pdf-viewer').dataset.path;
+  }
   if (!isMarkupTab(t)) {
     clearMarkupFocus();
   }
@@ -321,6 +340,8 @@ function showActive() {
     }
   } else if (kind === 'image') {
     document.getElementById('imgview').src = BASE + t.url;
+  } else if (kind === 'pdf') {
+    showPdf(t);
   } else {
     document.getElementById('notebook').innerHTML =
       '<div class="files-msg">No file open — pick one in the browser on the left.</div>';
@@ -422,7 +443,7 @@ async function openFile(path, options = {}) {
                       python: data.kernel_python || data.python,
                       status: data.kernel_status || 'stopped'});
     restoreNotebookView(t);
-  } else if (t.kind === 'image') {
+  } else if (t.kind === 'image' || t.kind === 'pdf') {
     t.url = data.url;
   } else {
     if (cached && (cached.dirty || cached.saveInFlight)) {

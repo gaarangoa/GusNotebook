@@ -55,7 +55,10 @@ def install(app):
     def headers(response):
         response.headers["Referrer-Policy"] = "no-referrer"
         response.headers["X-Content-Type-Options"] = "nosniff"
-        response.headers["X-Frame-Options"] = "DENY"
+        # Only PDF bytes may be embedded by the app's own document viewer.
+        response.headers["X-Frame-Options"] = (
+            "SAMEORIGIN" if request.endpoint == "notebook.api_pdf"
+            and response.mimetype == "application/pdf" else "DENY")
         if request.endpoint != "static":
             response.headers["Cache-Control"] = "no-store"
         return response

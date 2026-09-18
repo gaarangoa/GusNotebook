@@ -600,7 +600,7 @@ function toggleHidden() {
 function toggleFiles() { togglePanel('files'); }
 
 // ---------- Tab bar ----------
-const TAB_ICON = {notebook: 'notebook', text: 'text', markup: 'code', image: 'image'};
+const TAB_ICON = {notebook: 'notebook', text: 'text', markup: 'code', image: 'image', pdf: 'file'};
 
 function tabIcon(t) {
   return icon(TAB_ICON[isMarkupTab(t) ? 'markup' : t.kind] || 'file');

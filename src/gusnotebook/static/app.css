@@ -388,6 +388,14 @@ body {
 }
 .imgpane.on { display: block; }
 .imgpane img { max-width: 100%; }
+.pdfpane { display: flex; flex-direction: column; flex: 1; min-height: 0; min-width: 0; }
+.pdf-toolbar {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 6px 12px;
+  border-bottom: 1px solid var(--border); font-size: var(--ui-size); color: var(--muted);
+}
+.pdf-toolbar .grow { flex: 1; }
+.pdf-toolbar a { text-decoration: none; }
+#pdf-viewer { flex: 1; width: 100%; min-height: 0; border: 0; background: var(--surface); }
 
 .toolbar {
   display: flex;

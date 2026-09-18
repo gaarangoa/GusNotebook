@@ -205,6 +205,17 @@
       </div>
     </div>
     <div class="imgpane" id="imgpane"><img id="imgview"></div>
+    <section class="pdfpane" id="pdfpane" aria-label="PDF preview" hidden>
+      <div class="pdf-toolbar">
+        <span class="grow">PDF</span>
+        <button class="files-btn" onclick="showPdf(activeTab(), true)">Reload</button>
+        <a class="files-btn" id="pdf-open" target="_blank" rel="noopener noreferrer">Open in new tab</a>
+        <a class="files-btn" id="pdf-download" download>Download</a>
+      </div>
+      <object id="pdf-viewer" type="application/pdf" aria-label="PDF document">
+        <p class="files-msg">PDF preview is unavailable in this browser. Use Open in new tab or Download above.</p>
+      </object>
+    </section>
 
     <div class="hint">⇧⏎ run+next · ⌘/ comment · ⇧⌘M code⇄md · ⇧⌘↑↓ move cell · ⌘S save</div>
   </div>

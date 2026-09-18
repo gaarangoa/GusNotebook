@@ -18,6 +18,7 @@ import threading
 import time
 import uuid
 from pathlib import Path
+from urllib.parse import urlencode
 
 from flask import (Blueprint, Flask, Response, current_app, render_template,
                    request, jsonify, send_file)
@@ -1006,6 +1007,14 @@ def api_open():
         data["running_cells"] = _running_cell_ids(str(path))
         return jsonify(data)
 
+    if kind == "pdf":
+        if not path.is_file():
+            return jsonify(error="no such PDF file"), 404
+        if remember:
+            store.add_tab(str(path), session.id if session else None)
+        return jsonify(path=str(path), kind="pdf",
+                       url="/api/pdf?" + urlencode({"path": str(path)}))
+
     if kind == "image":
         if remember:
             store.add_tab(str(path), session.id if session else None)
@@ -1125,6 +1134,17 @@ def api_raw():
     if not path.is_file():
         return jsonify({"error": "no such file"}), 404
     return send_file(str(path))
+
+
+@routes.route("/api/pdf")
+def api_pdf():
+    """Stream a PDF to the browser viewer, including byte-range requests."""
+    path = files.normalize(request.args.get("path", ""))
+    if path.suffix.lower() != ".pdf":
+        return jsonify(error="not a PDF file"), 400
+    if not path.is_file():
+        return jsonify(error="no such PDF file"), 404
+    return send_file(str(path), mimetype="application/pdf", conditional=True)
 
 
 # --- Notebook document API (all routes take ?notebook=/abs/path) ---

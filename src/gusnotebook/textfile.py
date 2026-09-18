@@ -32,6 +32,8 @@ def kind_of(path):
     suf = p.suffix.lower()
     if suf == ".ipynb":
         return "notebook"
+    if suf == ".pdf":
+        return "pdf"
     if suf in IMAGE_SUFFIXES:
         return "image"
     if suf in TEXT_SUFFIXES or p.name.startswith("."):

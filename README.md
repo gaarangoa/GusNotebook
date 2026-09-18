@@ -11,6 +11,10 @@ Your selected section is remembered across reloads.
 The **Terminal** icon on the same rail toggles the right panel independently;
 the panel starts open on desktop, and hiding it keeps its terminals running.
 
+PDF files open in a preview tab using the browser's PDF viewer. Use **Reload**
+after updating a PDF on disk, or **Open in new tab** / **Download** to view it
+outside the notebook. Viewer controls depend on your browser.
+
 Notebook Markdown cells render LaTeX math: use `$E = mc^2$` inline or
 `$$\int_0^1 x^2\,dx = \frac{1}{3}$$` for a centered equation. The delimiters
 `\(...\)` and `\[...\]` also work. Press Shift+Enter to render; double-click
