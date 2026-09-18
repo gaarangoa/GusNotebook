@@ -1036,6 +1036,10 @@ function richMimeText(value) {
 
 function htmlOutputSrcdoc(body, outputId) {
   const safeId = JSON.stringify(outputId);
+  // Inline the locally bundled library before authored scripts. No request or
+  // parent-window access is needed from the sandbox, including copied figures.
+  const d3Bundle = '<script data-gusnb-d3-bundle>' +
+    window.GusNotebookD3Source.replace(/<\/script/gi, '<\\/script') + '</script>';
   // Plain output and data tables follow the app. Authored charts/widgets retain
   // their canvas colors, including SVG's default black fill and image pixels.
   const themeable = /<table\b/i.test(body) && !/<(?:svg|canvas|img|video|script)\b/i.test(body) ||
@@ -1084,7 +1088,7 @@ function htmlOutputSrcdoc(body, outputId) {
     };
     return d3;
   };
-  let current;
+  let current = patch(window.d3);
   try {
     Object.defineProperty(window, 'd3', {
       configurable: true,
@@ -1292,7 +1296,7 @@ tbody th{text-align:left;background:var(--panel);color:var(--muted);font-weight:
 tbody tr:hover td,tbody tr:hover th{background:var(--surface);}
 table[border]{border:none;}
 </style>
-</head><body>${d3Patch}${body}${themeScript}${resize.replace('<script>', '<script data-gusnb-frame-runtime>')}</body></html>`;
+</head><body>${d3Bundle}${d3Patch}${body}${themeScript}${resize.replace('<script>', '<script data-gusnb-frame-runtime>')}</body></html>`;
 }
 
 document.addEventListener('appearance-change', () => {

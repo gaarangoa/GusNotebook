@@ -31,6 +31,7 @@ import threading
 from werkzeug.local import LocalProxy
 
 from . import paths
+from .plotting import D3_EXAMPLE, D3_INSTRUCTIONS
 
 # Laid out as a Claude Code plugin, because that's what makes `--plugin-dir`
 # work: a manifest beside a `skills/` directory of SKILL.md files.
@@ -227,6 +228,28 @@ def delete(sid):
 # is exactly the install that needs it. It's also the one starter with no Python
 # block — a practice rather than a snippet — so the picker reports "no code
 # block" rather than inserting an empty cell.
+# Recognize only our untouched original starter when upgrading existing installs.
+LEGACY_PLOT_DEFAULTS = ("plot-defaults",
+     "A readable matplotlib figure: labelled axes, no chartjunk, room for the labels.",
+     """Use for any plot someone other than you will look at. Matplotlib's
+defaults are small, unlabelled, and boxed in; four lines fix it. An axis without
+units is the single most common reason a chart has to be explained out loud.
+
+```python
+import matplotlib.pyplot as plt
+
+fig, ax = plt.subplots(figsize=(8, 4.5), dpi=120)
+ax.plot(x, y, lw=1.6)
+
+ax.set_xlabel("Date")
+ax.set_ylabel("Revenue (GBP, thousands)")   # always name the unit
+ax.set_title("Revenue by month")
+ax.grid(alpha=.3, lw=.6)
+for side in ("top", "right"):
+    ax.spines[side].set_visible(False)      # the box adds nothing
+fig.tight_layout()                          # stop long labels being clipped
+```""")
+
 STARTERS = [
     ("work-on-this-cell",
      "Iterate on the notebook cell the user is parked on: write it, run it, fix "
@@ -324,25 +347,8 @@ overview(df)
 ```"""),
 
     ("plot-defaults",
-     "A readable matplotlib figure: labelled axes, no chartjunk, room for the labels.",
-     """Use for any plot someone other than you will look at. Matplotlib's
-defaults are small, unlabelled, and boxed in; four lines fix it. An axis without
-units is the single most common reason a chart has to be explained out loud.
-
-```python
-import matplotlib.pyplot as plt
-
-fig, ax = plt.subplots(figsize=(8, 4.5), dpi=120)
-ax.plot(x, y, lw=1.6)
-
-ax.set_xlabel("Date")
-ax.set_ylabel("Revenue (GBP, thousands)")   # always name the unit
-ax.set_title("Revenue by month")
-ax.grid(alpha=.3, lw=.6)
-for side in ("top", "right"):
-    ax.spines[side].set_visible(False)      # the box adds nothing
-fig.tight_layout()                          # stop long labels being clipped
-```"""),
+     "A D3 notebook figure using the bundled library, unless another renderer is requested.",
+     D3_INSTRUCTIONS + "\n" + D3_EXAMPLE),
 
     ("sql-to-df",
      "Query a database into a DataFrame with parameters, never string formatting.",
@@ -411,10 +417,16 @@ def install_starters():
 
     Only when the directory is empty: this is a first-run demonstration of the
     format, and re-adding a starter the user deliberately deleted would make
-    deletion feel broken.
+    deletion feel broken. The untouched legacy plotting starter is upgraded;
+    customized skills are never replaced.
     """
     ensure_plugin()
     if _dirs():
+        with _lock:
+            plot = SKILLS_DIR / "plot-defaults" / "SKILL.md"
+            if plot.is_file() and plot.read_text(encoding="utf-8") == _compose(*LEGACY_PLOT_DEFAULTS):
+                save(*next(starter for starter in STARTERS if starter[0] == "plot-defaults"),
+                     sid="plot-defaults")
         return []
     made = []
     for name, description, body in STARTERS:

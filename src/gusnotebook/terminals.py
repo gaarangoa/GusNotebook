@@ -281,6 +281,7 @@ def standing_instructions(extra=None, restrictions=None):
     `restrictions` is supplied; Codex does not receive that native rule syntax.
     """
     from . import llm                       # deferred: llm doesn't import terminals
+    from .plotting import D3_INSTRUCTIONS
     parts = []
     base = (llm.load_settings().get("claude_instructions") or "").strip()
     if base:
@@ -290,12 +291,9 @@ def standing_instructions(extra=None, restrictions=None):
         parts.append("Instructions for this session specifically:\n" + extra)
 
     note = restriction_note(restrictions)
-    if not parts and not note:
-        return None
-
-    body = ""
+    body = D3_INSTRUCTIONS + "\n"
     if parts:
-        body = ("The user set these standing instructions for this workspace. "
+        body += ("The user set these standing instructions for this workspace. "
                 "Follow them as you would the project's own conventions.\n\n"
                 + "\n\n".join(parts) + "\n")
     if note:
@@ -315,8 +313,8 @@ def system_prompt_file(extra=None, restrictions=None):
 
     Two layers, global first: Settings holds what's always true, and `extra` is
     the current session's own note — sessions exist to separate projects, so
-    per-project guardrails belong there. Returns None when nothing is set, so
-    the flag is omitted rather than pointing at an empty file.
+    per-project guardrails belong there. Built-in notebook plotting guidance is
+    always included, even when the user has not set additional instructions.
 
     `restrictions` are enforced by the deny rules in the settings file, not by
     this text; it's here so Claude knows what it can't do before it tries, and

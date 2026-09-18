@@ -16,6 +16,10 @@ for (const entry of ['vendor', 'codemirror']) {
 }
 await copyFile('node_modules/@xterm/xterm/css/xterm.css', `${destination}/xterm.css`);
 await copyFile('node_modules/katex/dist/katex.min.css', `${destination}/katex.css`);
+// Carry the UMD source into sandboxed output frames as an inline script. Frames
+// have opaque origins: fetching app assets from inside them would be blocked.
+const d3Source = await readFile('node_modules/d3/dist/d3.min.js', 'utf8');
+await writeFile(`${destination}/d3-source.js`, `window.GusNotebookD3Source = ${JSON.stringify(d3Source)};\n`);
 await mkdir(`${destination}/fonts`, {recursive: true});
 for (const filename of await readdir('node_modules/katex/dist/fonts')) {
   await copyFile(`node_modules/katex/dist/fonts/${filename}`, `${destination}/fonts/${filename}`);

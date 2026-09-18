@@ -342,7 +342,8 @@ def generate(prompt, context=None, variables=None):
     if variables:
         user += ["", "Names currently defined in the kernel:", variables]
 
-    system = SYSTEM_PROMPT
+    from .plotting import D3_INSTRUCTIONS
+    system = SYSTEM_PROMPT + "\n\n" + D3_INSTRUCTIONS
     extra = (s.get("inline_llm_instructions") or "").strip()
     if extra:
         system += "\n\nAdditional instructions from the user:\n" + extra

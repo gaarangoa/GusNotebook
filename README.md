@@ -15,6 +15,14 @@ directory in a fixed header that updates after each command. New zsh terminals
 also highlight commands, strings, options, paths, and syntax errors as you type.
 These additions are local to GusNotebook and respect `NO_COLOR`.
 
+Notebook figures use bundled **D3.js 7.9.0** by default. Claude, Codex, and inline
+code generation are instructed to start directly with D3 unless you explicitly
+request another library or rendering method. Notebook HTML outputs have `d3`
+available before their scripts run, without CDN requests or library downloads.
+Use `display(HTML(...))` with inline data and a script that draws the figure;
+the **plot-defaults** skill includes a runnable example. Open a new agent terminal
+after upgrading to receive the updated instructions.
+
 PDF files open in a preview tab using the browser's PDF viewer. Use **Reload**
 after updating a PDF on disk, or **Open in new tab** / **Download** to view it
 outside the notebook. Viewer controls depend on your browser.
