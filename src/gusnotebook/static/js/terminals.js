@@ -30,22 +30,9 @@ function openSelectedAgent() {
   openTerminal(null, document.getElementById('agent-kind').value);
 }
 
-const statusEl = document.getElementById('ws-status');
 const wsProto = location.protocol === 'https:' ? 'wss:' : 'ws:';
 
 function findTerm(id) { return terms.find(t => t.id === id); }
-
-function setTermStatus() {
-  const t = findTerm(activeTerm);
-  if (!t) {
-    statusEl.textContent = terms.length ? `${terms.length} session(s)` : 'No session';
-    statusEl.className = 'status disconnected';
-    return;
-  }
-  const live = t.alive && t.ws && t.ws.readyState === WebSocket.OPEN;
-  statusEl.textContent = live ? 'Connected' : (t.alive ? 'Connecting…' : 'Exited');
-  statusEl.className = 'status ' + (live ? 'connected' : 'disconnected');
-}
 
 function renderTermTabs() {
   document.getElementById('term-tabs').innerHTML = terms.map(t => `
@@ -56,7 +43,6 @@ function renderTermTabs() {
       <span class="tx" role="button" tabindex="0" aria-label="Close ${escapeAttr(t.label)} terminal" onclick="closeTerminal('${t.id}', event)">${icon('close')}</span>
     </div>`).join('');
   document.getElementById('term-empty').classList.toggle('off', terms.length > 0);
-  setTermStatus();
 }
 
 /** Open a session in the requested directory, or wherever Files is browsing.
@@ -116,13 +102,10 @@ function attachTerm(info) {
   ws.binaryType = 'arraybuffer';
   t.ws = ws;
   ws.onopen = () => {
-    setTermStatus();
     fitTerm();
   };
   ws.onmessage = (ev) => term.write(
     ev.data instanceof ArrayBuffer ? new Uint8Array(ev.data) : ev.data);
-  ws.onclose = () => { setTermStatus(); };
-  ws.onerror = () => { setTermStatus(); };
   term.onData(d => { if (ws.readyState === WebSocket.OPEN) ws.send(d); });
 
   focusTerm(info.id);

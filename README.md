@@ -5,6 +5,12 @@ agents on the right. Files open in tabs, each open notebook gets its own IPython
 kernel, and either agent can read and rewrite **the cell you're parked on**
 without being told which one it is.
 
+Use the icon rail on the far left to switch between **Files**, **Sessions**, and
+**Skills**. Each section fills the sidebar; click its icon again to collapse it.
+Your selected section is remembered across reloads.
+The **Terminal** icon on the same rail toggles the right panel independently;
+the panel starts open on desktop, and hiding it keeps its terminals running.
+
 Notebook Markdown cells render LaTeX math: use `$E = mc^2$` inline or
 `$$\int_0^1 x^2\,dx = \frac{1}{3}$$` for a centered equation. The delimiters
 `\(...\)` and `\[...\]` also work. Press Shift+Enter to render; double-click

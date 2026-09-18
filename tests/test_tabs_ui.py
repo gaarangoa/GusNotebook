@@ -277,7 +277,7 @@ def main():
 
         print("\n-- layout survived it all")
         cols = pg.evaluate("getComputedStyle(document.getElementById('app')).gridTemplateColumns")
-        check("four columns", len(cols.split()), 4)
+        check("five columns including sidebar rail", len(cols.split()), 5)
         check("no page errors", errors, [])
         b.close()
 

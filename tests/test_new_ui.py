@@ -236,7 +236,6 @@ def main():
         print("\n-- no terminal until you ask for one")
         check("no sessions", pg.evaluate("terms.length"), 0)
         check("empty state shown", pg.locator("#term-empty").is_visible(), True)
-        check("status says so", pg.locator("#ws-status").inner_text(), "No session")
         check("no tab row", pg.locator("#term-tabs .tterm").count(), 0)
 
         print("\n-- creating a folder")
@@ -623,7 +622,7 @@ def main():
         check("empty state hidden", pg.locator("#term-empty").is_visible(), False)
         pg.wait_for_function(
             "terms[0].ws && terms[0].ws.readyState === 1", timeout=30000)
-        check("socket connected", pg.locator("#ws-status").inner_text(), "Connected")
+        check("socket connected", pg.evaluate("terms[0].ws.readyState"), 1)
 
         # A second session, rooted somewhere else entirely.
         pg.evaluate(f"openTerminal('{DEEP}')")
@@ -1016,21 +1015,15 @@ def main():
         for s in sessions:
             delete(f"/api/terminals/{s['id']}")
 
-        print("\n-- sessions sit at the foot of the panel, shut by default")
-        check("below the file tree", pg.evaluate("""() => {
-          const s = document.getElementById('sessions').getBoundingClientRect();
-          const f = document.getElementById('file-list').getBoundingClientRect();
-          return s.top >= f.bottom - 1;
-        }"""), True)
-        check("list starts collapsed",
+        print("\n-- sessions open from the sidebar rail")
+        check("rail button is visible", pg.locator('#sidebar-sessions').is_visible(), True)
+        check("list starts hidden",
               pg.locator("#session-list").is_visible(), False)
-        # Collapsed still has to answer "where am I" — otherwise hiding the list
-        # hides the one thing you always need to know.
         check("header names the current session",
               bool(pg.locator("#sessions .strip-head").get_attribute("title")), True)
-        pg.click("#sessions .strip-head")
+        pg.click("#sidebar-sessions")
         pg.wait_for_timeout(200)
-        check("clicking the header opens it",
+        check("clicking the icon opens it",
               pg.locator("#session-list").is_visible(), True)
         check("exactly one is current",
               pg.locator("#session-list .session-row.current").count(), 1)
@@ -1128,14 +1121,9 @@ def main():
               "last session" in flash_text(pg, "last session"), True)
 
         print("\n-- skills: one markdown file, two consumers")
-        check("below Sessions and the file tree", pg.evaluate("""() => {
-          const k = document.getElementById('skills').getBoundingClientRect();
-          const s = document.getElementById('sessions').getBoundingClientRect();
-          const f = document.getElementById('file-list').getBoundingClientRect();
-          return s.top >= f.bottom - 1 && k.top >= s.bottom - 1;
-        }"""), True)
+        check("rail button is visible", pg.locator('#sidebar-skills').is_visible(), True)
         check("shut by default", pg.locator("#skill-list").is_visible(), False)
-        pg.click("#skills .strip-head")
+        pg.click("#sidebar-skills")
         pg.wait_for_timeout(200)
         check("opens on click", pg.locator("#skill-list").is_visible(), True)
         # The description is what tells you whether this is the snippet you want,
@@ -1222,6 +1210,7 @@ def main():
                              timeout=20000)
         check("deleted", any(s["id"] == "suite-renamed"
                              for s in get("/api/skills")["skills"]), False)
+        pg.click('#sidebar-files')
 
         print("\n-- standing instructions reach both agents, but not a shell")
         pg.evaluate("setTimeout(() => openSettings(), 0)")
@@ -2065,7 +2054,7 @@ def main():
         print("\n-- nothing broke")
         cols = pg.evaluate(
             "getComputedStyle(document.getElementById('app')).gridTemplateColumns")
-        check("four columns", len(cols.split()), 4)
+        check("five columns including sidebar rail", len(cols.split()), 5)
         check("no page errors", errors, [])
         b.close()
 

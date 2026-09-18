@@ -20,8 +20,15 @@
 <body>
 
 <div class="app" id="app">
-  <div class="files" id="files" role="region" aria-label="Project files">
-    <div id="file-splitter" class="file-splitter" role="separator" tabindex="0" aria-label="Resize files panel" aria-orientation="vertical" aria-controls="files"></div>
+  <nav class="sidebar-rail" id="sidebar-rail" aria-label="Sidebar sections">
+    <button class="sidebar-button" id="sidebar-files" onclick="showSidebarSection('files', true)" aria-label="Files" title="Files" aria-controls="sidebar-files-pane" aria-pressed="true"><span data-icon="folder"></span></button>
+    <button class="sidebar-button" id="sidebar-sessions" onclick="showSidebarSection('sessions', true)" aria-label="Sessions" title="Sessions" aria-controls="sessions" aria-pressed="false"><span data-icon="sessions"></span></button>
+    <button class="sidebar-button" id="sidebar-skills" onclick="showSidebarSection('skills', true)" aria-label="Skills" title="Skills" aria-controls="skills" aria-pressed="false"><span data-icon="skills"></span></button>
+    <button class="sidebar-button" id="sidebar-terminal" onclick="togglePanel('terminal')" aria-label="Terminal" title="Hide terminal panel" aria-controls="agent-pane" aria-pressed="true" aria-expanded="true"><span data-icon="terminal"></span></button>
+  </nav>
+  <div class="files" id="files" role="region" aria-label="Sidebar">
+    <div id="file-splitter" class="file-splitter" role="separator" tabindex="0" aria-label="Resize sidebar" aria-orientation="vertical" aria-controls="files"></div>
+    <section class="sidebar-pane" id="sidebar-files-pane" aria-labelledby="sidebar-files">
     <div class="files-head">
       <span class="grow">Files</span>
       <!-- Creating things lives on the tab bar's + menu; what's left here is
@@ -38,30 +45,25 @@
     </div>
     <div class="crumbs" id="crumbs"></div>
     <div class="file-list" id="file-list"></div>
+    </section>
 
-    <!-- Sessions at the foot of the panel, collapsed to just its header until
-         you click it. Switching sessions is occasional; the file tree is what
-         you use constantly, so it gets the room by default. -->
-    <div class="strip collapsed" id="sessions">
-      <div class="strip-head" role="button" tabindex="0" aria-expanded="false" aria-controls="session-list" onclick="toggleSessions()">
+    <section class="sidebar-pane" id="sessions" aria-labelledby="sidebar-sessions" hidden>
+      <div class="strip-head">
         <span class="grow">Sessions</span>
         <button class="strip-new" onclick="newSession(event)"
                 title="New session">New</button>
       </div>
       <div class="session-list" id="session-list"></div>
-    </div>
+    </section>
 
-    <!-- Skills: snippets and practices, shut by default like Sessions above it.
-         Clicking one inserts its code as a cell; Claude reads the same files as
-         a plugin, so a skill is written once and serves both. -->
-    <div class="strip collapsed" id="skills">
-      <div class="strip-head" role="button" tabindex="0" aria-expanded="false" aria-controls="skill-list" onclick="toggleSkills()">
+    <section class="sidebar-pane" id="skills" aria-labelledby="sidebar-skills" hidden>
+      <div class="strip-head">
         <span class="grow">Skills</span>
         <button class="strip-new" onclick="newSkill(event)"
                 title="New skill">New</button>
       </div>
       <div class="skill-list" id="skill-list"></div>
-    </div>
+    </section>
 
   </div>
 
@@ -69,8 +71,6 @@
     <header class="app-header">
       <div class="tabs" id="tabs" role="tablist" aria-label="Open documents"></div>
       <nav class="header-tools" aria-label="Workspace controls">
-        <button class="files-btn icon-button" id="toggle-files" onclick="toggleFiles()" aria-controls="files" aria-expanded="true" title="Toggle files" aria-label="Toggle files"><span data-icon="files"></span></button>
-        <button class="files-btn icon-button" id="toggle-terminal" onclick="togglePanel('terminal')" aria-controls="agent-pane" aria-expanded="true" title="Toggle agents and terminals" aria-label="Toggle agents and terminals"><span data-icon="panel"></span></button>
         <button class="files-btn icon-button" id="settings-button" onclick="openSettings()" title="Settings" aria-label="Settings"><span data-icon="settings"></span></button>
         <button class="files-btn icon-button" id="workspace-more" onclick="toggleWorkspaceMenu(event)" aria-haspopup="menu" aria-expanded="false" aria-controls="workspace-menu" title="More workspace actions" aria-label="More workspace actions"><span data-icon="more"></span></button>
       </nav>
@@ -222,7 +222,6 @@
               title="New agent session in the directory shown in Files"><span data-icon="agent"></span>Agent</button>
       <button class="term-btn" onclick="openTerminal(null,'shell')"
               title="New terminal in the directory shown in Files"><span data-icon="terminal"></span>Terminal</button>
-      <span class="status disconnected" id="ws-status">No session</span>
     </div>
     <div class="term-tabs" id="term-tabs"></div>
     <div id="terminal-stack">

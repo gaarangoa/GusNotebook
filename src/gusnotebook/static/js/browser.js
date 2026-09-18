@@ -215,10 +215,7 @@ function showPathCtx(x, y, path) {
 }
 
 async function showInFileTree(path) {
-  const app = document.getElementById('app');
-  if (app && app.classList.contains('files-hidden')) {
-    ensurePanel('files');
-  }
+  showSidebarSection('files');
   const directory = String(path || '').split('/').slice(0, -1).join('/') || '/';
   const ok = await browse(directory);
   if (!ok) return;

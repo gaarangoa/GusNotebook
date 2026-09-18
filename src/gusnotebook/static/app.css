@@ -23,8 +23,9 @@ body {
 }
 
 .app {
+  --rail-width: 44px;
   display: grid;
-  grid-template-columns: 230px 1fr 6px 220px;
+  grid-template-columns: var(--rail-width) 240px minmax(0, 1fr) 6px 360px;
   height: 100vh;
   overflow: hidden;
   /* Grid rows default to auto (content height); pin to the viewport so the
@@ -33,10 +34,33 @@ body {
 }
 /* Collapsed to zero width rather than display:none — a hidden grid item stops
    occupying its column, which would slide every later pane one column left. */
-.app.files-hidden { grid-template-columns: 0 1fr 6px 220px; }
+.app.files-hidden { grid-template-columns: var(--rail-width) 0 minmax(0, 1fr) 6px 360px; }
 .app.files-hidden .files { visibility: hidden; }
+.app > .sidebar-rail { grid-column: 1; grid-row: 1; }
+.app > .files { grid-column: 2; grid-row: 1; }
+.app > .left { grid-column: 3; grid-row: 1; }
+.app > .splitter { grid-column: 4; grid-row: 1; }
+.app > .right { grid-column: 5; grid-row: 1; }
 
-/* ---------- Far left: file browser ---------- */
+/* ---------- Sidebar rail and its selected section ---------- */
+.sidebar-rail {
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+  padding: 6px 0; background: var(--panel); border-right: 1px solid var(--border);
+  z-index: 41;
+}
+.sidebar-button {
+  position: relative; display: flex; align-items: center; justify-content: center;
+  width: 36px; height: 36px; flex: 0 0 36px; border: 0; border-radius: 5px;
+  background: transparent; color: var(--muted); cursor: pointer;
+}
+.sidebar-button .icon { width: 20px; height: 20px; }
+.sidebar-button:hover { background: var(--hover); color: var(--text); }
+.sidebar-button[aria-pressed="true"] { color: var(--accent); background: var(--accent-soft); }
+.sidebar-button[aria-pressed="true"]::before {
+  content: ''; position: absolute; left: -4px; top: 8px; bottom: 8px;
+  width: 2px; border-radius: 2px; background: var(--accent);
+}
+.sidebar-pane { display: flex; flex-direction: column; flex: 1; min-height: 0; min-width: 0; }
 .files {
   display: flex;
   flex-direction: column;
@@ -60,32 +84,20 @@ body {
 }
 .files-head .grow { flex: 1; }
 
-/* The collapsible strips at the foot of the panel — Sessions, then Skills.
-   Shared shape, one name: both are occasional-use lists that would otherwise
-   steal room from the file tree, which is what you use constantly. Each is
-   capped when open, so a long list can't push the tree off the screen. */
-.strip {
-  flex: 0 0 auto;
-  display: flex;
-  flex-direction: column;
-  border-top: 1px solid var(--border);
-  background: var(--surface);
-}
 .strip-head {
   display: flex; align-items: center; gap: 6px;
-  height: 26px; min-height: 26px; flex: 0 0 26px; padding: 0 10px;
+  height: 44px; min-height: 44px; flex: 0 0 44px; padding: 0 10px;
+  border-bottom: 1px solid var(--border);
   font-size: var(--ui-size); font-weight: 600; color: var(--secondary);
-  cursor: pointer; user-select: none;
+  user-select: none;
 }
-.strip-head:hover { background: var(--hover); }
 .strip-head .grow { flex: 1; }
 .strip-new {
   min-height: 24px; padding: 0 4px; border: 0; border-radius: 3px;
   background: transparent; color: var(--muted); font-family: inherit; font-size: var(--ui-size); line-height: 1.4; cursor: pointer;
 }
 .strip-new:hover { background: var(--hover); color: var(--accent); }
-.session-list, .skill-list { flex: 0 0 auto; max-height: 144px; overflow-y: auto; padding-bottom: 3px; }
-.strip.collapsed .session-list, .strip.collapsed .skill-list { display: none; }
+.session-list, .skill-list { flex: 1; min-height: 0; overflow-y: auto; padding: 3px 0; }
 .session-row, .skill-row {
   display: flex; align-items: center; min-height: 26px; padding: 4px 10px;
   cursor: pointer; font-size: var(--ui-size); line-height: 18px; color: var(--secondary);
@@ -1129,13 +1141,6 @@ button.tb.primary:hover { background: var(--accent-soft); }
   font-size: var(--ui-size); font-weight: 600; color: var(--secondary); letter-spacing: .03em;
   flex: 0 0 auto;
 }
-.status {
-  margin-left: auto; font-size: var(--ui-size); padding: 3px 6px; border-radius: 4px;
-  flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis;
-  white-space: nowrap; text-align: center;
-}
-.status.connected { background: var(--success-bg); color: var(--green); }
-.status.disconnected { background: var(--error-bg); color: var(--red); }
 
 .term-btn {
   font: inherit; font-size: var(--ui-size);
@@ -1158,7 +1163,6 @@ button.tb.primary:hover { background: var(--accent-soft); }
 @media (max-width: 980px) {
   .right .bar { gap: 4px; }
   .term-btn { padding: 3px 5px; }
-  .status { display: none; }
 }
 
 /* One row of session tabs — several agents, each rooted somewhere. */
@@ -1685,7 +1689,7 @@ button.tb.primary:hover { background: var(--accent-soft); }
 
 /* Shared workspace styling. Palette and density live in theme.css. */
 body { height: 100dvh; font-size: var(--ui-size); }
-.app { height: 100%; min-height: 0; grid-template-rows: minmax(0, 1fr); grid-template-columns: 240px minmax(0, 1fr) 6px 360px; }
+.app { height: 100%; min-height: 0; grid-template-rows: minmax(0, 1fr); grid-template-columns: var(--rail-width) 240px minmax(0, 1fr) 6px 360px; }
 .app-header { display: flex; flex: 0 0 var(--workspace-bar-height); align-items: center; height: var(--workspace-bar-height); padding: 0 6px; gap: 6px; background: var(--surface); border-bottom: 1px solid var(--border); min-width: 0; }
 .header-tools { display: flex; align-items: center; gap: 2px; flex-shrink: 0; }
 .icon { width: 14px; height: 14px; display: inline-block; vertical-align: middle; flex: 0 0 auto; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; pointer-events: none; }
@@ -1788,7 +1792,6 @@ button:disabled { opacity: .55; cursor: default; }
 .view-btn { min-height: 24px; }
 .hint { padding: 5px 12px; background: var(--surface); }
 .right .bar { height: auto; min-height: 32px; flex-basis: auto; flex-wrap: wrap; padding: 3px 6px; gap: 3px; overflow: visible; }
-.right .bar .status { flex: 0 1 auto; font-size: var(--ui-size); padding: 2px 4px; }
 .term-btn, .agent-select { font-size: var(--ui-size); line-height: 16px; min-height: 24px; border-radius: 4px; }
 .term-btn { padding: 2px 6px; gap: 4px; }
 .term-btn .icon { width: 12px; height: 12px; }
@@ -1807,7 +1810,7 @@ button:disabled { opacity: .55; cursor: default; }
 .focus-mode .notebook { max-width: 1220px; margin: 0 auto; }
 .panel-backdrop { position: fixed; inset: 0; z-index: 35; border: 0; background: var(--overlay); }
 .app.files-drawer .files, .app.terminal-drawer .right { visibility: visible; position: fixed; top: 0; bottom: 0; z-index: 40; box-shadow: var(--shadow); }
-.app.files-drawer .files { left: 0; width: min(320px, 88vw); }
+.app.files-drawer .files { left: var(--rail-width); width: min(320px, calc(100vw - var(--rail-width) - 16px)); }
 .app.terminal-drawer .right { right: 0; width: min(520px, 94vw); }
 .files-drawer .file-splitter { display: none; }
 .modal { border: 1px solid var(--border); box-shadow: var(--shadow); max-height: 88dvh; border-radius: 12px; }
@@ -1862,7 +1865,7 @@ button:disabled { opacity: .55; cursor: default; }
 @media (max-width: 760px) {
   .app-header { padding: 0 4px; gap: 3px; }
   .header-tools { gap: 0; }
-  .app-header .tab { max-width: min(190px, calc(100vw - 180px)); padding-left: 6px; }
+  .app-header .tab { max-width: min(190px, calc(100% - 29px)); padding-left: 6px; }
   .notebook { padding: 16px 12px 8px 4px; }
   .cell { grid-template-columns: 48px minmax(0, 1fr); }
   .gutter { padding-right: 2px; }.gutter-acts .act-row { flex-wrap: wrap; }

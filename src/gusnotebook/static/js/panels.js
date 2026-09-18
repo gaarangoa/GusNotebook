@@ -1,4 +1,4 @@
-/* The two strips at the foot of the left panel — Skills and Sessions — and
+/* The Skills and Sessions sidebar sections, and
  * boot().
  *
  * boot() is last in this file and calls into every file before it, which is
@@ -22,12 +22,6 @@
  */
 let skillList = [];
 let editingSkill = null;      // the id being edited, or null for a new one
-
-function toggleSkills() {
-  const section = document.getElementById('skills');
-  section.classList.toggle('collapsed');
-  section.querySelector('.strip-head').setAttribute('aria-expanded', String(!section.classList.contains('collapsed')));
-}
 
 async function loadSkills() {
   try {
@@ -206,12 +200,6 @@ function forgetWorkspace(sid) {
   rootTimers.delete(sid);
   clearTimeout(activeTimers.get(sid));
   activeTimers.delete(sid);
-}
-
-function toggleSessions() {
-  const section = document.getElementById('sessions');
-  section.classList.toggle('collapsed');
-  section.querySelector('.strip-head').setAttribute('aria-expanded', String(!section.classList.contains('collapsed')));
 }
 
 /* Kernel status fires on every idle/busy transition, i.e. once per cell run.
