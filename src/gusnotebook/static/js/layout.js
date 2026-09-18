@@ -60,10 +60,12 @@ function applyLayout() {
   document.getElementById('splitter').inert = !terminal;
   document.getElementById('panel-backdrop').hidden = !panelDrawer;
   const terminalOpen = terminal || panelDrawer === 'terminal';
-  const terminalButton = document.getElementById('sidebar-terminal');
-  terminalButton.setAttribute('aria-expanded', String(terminalOpen));
-  terminalButton.setAttribute('aria-pressed', String(terminalOpen));
-  terminalButton.title = terminalOpen ? 'Hide terminal panel' : 'Show terminal panel';
+  for (const id of ['sidebar-terminal', 'toggle-terminal']) {
+    const terminalButton = document.getElementById(id);
+    terminalButton.setAttribute('aria-expanded', String(terminalOpen));
+    terminalButton.setAttribute('aria-pressed', String(terminalOpen));
+    terminalButton.title = terminalOpen ? 'Hide terminal panel' : 'Show terminal panel';
+  }
   document.getElementById('focus-toggle').setAttribute('aria-checked', String(focus));
   for (const [id, current, min, max] of [['file-splitter', fw, 200, Math.min(480, width * .25)],
       ['splitter', tw, 300, Math.max(300, width - fw - 486)]]) {

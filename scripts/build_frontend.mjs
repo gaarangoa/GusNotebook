@@ -20,12 +20,18 @@ await mkdir(`${destination}/fonts`, {recursive: true});
 for (const filename of await readdir('node_modules/katex/dist/fonts')) {
   await copyFile(`node_modules/katex/dist/fonts/${filename}`, `${destination}/fonts/${filename}`);
 }
+for (const face of ['Regular', 'Italic', 'SemiBold', 'SemiBoldItalic']) {
+  const filename = `IBMPlexMono-${face}.woff2`;
+  await copyFile(`node_modules/@ibm/plex-mono/fonts/complete/woff2/${filename}`, `${destination}/fonts/${filename}`);
+}
 const notices = [];
 for (const [path, info] of Object.entries(lock.packages)) {
   if (!path || info.dev || info.optional) continue;
   for (const filename of await readdir(path)) {
     if (/^(licen[sc]e|copying|notice)(\.|$)/i.test(filename)) {
-      notices.push(`${path} ${info.version}\n${await readFile(`${path}/${filename}`, 'utf8')}`);
+      const license = (await readFile(`${path}/${filename}`, 'utf8'))
+        .replace(/\r\n/g, '\n').replace(/[ \t]+$/gm, '');
+      notices.push(`${path} ${info.version}\n${license}`);
     }
   }
 }

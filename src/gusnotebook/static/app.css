@@ -1125,11 +1125,7 @@ button.tb.primary:hover { background: var(--accent-soft); }
 .splitter { background: var(--border); cursor: col-resize; }
 .splitter:hover, .splitter.dragging { background: var(--accent); }
 
-/* ---------- Right: agent terminals ----------
- * Light, on the same tokens as the notebook side. The two panes sit next to
- * each other all day, so a dark terminal read as a different application
- * bolted on rather than one window. Only the ANSI colours below are terminal-
- * specific, and they're picked for contrast on white. */
+/* ---------- Right: agent terminals ---------- */
 .right {
   display: flex;
   flex-direction: column;
@@ -1211,14 +1207,29 @@ button.tb.primary:hover { background: var(--accent-soft); }
 }
 .tterm .tx:hover { background: var(--border); color: var(--red); }
 
-#terminal-stack { flex: 1 1 auto; min-height: 0; position: relative; }
+#terminal-stack {
+  flex: 1 1 auto; min-height: 0; position: relative;
+  background: var(--panel); overflow: hidden;
+}
 .term-host {
-  position: absolute; inset: 0;
-  padding: 8px;
+  position: absolute; inset: 8px;
   overflow: hidden;
   display: none;
 }
-.term-host.on { display: block; }
+.term-host.on { display: flex; flex-direction: column; }
+.term-screen { flex: 1; min-height: 0; overflow: hidden; }
+.term-context {
+  display: flex; align-items: center; gap: 8px; flex: 0 0 auto;
+  padding: 0 0 9px; margin-bottom: 9px; border-bottom: 1px solid var(--border);
+  font: 12px/1.3 "IBM Plex Mono", var(--mono); color: var(--muted);
+}
+.term-context[hidden], .term-context-env[hidden] { display: none; }
+.term-context-env { color: var(--green); flex-shrink: 0; max-width: 30%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.term-context-user { color: var(--accent); flex-shrink: 0; max-width: 25%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.term-context-directory {
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  direction: rtl; text-align: left;
+}
 
 /* Shown when no session is open — the default state. */
 .term-empty {

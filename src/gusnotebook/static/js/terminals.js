@@ -11,6 +11,16 @@
 let terms = [];            // {id, cwd, label, alive, term, fit, ws, host}
 let activeTerm = null;
 
+// Start immediately with system metrics, then refit once the local font loads.
+// Switching the option explicitly makes xterm remeasure its character grid.
+let terminalFontFamily = "ui-monospace, 'SF Mono', Menlo, Consolas, monospace";
+document.fonts.load('12px "IBM Plex Mono"').then(fonts => {
+  if (!fonts.length) return;
+  terminalFontFamily = '"IBM Plex Mono", ' + terminalFontFamily;
+  for (const t of terms) t.term.options.fontFamily = terminalFontFamily;
+  scheduleTerminalFit();
+}).catch(() => {});
+
 const AGENT_KIND_KEY = 'gusnotebook-agent-kind';
 
 function rememberAgentKind() {
@@ -77,11 +87,30 @@ function attachTerm(info) {
   host.className = 'term-host';
   host.id = 'term-host-' + info.id;
   document.getElementById('terminal-stack').appendChild(host);
+  const context = document.createElement('div');
+  context.className = 'term-context';
+  context.hidden = true;
+  const environment = document.createElement('span');
+  environment.className = 'term-context-env';
+  const user = document.createElement('span');
+  user.className = 'term-context-user';
+  const directory = document.createElement('span');
+  directory.className = 'term-context-directory';
+  context.append(environment, user, directory);
+  host.appendChild(context);
+  const screen = document.createElement('div');
+  screen.className = 'term-screen';
+  host.appendChild(screen);
 
   const term = new window.Terminal({
     cursorBlink: true,
+    cursorStyle: 'bar',
+    cursorWidth: 2,
     fontSize: AppAppearance.get().fontSize,
-    fontFamily: 'Menlo, Consolas, monospace',
+    fontFamily: terminalFontFamily,
+    fontWeight: 400,
+    fontWeightBold: 600,
+    lineHeight: 1.1,
     theme: AppAppearance.terminalTheme(),
     // Agents can retain explicit ANSI/RGB colors when the app theme changes.
     // Keep both their output and newly typed text readable on those backgrounds.
@@ -90,10 +119,32 @@ function attachTerm(info) {
   const fit = new window.FitAddon.FitAddon();
   term.loadAddon(fit);
   term.loadAddon(new window.WebLinksAddon.WebLinksAddon());
-  term.open(host);
+  term.open(screen);
 
   const t = {...info, term, fit, host, ws: null};
   terms.push(t);
+  // Shell prompt hooks emit context through OSC, so it follows cd/activation
+  // and is also restored when the server replays scrollback after a reload.
+  term.parser.registerOscHandler(777, data => {
+    if (t.kind !== 'shell' || !data.startsWith('gusnotebook;')) return false;
+    const fields = data.split(';');
+    if (fields.length !== 4) return true;
+    let values;
+    try { values = fields.slice(1).map(decodeURIComponent); } catch (e) { return true; }
+    const [env, username, cwd] = values;
+    environment.textContent = env ? '(' + env + ')' : '';
+    environment.title = env;
+    environment.hidden = !env;
+    user.textContent = username;
+    user.title = username;
+    directory.textContent = cwd;
+    directory.title = cwd;
+    t.cwd = cwd;
+    const first = context.hidden;
+    context.hidden = false;
+    if (first) scheduleTerminalFit();
+    return true;
+  });
 
   const wsQuery = currentSession
     ? '?' + new URLSearchParams({session: currentSession}) : '';

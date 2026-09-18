@@ -586,6 +586,9 @@ class Session:
         if self.kind == "claude":
             extra_env.update(bedrock_env())
         child_env = {**os.environ, **extra_env, "TERM": "xterm-256color"}
+        child_env.setdefault("COLORTERM", "truecolor")
+        if not child_env.get("NO_COLOR"):
+            child_env.setdefault("CLICOLOR", "1")
         uv = environments.uv_binary()
         if uv:
             uv_dir = str(pathlib.Path(uv).parent)

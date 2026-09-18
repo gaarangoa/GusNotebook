@@ -55,6 +55,7 @@ def main():
         page.evaluate('AppAppearance.update({theme: "dark"})')
         page.evaluate('path => openTerminal(path, "shell")', str(work))
         page.wait_for_function('terms.length === 1 && terms[0].ws.readyState === 1')
+        page.wait_for_function('terms[0].term.options.fontFamily.includes("IBM Plex Mono") && document.fonts.check(\'12px "IBM Plex Mono"\')')
         page.evaluate('window.originalTerm = terms[0].term; window.originalSocket = terms[0].ws')
         command = f'{shlex.quote(sys.executable)} -u {shlex.quote(str(prompt))}\r'
         page.evaluate('command => terms[0].ws.send(command)', command)
@@ -103,6 +104,7 @@ def main():
             expect(rows).to_contain_text('before-light' if theme == 'light' else 'before-light-dark')
             expect_readable()
             assert page.evaluate('terms[0].term === originalTerm && terms[0].ws === originalSocket && originalSocket.readyState === 1')
+            page.screenshot(path=str(Path(tempfile.gettempdir()) / f'gusnb-terminal-{theme}.png'))
         expect(rows).to_contain_text('Input: before-light-dark-light')
 
         # Inactive terminals receive the same update and retain their draft.
@@ -122,6 +124,16 @@ def main():
         page.click('#workspace-more')
         page.click('#theme-toggle')
         expect_readable()
+        # Insets and font metrics must still fit the terminal after a panel resize.
+        page.evaluate("changePanelWidth('terminal', 480)")
+        page.wait_for_function('''() => {
+          const host = document.querySelector('.term-host.on').getBoundingClientRect();
+          const screen = document.querySelector('.term-host.on .xterm-screen').getBoundingClientRect();
+          return screen.width > 400 && screen.right <= host.right + 1 && screen.bottom <= host.bottom + 1;
+        }''')
+        page.evaluate('terms[0].term.focus()')
+        page.keyboard.type('-resized')
+        expect(rows).to_contain_text('Input: before-light-dark-light-resized')
         screenshot = Path(tempfile.gettempdir()) / 'gusnb-terminal-theme.png'
         page.screenshot(path=str(screenshot))
         assert not errors, errors

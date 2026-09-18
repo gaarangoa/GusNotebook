@@ -10,6 +10,10 @@ Use the icon rail on the far left to switch between **Files**, **Sessions**, and
 Your selected section is remembered across reloads.
 The **Terminal** icon on the same rail toggles the right panel independently;
 the panel starts open on desktop, and hiding it keeps its terminals running.
+Shell terminals use a compact `>` prompt, with the environment, user, and current
+directory in a fixed header that updates after each command. New zsh terminals
+also highlight commands, strings, options, paths, and syntax errors as you type.
+These additions are local to GusNotebook and respect `NO_COLOR`.
 
 PDF files open in a preview tab using the browser's PDF viewer. Use **Reload**
 after updating a PDF on disk, or **Open in new tab** / **Download** to view it

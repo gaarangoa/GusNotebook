@@ -59,7 +59,8 @@ def main():
             for selector in ['body', 'table.dataframe', 'th', 'td']:
                 expect(frame.locator(selector).first).to_have_css('font-size', f'{size}px')
         expect_font_size(12)
-        expect(page.locator('#toggle-files, #toggle-terminal')).to_have_count(0)
+        expect(page.locator('#toggle-files')).to_have_count(0)
+        expect(page.locator('#toggle-terminal')).to_be_visible()
         expect(page.locator('#sidebar-terminal')).to_have_attribute('aria-pressed', 'true')
         expect(page.locator('#agent-pane')).to_be_visible()
         header = page.locator('.app-header').bounding_box()
@@ -196,14 +197,16 @@ def main():
         assert page.evaluate('terms[0].term.options.fontSize') == 12
         page.evaluate('window.reviewTerminal = terms[0].term; terms[0].ws.send("echo APPEARANCE_OK\\r")')
         page.evaluate('window.reviewSocket = terms[0].ws')
-        page.click('#sidebar-terminal')
+        page.click('#toggle-terminal')
         expect(page.locator('#agent-pane')).not_to_be_visible()
         expect(page.locator('#sidebar-terminal')).to_have_attribute('aria-pressed', 'false')
+        expect(page.locator('#toggle-terminal')).to_have_attribute('aria-pressed', 'false')
         page.click('#sidebar-skills')
         expect(page.locator('#skills')).to_be_visible()
         expect(page.locator('#agent-pane')).not_to_be_visible()
         page.locator('#sidebar-terminal').press('Enter')
         expect(page.locator('#agent-pane')).to_be_visible()
+        expect(page.locator('#toggle-terminal')).to_have_attribute('aria-pressed', 'true')
         expect(page.locator('#skills')).to_be_visible()
         assert page.evaluate('terms[0].term === reviewTerminal && terms[0].ws === reviewSocket && reviewSocket.readyState === 1')
         page.click('#sidebar-files')
@@ -342,7 +345,7 @@ def main():
             expect_font_size(16)
             page.wait_for_function('document.documentElement.scrollWidth <= innerWidth')
             assert page.locator('#tabs').bounding_box()['width'] > 100
-            for control in ['#settings-button', '#workspace-more', '#tab-new']:
+            for control in ['#settings-button', '#toggle-terminal', '#workspace-more', '#tab-new']:
                 box = page.locator(control).bounding_box()
                 assert 0 <= box['x'] and box['x'] + box['width'] <= width, (control, box)
             page.click('#workspace-more')

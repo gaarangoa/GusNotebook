@@ -1,3 +1,20 @@
+@font-face {
+  font-family: 'IBM Plex Mono'; font-style: normal; font-weight: 400; font-display: swap;
+  src: url('vendor/fonts/IBMPlexMono-Regular.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'IBM Plex Mono'; font-style: italic; font-weight: 400; font-display: swap;
+  src: url('vendor/fonts/IBMPlexMono-Italic.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'IBM Plex Mono'; font-style: normal; font-weight: 600; font-display: swap;
+  src: url('vendor/fonts/IBMPlexMono-SemiBold.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'IBM Plex Mono'; font-style: italic; font-weight: 600; font-display: swap;
+  src: url('vendor/fonts/IBMPlexMono-SemiBoldItalic.woff2') format('woff2');
+}
+
 :root {
   --workspace-bar-height: 32px;
   color-scheme: light;

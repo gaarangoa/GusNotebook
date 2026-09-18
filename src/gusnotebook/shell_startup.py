@@ -36,6 +36,8 @@ def prepare(command, activate, environment, uv=None):
         script += "set -e _gusnb_bin\n"
         if activate:
             script += "source " + shlex.quote(activate + ".fish") + "\n"
+        context = Path(__file__).with_name("shell_assets") / "context.fish"
+        script += "source " + shlex.quote(str(context)) + "\n"
         return [*command, "-i", "-C", script], None
 
     # A profile may activate its own venv. Deactivate it before restoring paths;
@@ -46,8 +48,12 @@ def prepare(command, activate, environment, uv=None):
     script += f"for _gusnb_bin in {paths}; do\n"
     script += '  case ":$PATH:" in *":$_gusnb_bin:"*) ;; *) PATH="${PATH:+$PATH:}$_gusnb_bin" ;; esac\ndone\n'
     script += "unset _gusnb_bin\nexport PATH\n"
+    assets = Path(__file__).with_name("shell_assets")
+    if kind == "zsh":
+        script += ". " + shlex.quote(str(assets / "colors.zsh")) + "\n"
     if activate:
         script += ". " + shlex.quote(activate) + "\n"
+    script += ". " + shlex.quote(str(assets / "context.sh")) + "\n"
 
     temporary = tempfile.TemporaryDirectory(prefix="gusnb-shell-")
     directory = Path(temporary.name)
