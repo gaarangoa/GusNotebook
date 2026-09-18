@@ -817,6 +817,7 @@ button.tb.primary:hover { background: var(--accent-soft); }
 }
 .hd-toggle:hover { color: var(--accent); background: var(--surface); }
 .md-rendered:empty::after { content: 'Empty markdown cell — double-click to edit'; color: var(--muted); font-style: italic; }
+.md-rendered .katex-display { overflow-x: auto; overflow-y: hidden; padding: .2em 0; }
 /* Keep Markdown's heading hierarchy relative to the selected body font size. */
 :is(.md-rendered, .output-html) h1 { font-size: 2em; margin: 12px 0 8px; font-weight: 650; }
 :is(.md-rendered, .output-html) h2 { font-size: 1.5em; margin: 12px 0 7px; font-weight: 650; }

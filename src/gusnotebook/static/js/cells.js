@@ -1909,7 +1909,7 @@ function cellHtml(c) {
            >${icon(collapsed ? 'chevron' : 'chevronDown')}</button>`;
     }
     bodyInner = `<div class="md-rendered" ondblclick="editMarkdown('${c.id}')">${
-      DOMPurify.sanitize(marked.parse(c.source || ''))}</div>`;
+      renderNotebookMarkdown(c.source)}</div>`;
   } else {
     const placeholder = isAi
       ? 'Describe what you want in plain English, then press ⇧⏎'

@@ -5,6 +5,12 @@ agents on the right. Files open in tabs, each open notebook gets its own IPython
 kernel, and either agent can read and rewrite **the cell you're parked on**
 without being told which one it is.
 
+Notebook Markdown cells render LaTeX math: use `$E = mc^2$` inline or
+`$$\int_0^1 x^2\,dx = \frac{1}{3}$$` for a centered equation. The delimiters
+`\(...\)` and `\[...\]` also work. Press Shift+Enter to render; double-click
+to edit the original source. Math rendering works offline, and math inside
+inline code or fenced code blocks stays literal.
+
 Markdown files (`.md` and `.markdown`) open in a rendered **Preview**, with
 headings, lists, tables, code blocks, and images. Use **Source** to edit and
 **Save** or ⌘S to save the original Markdown. Relative links open document tabs;
@@ -443,6 +449,7 @@ uv run python tests/test_reliability_ui.py
 uv run python tests/test_tabs_ui.py
 uv run python tests/test_environments_ui.py
 uv run python tests/test_appearance_ui.py
+uv run python tests/test_notebook_math_ui.py
 uv run python scripts/benchmark.py
 ```
 

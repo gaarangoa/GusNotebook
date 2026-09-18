@@ -15,6 +15,11 @@ for (const entry of ['vendor', 'codemirror']) {
     outfile: `${destination}/${entry}.js`, legalComments: 'eof'});
 }
 await copyFile('node_modules/@xterm/xterm/css/xterm.css', `${destination}/xterm.css`);
+await copyFile('node_modules/katex/dist/katex.min.css', `${destination}/katex.css`);
+await mkdir(`${destination}/fonts`, {recursive: true});
+for (const filename of await readdir('node_modules/katex/dist/fonts')) {
+  await copyFile(`node_modules/katex/dist/fonts/${filename}`, `${destination}/fonts/${filename}`);
+}
 const notices = [];
 for (const [path, info] of Object.entries(lock.packages)) {
   if (!path || info.dev || info.optional) continue;
