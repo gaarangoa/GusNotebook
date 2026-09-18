@@ -329,8 +329,8 @@ body {
 }
 .textpane.on { display: flex; }
 .textpane .thead {
-  display: flex; align-items: center; gap: 8px;
-  padding: 6px 12px;
+  display: flex; align-items: center; flex-wrap: wrap; gap: 4px;
+  padding: 4px 10px; min-height: 38px; flex-shrink: 0;
   border-bottom: 1px solid var(--border);
   font-size: var(--ui-size); color: var(--muted);
 }
@@ -366,7 +366,9 @@ body {
 .textpane.markup .html-preview { display: flex; flex: 1 1 auto; }
 .markdown-view { display: inline-flex; gap: 2px; }
 .markdown-view[hidden] { display: none; }
-.markdown-view button[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); }
+.markdown-view button[aria-pressed="true"] {
+  color: var(--accent); text-decoration: underline; text-underline-offset: 4px;
+}
 .markdown-preview.md-rendered {
   display: none; flex: 1 1 auto; min-width: 0; overflow: auto;
   padding: 16px 20px; color: var(--text); background: var(--panel);
@@ -1768,9 +1770,9 @@ button:disabled { opacity: .55; cursor: default; }
 .toolbar { flex-wrap: wrap; height: auto; min-height: 38px; padding: 4px 10px; gap: 4px; overflow: visible; flex-shrink: 0; }
 .toolbar .tb-sep { margin: 0 2px; }
 .toolbar button { white-space: nowrap; }
-.toolbar button.tb, .toolbar .kernel-badge { min-height: 28px; padding: 4px 7px; font-size: var(--ui-size); }
-.toolbar button.tb:not(.primary), .toolbar .kernel-badge { border-color: transparent; background: transparent; }
-.toolbar button.tb:not(.primary):hover, .toolbar .kernel-badge:hover { background: var(--hover); border-color: var(--border); }
+.toolbar button.tb, .toolbar .kernel-badge, .textpane .thead .files-btn { min-height: 28px; padding: 4px 7px; font-size: var(--ui-size); }
+.toolbar button.tb:not(.primary), .toolbar .kernel-badge, .textpane .thead .files-btn { border-color: transparent; background: transparent; }
+.toolbar button.tb:not(.primary):hover, .toolbar .kernel-badge:hover, .textpane .thead .files-btn:hover { background: var(--hover); border-color: var(--border); }
 .venv-pick { margin-left: auto; max-width: 100%; }
 .kernel-badge { padding: 5px 9px; max-width: 100%; font-size: var(--small-size); }
 .kernel-badge .venv-name { max-width: 150px; }
