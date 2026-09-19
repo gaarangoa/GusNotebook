@@ -23,6 +23,11 @@ document.fonts.load('12px "IBM Plex Mono"').then(fonts => {
 
 const AGENT_KIND_KEY = 'gusnotebook-agent-kind';
 
+function terminalFontSize(kind) {
+  const size = AppAppearance.get().fontSize;
+  return kind === 'claude' || kind === 'codex' ? Math.max(10, size - 1) : size;
+}
+
 function rememberAgentKind() {
   const kind = document.getElementById('agent-kind').value;
   try { localStorage.setItem(AGENT_KIND_KEY, kind); } catch (e) {}
@@ -46,7 +51,7 @@ function findTerm(id) { return terms.find(t => t.id === id); }
 
 function renderTermTabs() {
   document.getElementById('term-tabs').innerHTML = terms.map(t => `
-    <div role="tab" tabindex="${t.id === activeTerm ? 0 : -1}" aria-selected="${t.id === activeTerm}" class="tterm ${t.id === activeTerm ? 'active' : ''} ${t.alive ? '' : 'dead'}"
+    <div role="tab" data-kind="${escapeAttr(t.kind)}" tabindex="${t.id === activeTerm ? 0 : -1}" aria-selected="${t.id === activeTerm}" class="tterm ${t.id === activeTerm ? 'active' : ''} ${t.alive ? '' : 'dead'}"
          onclick="focusTerm('${t.id}')" title="${escapeAttr(t.cwd)}">
       <span class="ti">${icon(t.kind === 'shell' ? 'terminal' : (t.kind === 'codex' ? 'code' : 'agent'))}</span>
       <span class="tn">${escapeHtml(t.label)}</span>
@@ -85,6 +90,7 @@ function openTerminalHere(kind) {
 function attachTerm(info) {
   const host = document.createElement('div');
   host.className = 'term-host';
+  host.dataset.kind = info.kind;
   host.id = 'term-host-' + info.id;
   document.getElementById('terminal-stack').appendChild(host);
   const context = document.createElement('div');
@@ -105,12 +111,12 @@ function attachTerm(info) {
   const term = new window.Terminal({
     cursorBlink: true,
     cursorStyle: 'bar',
-    cursorWidth: 2,
-    fontSize: AppAppearance.get().fontSize,
+    cursorWidth: 3,
+    fontSize: terminalFontSize(info.kind),
     fontFamily: terminalFontFamily,
     fontWeight: 400,
     fontWeightBold: 600,
-    lineHeight: 1.1,
+    lineHeight: 1,
     theme: AppAppearance.terminalTheme(),
     // Agents can retain explicit ANSI/RGB colors when the app theme changes.
     // Keep both their output and newly typed text readable on those backgrounds.
@@ -120,6 +126,11 @@ function attachTerm(info) {
   term.loadAddon(fit);
   term.loadAddon(new window.WebLinksAddon.WebLinksAddon());
   term.open(screen);
+  if (info.kind === 'claude' || info.kind === 'codex') {
+    import(BASE + '/static/js/terminal-compact.js').then(({CompactTerminalRows}) => {
+      if (host.isConnected) term.loadAddon(new CompactTerminalRows());
+    }).catch(error => console.warn('Compact terminal display unavailable:', error));
+  }
 
   const t = {...info, term, fit, host, ws: null};
   terms.push(t);
@@ -266,7 +277,7 @@ else window.addEventListener('workspace-ready', bootTerminals, {once: true});
 document.addEventListener('appearance-change', () => {
   for (const t of terms) {
     t.term.options.theme = AppAppearance.terminalTheme();
-    t.term.options.fontSize = AppAppearance.get().fontSize;
+    t.term.options.fontSize = terminalFontSize(t.kind);
   }
   scheduleTerminalFit();
 });

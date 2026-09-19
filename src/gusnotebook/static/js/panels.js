@@ -465,9 +465,7 @@ async function boot() {
   if (target) switchTab(target, false);
   else { renderTabs(); showActive(); }
   await browse(root);  // the session's root, or the notebook's own directory
-  // The .* button is lit from toggleHidden() onwards; light it here too so it
-  // matches the starting state instead of claiming dotfiles are off.
-  document.getElementById('hidden-btn').classList.toggle('on', fileState.hidden);
+  syncHiddenFilesButton();
   await loadSessions();   // refetch: opening those tabs changed the counts
   await loadSkills();
   booted = true;       // anything waiting on first paint can watch this

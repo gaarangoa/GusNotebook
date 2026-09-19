@@ -26,6 +26,7 @@ jobs:
       - run: python tests/test_pdf_ui.py
       - run: python tests/test_terminal_theme_ui.py
       - run: python tests/test_terminal_context_ui.py
+      - run: python tests/test_terminal_compact_ui.py
       - run: python tests/test_tunnels_ui.py
       - run: python tests/test_cell_history_ui.py
       - run: python tests/test_environments_ui.py

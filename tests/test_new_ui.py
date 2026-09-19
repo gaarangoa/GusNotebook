@@ -1923,18 +1923,25 @@ def main():
         # caption whatever the rest of this suite writes with `undoable`.
         post("/api/prompt", {"prompt": ""})
 
-        print("\n-- dotfiles are listed by default")
-        # .env and .gitignore are working files here, so hiding them by default
-        # hid things the user came to edit.
+        print("\n-- dotfiles are hidden until the .* toggle is enabled")
         pg.evaluate(f"browse('{APP_DIR}')")
         pg.wait_for_function(f"fileState.path === '{APP_DIR}'", timeout=10000)
         names = pg.eval_on_selector_all(
             "#file-list .file-row", "els => els.map(e => e.title.split('/').pop())")
-        check("dotfiles shown", any(n.startswith(".") for n in names), True)
+        check("dotfiles hidden by default", any(n.startswith(".") for n in names), False)
+        check(".* label", pg.locator('#hidden-btn').inner_text(), '.*')
+        check(".* starts off", pg.locator('#hidden-btn').get_attribute('aria-pressed'), 'false')
+        pg.click('#hidden-btn')
+        pg.wait_for_function("fileState.entries.some(e => e.name.startsWith('.'))")
+        names = pg.eval_on_selector_all(
+            "#file-list .file-row", "els => els.map(e => e.title.split('/').pop())")
+        check("dotfiles shown on request", any(n.startswith(".") for n in names), True)
         check(".* button lit to match the state",
               pg.evaluate("document.getElementById('hidden-btn')"
                           ".classList.contains('on')"), True)
         check(".git still skipped", ".git" in names, False)
+        pg.click('#hidden-btn')
+        pg.wait_for_function("fileState.entries.every(e => !e.name.startsWith('.'))")
 
         print("\n-- hiding the file panel doesn't shift the other panes")
         # Regression: `display: none` on the files pane stopped it occupying its

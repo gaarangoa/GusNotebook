@@ -24,7 +24,6 @@
     <button class="sidebar-button" id="sidebar-files" onclick="showSidebarSection('files', true)" aria-label="Files" title="Files" aria-controls="sidebar-files-pane" aria-pressed="true"><span data-icon="folder"></span></button>
     <button class="sidebar-button" id="sidebar-sessions" onclick="showSidebarSection('sessions', true)" aria-label="Sessions" title="Sessions" aria-controls="sessions" aria-pressed="false"><span data-icon="sessions"></span></button>
     <button class="sidebar-button" id="sidebar-skills" onclick="showSidebarSection('skills', true)" aria-label="Skills" title="Skills" aria-controls="skills" aria-pressed="false"><span data-icon="skills"></span></button>
-    <button class="sidebar-button" id="sidebar-terminal" onclick="togglePanel('terminal')" aria-label="Terminal" title="Hide terminal panel" aria-controls="agent-pane" aria-pressed="true" aria-expanded="true"><span data-icon="terminal"></span></button>
   </nav>
   <div class="files" id="files" role="region" aria-label="Sidebar">
     <div id="file-splitter" class="file-splitter" role="separator" tabindex="0" aria-label="Resize sidebar" aria-orientation="vertical" aria-controls="files"></div>
@@ -34,7 +33,7 @@
       <!-- Creating things lives on the tab bar's + menu; what's left here is
            navigation, which is what this panel is for. -->
       <button class="files-btn" id="hidden-btn" onclick="toggleHidden()"
-              title="Show hidden files"><span data-icon="eye"></span></button>
+              title="Show hidden files" aria-label="Show hidden files" aria-pressed="false">.*</button>
       <button class="files-btn" id="file-upload-btn" onclick="chooseUploads()"
               title="Upload files into this directory"><span data-icon="upload"></span></button>
       <input id="file-upload" type="file" multiple hidden

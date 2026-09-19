@@ -8,7 +8,7 @@ without being told which one it is.
 Use the icon rail on the far left to switch between **Files**, **Sessions**, and
 **Skills**. Each section fills the sidebar; click its icon again to collapse it.
 Your selected section is remembered across reloads.
-The **Terminal** icon on the same rail toggles the right panel independently;
+The **Terminal** icon beside the three-dot menu toggles the right panel independently;
 the panel starts open on desktop, and hiding it keeps its terminals running.
 Shell terminals use a compact `>` prompt, with the environment, user, and current
 directory in a fixed header that updates after each command. New zsh terminals

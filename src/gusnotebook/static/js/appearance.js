@@ -41,7 +41,7 @@ window.AppAppearance = (() => {
   }
   function terminalTheme() {
     const c = colors();
-    return {background: c.panel, foreground: c.text, cursor: c.accent, cursorAccent: c.panel,
+    return {background: c.panel, foreground: c.text, cursor: c.cyan, cursorAccent: c.panel,
       selectionBackground: c.selection, selectionForeground: c.text,
       black: c.text, white: c.muted, brightBlack: c.muted, brightWhite: c.text,
       ...Object.fromEntries(['red', 'green', 'yellow', 'blue', 'magenta', 'cyan']

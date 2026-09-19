@@ -4,9 +4,8 @@
  * you make there arrives as a tab. */
 
 // ---------- File browser ----------
-// hidden: true by default — .env, .gitignore and friends are working files in a
-// project like this one, so hiding them by default hides things you came to edit.
-let fileState = {path: null, home: null, notebook: null, hidden: true};
+// Dotfiles stay hidden until the user enables the .* toggle.
+let fileState = {path: null, home: null, notebook: null, hidden: false};
 let browseSerial = 0;
 
 const FILE_ICON = {dir: 'folder', notebook: 'notebook', file: 'file'};
@@ -591,9 +590,16 @@ function suggestName(stem, suffix) {
   }
 }
 
+function syncHiddenFilesButton() {
+  const button = document.getElementById('hidden-btn');
+  button.classList.toggle('on', fileState.hidden);
+  button.setAttribute('aria-pressed', String(fileState.hidden));
+  button.title = fileState.hidden ? 'Hide hidden files' : 'Show hidden files';
+}
+
 function toggleHidden() {
   fileState.hidden = !fileState.hidden;
-  document.getElementById('hidden-btn').classList.toggle('on', fileState.hidden);
+  syncHiddenFilesButton();
   browse(fileState.path);
 }
 
