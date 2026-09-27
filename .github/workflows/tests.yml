@@ -21,6 +21,7 @@ jobs:
       - run: python tests/test_reliability_ui.py
       - run: python tests/test_appearance_ui.py
       - run: python tests/test_markdown_ui.py
+      - run: python tests/test_html_tools_ui.py
       - run: python tests/test_notebook_math_ui.py
       - run: python tests/test_d3_ui.py
       - run: python tests/test_pdf_ui.py

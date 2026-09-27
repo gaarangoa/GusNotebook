@@ -23,6 +23,21 @@
   var snapshotRevision = -1;
   var lastChangeSentRevision = -1;
   var lastSnapshot = null;
+  var editingTools = null;
+  var toolsUrl = new URL('tools.js', script.src).href;
+  var imageRequests = new Map();
+
+  function uploadImages(files) {
+    return new Promise(function (resolve, reject) {
+      var id = Array.from(crypto.getRandomValues(new Uint8Array(16)), function (n) { return n.toString(16).padStart(2, '0'); }).join('');
+      var timer = setTimeout(function () {
+        imageRequests.delete(id); reject(new Error('Image upload timed out'));
+      }, 60000);
+      imageRequests.set(id, {resolve: resolve, reject: reject, timer: timer});
+      sendToParent({channel: config.channel, nonce: config.nonce,
+                    kind: 'upload-images', id: id, files: files});
+    });
+  }
 
   // The bridge is injected before the document's own scripts. Remember nodes
   // those scripts create so saving the editable page does not turn a rendered
@@ -51,6 +66,15 @@
     authoredMutationDepth += 1;
     try { return callback(); }
     finally { authoredMutationDepth -= 1; }
+  }
+
+  // Generated charts are reconstructed from their scripts on reload. Only
+  // authored text can retain direct formatting in the saved document.
+  function isAuthoredNode(node) {
+    for (var current = node; current && current !== document; current = current.parentNode) {
+      if (generatedNodes.has(current) || generatedContents.has(current) || isRuntimeNode(current)) return false;
+    }
+    return true;
   }
 
   function rememberGeneratedContent(element) {
@@ -197,8 +221,17 @@
     });
   }
 
-  function cleanClone(node) {
+  function cleanClone(node, mapping) {
     var clone = node.cloneNode(true);
+    if (mapping) {
+      var mapNodes = function (live, copy) {
+        mapping.set(live, copy);
+        Array.prototype.forEach.call(live.childNodes, function (child, index) {
+          mapNodes(child, copy.childNodes[index]);
+        });
+      };
+      mapNodes(node, clone);
+    }
     scrubGenerated(node, clone);
     clone.querySelectorAll('[' + runtimeAttr + ']').forEach(function (el) {
       el.remove();
@@ -245,6 +278,28 @@
     var range = selection.getRangeAt(0).cloneRange();
     if (!document.body || !document.body.contains(range.commonAncestorContainer)) return null;
 
+    // Mark a detached copy. Inserting selection markers into the live page
+    // splits text nodes and invalidates both native and authoring undo records.
+    var mapping = new WeakMap();
+    var original = config.mode === 'svg' ? document.querySelector('body > svg') : document.documentElement;
+    if (!original) return null;
+    var root = cleanClone(original, mapping);
+    function boundary(node, offset) {
+      var copy = mapping.get(node);
+      if (!copy || !root.contains(copy)) return null;
+      if (node.nodeType === Node.TEXT_NODE) return [copy, Math.min(offset, copy.length)];
+      for (var index = offset; index < node.childNodes.length; index++) {
+        var child = mapping.get(node.childNodes[index]);
+        if (child && child.parentNode === copy) return [copy, Array.prototype.indexOf.call(copy.childNodes, child)];
+      }
+      return [copy, copy.childNodes.length];
+    }
+    var from = boundary(range.startContainer, range.startOffset);
+    var to = boundary(range.endContainer, range.endOffset);
+    if (!from || !to) return null;
+    range = document.createRange();
+    range.setStart(from[0], from[1]); range.setEnd(to[0], to[1]);
+
     var key = config.nonce.replace(/[^a-zA-Z0-9_-]/g, '');
     var startToken = '<!--GUSNB_SELECTION_START_' + key + '-->';
     var endToken = '<!--GUSNB_SELECTION_END_' + key + '-->';
@@ -257,16 +312,10 @@
     startRange.collapse(true);
     startRange.insertNode(startMarker);
 
-    var liveRange = document.createRange();
-    liveRange.setStartAfter(startMarker);
-    liveRange.setEndBefore(endMarker);
-    var marked = serialize();
+    var marked = config.mode === 'svg' ? config.svgPrefix + root.outerHTML + config.svgSuffix :
+      (document.doctype ? new XMLSerializer().serializeToString(document.doctype) + '\n' : '') + root.outerHTML;
     var start = marked.indexOf(startToken);
     var markerEnd = marked.indexOf(endToken, start + startToken.length);
-    startMarker.remove();
-    endMarker.remove();
-    selection.removeAllRanges();
-    selection.addRange(liveRange);
     if (start < 0 || markerEnd < 0) return null;
 
     var documentText = marked.slice(0, start) +
@@ -1032,6 +1081,7 @@
   });
   document.addEventListener('input', function (event) {
     if (svgEditor && event.target === svgEditor.input) return;
+    if (event.target.closest && event.target.closest('[' + runtimeAttr + ']')) return;
     send('change');
     queueViewReport();
   }, true);
@@ -1075,7 +1125,13 @@
     if (event.source !== parent ||
         (config.parentOrigin !== '*' && event.origin !== config.parentOrigin) ||
         data.channel !== config.channel || data.nonce !== config.nonce) return;
-    if (data.command === 'save') {
+    if (data.command === 'images-uploaded') {
+      var pendingImages = imageRequests.get(data.id);
+      if (!pendingImages) return;
+      clearTimeout(pendingImages.timer); imageRequests.delete(data.id);
+      if (data.error) pendingImages.reject(new Error(data.error));
+      else pendingImages.resolve(data.images);
+    } else if (data.command === 'save') {
       if (svgEditor) closeSvgEditor(false);
       send('save');
     } else if (data.command === 'saved') {
@@ -1084,6 +1140,10 @@
       reportView();
     } else if (data.command === 'restore-view') {
       restoreView(data.view);
+    } else if (editingTools && data.command === 'insert-card') {
+      editingTools.then(function (tools) { if (tools) tools.insertCard(); });
+    } else if (editingTools && data.command === 'tools-appearance') {
+      editingTools.then(function (tools) { if (tools) tools.appearance(data); });
     }
   });
 
@@ -1113,6 +1173,23 @@
     }
     ensureEditorVizStyle();
     wireVizSource(document);
+    if (config.mode === 'html') {
+      editingTools = import(toolsUrl).then(function (module) {
+        return module.initMarkupTools({
+          runtimeAttr: runtimeAttr, authoredMutation: authoredMutation,
+          isAuthoredNode: isAuthoredNode,
+          uploadImages: uploadImages,
+          notice: function (message) {
+            sendToParent({channel: config.channel, nonce: config.nonce, kind: 'tools-notice', message: message});
+          },
+          changed: function () { send('change'); queueSelectionReport(); },
+          deselectViz: function () { selectViz(null); }
+        });
+      }).catch(function (error) {
+        console.error('HTML editing controls:', error);
+        sendToParent({channel: config.channel, nonce: config.nonce, kind: 'tools-error'});
+      });
+    }
     sendToParent({channel: config.channel, nonce: config.nonce, kind: 'ready'});
   }
   if (document.readyState === 'loading')

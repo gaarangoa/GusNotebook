@@ -47,6 +47,37 @@ document.addEventListener('click', (e) => {
 // ---------- Visual HTML / SVG editor ----------
 
 const MARKUP_EDITOR_CHANNEL = 'gusnotebook-markup-editor';
+function markupCommand(command, extra = {}) {
+  const t = activeTab();
+  if (!isMarkupTab(t) || !t.previewOrigin || !t.previewNonce) return;
+  document.getElementById('html-preview-frame').contentWindow?.postMessage({
+    channel: MARKUP_EDITOR_CHANNEL, nonce: t.previewNonce, command, ...extra,
+  }, t.previewOrigin);
+}
+
+function syncMarkupAppearance() {
+  markupCommand('tools-appearance', {dark: AppAppearance.isDark(), fontSize: AppAppearance.get().fontSize});
+}
+document.addEventListener('appearance-change', syncMarkupAppearance);
+
+async function uploadMarkupImages(t, files) {
+  if (!Array.isArray(files) || !files.length || t.language === 'svg') throw new Error('No images to paste');
+  const types = {'image/png':'png', 'image/jpeg':'jpg', 'image/webp':'webp', 'image/gif':'gif'};
+  const form = new FormData();
+  form.append('directory', t.path.slice(0, t.path.lastIndexOf('/')) || '/');
+  for (const file of files) {
+    if (!(file instanceof Blob) || !types[file.type]) throw new Error('Unsupported image type');
+    const id = Array.from(crypto.getRandomValues(new Uint8Array(16)), n => n.toString(16).padStart(2,'0')).join('');
+    form.append('files', file, 'pasted-image-' + id + '.' + types[file.type]);
+  }
+  const response = await fetch(BASE + '/api/files/upload', {
+    method:'POST', headers:{'X-Client-Id':CLIENT_ID,
+      ...(currentSession ? {'X-Session-Id':currentSession} : {})}, body:form,
+  });
+  if (!response.ok) throw new Error(errText(await response.text()));
+  const data = await response.json();
+  return data.uploaded.map((file, index) => ({url:encodeURIComponent(file.name), name:files[index].name || 'Pasted image'}));
+}
 let markupPreviewSerial = 0;
 let markupFocusTimer = null;
 let reportedMarkupPath = null;
@@ -177,12 +208,33 @@ window.addEventListener('message', event => {
     return;
   }
   if (data.kind === 'ready') {
+    syncMarkupAppearance();
     if (active === t.path && t.markupView && frame) {
       event.source.postMessage({
         channel: MARKUP_EDITOR_CHANNEL, nonce: t.previewNonce,
         command: 'restore-view', view: t.markupView,
       }, t.previewOrigin);
     }
+    return;
+  }
+  if (data.kind === 'tools-error') {
+    flash('HTML editing controls could not load. Reload the document to try again.');
+    return;
+  }
+  if (data.kind === 'tools-notice') {
+    flash(String(data.message || ''));
+    return;
+  }
+  if (data.kind === 'upload-images') {
+    const reply = {channel:MARKUP_EDITOR_CHANNEL, nonce:t.previewNonce,
+      command:'images-uploaded', id:data.id};
+    uploadMarkupImages(t, data.files).then(images => {
+      event.source.postMessage({...reply, images}, event.origin);
+      if (fileState.path) browse(fileState.path);
+    }).catch(error => {
+      flash('Image paste failed: ' + errText(error));
+      event.source.postMessage({...reply, error:errText(error)}, event.origin);
+    });
     return;
   }
   if (data.kind === 'dirty') {
@@ -309,6 +361,7 @@ function showActive() {
   const textPane = document.getElementById('textpane');
   textPane.classList.toggle('on', kind === 'text');
   textPane.classList.toggle('markup', isMarkupTab(t));
+  document.getElementById('html-insert-card').hidden = !isMarkupTab(t) || t.language === 'svg';
   showMarkdownFile(t);
   document.getElementById('imgpane').classList.toggle('on', kind === 'image');
   document.getElementById('pdfpane').hidden = kind !== 'pdf';

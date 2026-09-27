@@ -217,8 +217,8 @@ def main():
         frame = page.frame_locator("#html-preview-frame")
         frame.locator("h1").wait_for()
         assert frame.locator("h1").inner_text() == "Original title"
-        frame.locator("button").click()
-        assert frame.locator("button").inner_text() == "Clicked"
+        frame.get_by_role("button", name="Click me", exact=True).click()
+        assert frame.get_by_role("button", name="Clicked", exact=True).inner_text() == "Clicked"
         preview = api("/api/previews")["previews"][0] if "previews" in api("/api/previews") else None
         if preview:
             response = page.request.get(preview["origin"] + "/preview.html")

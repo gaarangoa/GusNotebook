@@ -121,6 +121,7 @@ class PreviewServer:
         self._asset_generation = 1
         self._observed = {self.path: disk_version(self.path)}
         self._runtime = (paths.static_dir() / "markup-runtime.js").read_bytes()
+        self._tools = (paths.static_dir() / "markup-tools.js").read_bytes()
 
         self._httpd = _Server((bind_host, 0), _Handler)
         self._httpd.preview = self
@@ -245,8 +246,8 @@ class PreviewServer:
             self._write(handler, 401, b"Open this preview from GusNotebook\n", "text/plain", head_only)
             return
         route = urlsplit(handler.path).path
-        if route == "/.gusnotebook/editor.js":
-            self._write(handler, 200, self._runtime,
+        if route in {"/.gusnotebook/editor.js", "/.gusnotebook/tools.js"}:
+            self._write(handler, 200, self._runtime if route.endswith("/editor.js") else self._tools,
                         "text/javascript; charset=utf-8", head_only)
             return
 
