@@ -35,6 +35,7 @@ def tunnel_name(value):
 def executable():
     override = os.environ.get("GUSNOTEBOOK_DEVTUNNEL")
     candidates = [override] if override else [shutil.which("devtunnel"),
+        str(Path.home() / "bin/devtunnel"),
         str(Path.home() / ".devtunnel/bin/devtunnel"),
         str(Path.home() / ".local/bin/devtunnel")]
     for candidate in candidates:
@@ -45,12 +46,13 @@ def executable():
 
 
 class DevTunnels:
-    def __init__(self, command=None):
+    def __init__(self, command=None, runner=None):
         self.command = command or executable()
+        self.runner = runner
 
     def json(self, *args, missing=False):
         try:
-            result = subprocess.run([self.command, *map(str, args), "--json", "--nologo"],
+            result = (self.runner or subprocess.run)([self.command, *map(str, args), "--json", "--nologo"],
                                     capture_output=True, text=True, timeout=45)
         except (OSError, subprocess.TimeoutExpired) as exc:
             raise TunnelError(f"Cannot run devtunnel: {exc}") from exc
@@ -152,10 +154,16 @@ class DevTunnels:
         self.private(name, port)
         return name
 
-    def list(self):
+    def entries(self):
         entries = self.json("list", "--labels", LABEL).get("tunnels")
         if not isinstance(entries, list):
             raise TunnelError("Cannot read the tunnel list. Update the devtunnel CLI.")
+        return [entry for entry in entries if isinstance(entry, dict)
+                and isinstance(entry.get("labels"), list) and LABEL in entry["labels"]
+                and isinstance(entry.get("tunnelId"), str) and _NAME.fullmatch(entry["tunnelId"])]
+
+    def list(self):
+        entries = self.entries()
         if not entries:
             print("No GusNotebook tunnels found for this account.")
         for entry in entries:
@@ -166,8 +174,8 @@ class DevTunnels:
         return TunnelProcess([self.command, "host", name, "--host-header", "unchanged",
                               "--origin-header", "unchanged", "--nologo"], hosting=True)
 
-    def connect(self, name):
-        detail = self.show(name)
+    def connect(self, name, detail=None):
+        detail = detail if detail is not None else self.show(name)
         self.owned(detail)
         name = tunnel_name(detail["tunnelId"])
         self.private(name)
@@ -190,6 +198,7 @@ class TunnelProcess:
         self.done = threading.Event()
         self.stopping = False
         self.failure = None
+        self._close_lock = threading.Lock()
         try:
             self.process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                             text=True, encoding="utf-8", errors="replace", bufsize=1,
@@ -235,6 +244,10 @@ class TunnelProcess:
             raise
 
     def close(self):
+        with self._close_lock:
+            self._close()
+
+    def _close(self):
         self.stopping = True
         if self.process.poll() is None:
             try:

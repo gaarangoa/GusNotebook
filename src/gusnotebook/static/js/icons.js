@@ -14,6 +14,7 @@ const ICON_PATHS = {
   moon: '<path d="M20 14a8 8 0 0 1-10-10A8.5 8.5 0 1 0 20 14z"/>',
   sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1 1m12 12 1 1M5 19l1-1M18 6l1-1"/>',
   monitor: '<rect x="3" y="4" width="18" height="13" rx="2"/><path d="M12 17v4M8 21h8"/>',
+  tunnel: '<rect x="2" y="7" width="6" height="10" rx="2"/><rect x="16" y="7" width="6" height="10" rx="2"/><path d="M8 12h8m-5-3 3 3-3 3"/>',
   files: '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18"/>',
   sessions: '<rect x="7" y="7" width="14" height="14" rx="2"/><path d="M17 7V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h2M7 12h14"/>',
   skills: '<path d="M12 5C9 3 5 3 3 4v15c3-1 6-1 9 1 3-2 6-2 9-1V4c-2-1-6-1-9 1v15M6 8h3M15 8h3M6 12h3M15 12h3"/>',

@@ -30,7 +30,12 @@ def install(app):
         origin = request.headers.get("Origin")
         if origin and origin.rstrip("/") != request.host_url.rstrip("/"):
             return jsonify(error="Requests must come from this app's origin"), 403
-        if request.headers.get("Sec-Fetch-Site") in {"cross-site", "same-site"}:
+        # The local tunnel picker opens a separate remote workspace origin.
+        # Permit its top-level landing page; control APIs still require same origin.
+        landing = (request.method == "GET" and request.path == "/"
+                   and request.headers.get("Sec-Fetch-Mode") == "navigate"
+                   and request.headers.get("Sec-Fetch-Dest") == "document")
+        if request.headers.get("Sec-Fetch-Site") in {"cross-site", "same-site"} and not landing:
             return jsonify(error="Requests must come from this app's origin"), 403
         if request.endpoint == "static":
             return None

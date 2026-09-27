@@ -43,6 +43,7 @@ const modalClosers = {
   'dirpick-back': dirPickCancel, 'ask-back': () => askDone(false), 'prov-back': () => provenanceDone(false),
   'skill-back': closeSkill, 'sinstr-back': closeSessionInstr,
   'cell-history-back': closeCellHistory,
+  'tunnel-back': closeTunnelEditor,
 };
 document.addEventListener('keydown', event => {
   const modal = topModal();

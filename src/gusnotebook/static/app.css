@@ -1920,3 +1920,34 @@ button:disabled { opacity: .55; cursor: default; }
   .settings-tabs button, .environment-tabs button { font-size: var(--ui-size); padding: 12px 7px; gap: 5px; }
   .settings-grid { grid-template-columns: 1fr; gap: 0; }.settings-layout { align-items: flex-start; flex-direction: column; }
 }
+
+/* ---------- Local tunnel connections ---------- */
+.tunnel-account { padding: 10px; border-bottom: 1px solid var(--border); color: var(--muted); line-height: 1.5; }
+.tunnel-signin { display: flex; gap: 5px; margin-top: 6px; }
+.tunnel-signin .files-btn { padding: 3px 7px; min-height: 24px; }
+#tunnel-activity:not(:empty) { margin-top: 6px; }
+#tunnel-login-output { white-space: pre-wrap; overflow-wrap: anywhere; overflow: auto; max-height: 150px; padding: 6px; margin-top: 6px; background: var(--bg); color: var(--text); font-family: var(--mono); }
+#tunnel-login-links a { display: block; color: var(--accent); padding: 4px 0; }
+.tunnel-error { padding: 8px 10px; color: var(--red); overflow-wrap: anywhere; line-height: 1.5; }
+.tunnel-error:empty { display: none; }
+.tunnel-list { flex: 1; min-height: 0; overflow: auto; padding: 4px; }
+.tunnel-group { color: var(--muted); padding: 6px; font-weight: 600; }
+.tunnel-row { display: flex; align-items: center; border-radius: 4px; }
+.tunnel-row:hover { background: var(--hover); }
+.tunnel-open { display: flex; align-items: center; gap: 7px; flex: 1; min-width: 0; padding: 6px; border: 0; border-radius: 4px; background: transparent; color: var(--text); font: inherit; text-align: left; cursor: pointer; }
+.tunnel-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tunnel-label small { display: block; color: var(--muted); line-height: 1.5; }
+.tunnel-dot { width: 6px; height: 6px; border-radius: 50%; flex: 0 0 6px; background: var(--muted); }
+.tunnel-dot.available, .tunnel-dot.connected { background: var(--green); }
+.tunnel-dot.connecting { background: var(--accent); }
+.tunnel-dot.error { background: var(--red); }
+.tunnel-more.files-btn { padding: 3px; width: 24px; height: 24px; flex: 0 0 24px; margin-right: 3px; background: transparent; border-color: transparent; }
+.tunnel-more .icon { width: 14px; height: 14px; }
+.tunnel-help { color: var(--muted); padding: 10px; line-height: 1.6; overflow-wrap: anywhere; }
+#tunnel-details { padding: 0; white-space: pre-line; }
+#tunnel-form-error { padding: 8px 0 0; }
+.remote-badge { color: var(--accent); font-size: var(--ui-size); max-width: min(180px, 22vw); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 0 1 auto; }
+.tunnel-launch { width: min(460px, calc(100% - 32px)); margin: 12vh auto; padding: 24px; border: 1px solid var(--border); border-radius: 8px; background: var(--panel); line-height: 1.6; max-height: 80vh; overflow: auto; }
+.tunnel-launch h1 { margin: 8px 0 16px; font-weight: 600; overflow-wrap: anywhere; }
+.tunnel-launch .tunnel-help { padding: 0; margin: 12px 0; }
+.tunnel-launch .actions { display: flex; gap: 8px; margin-top: 18px; }

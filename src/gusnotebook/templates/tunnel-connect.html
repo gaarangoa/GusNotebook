@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Connect to remote GusNotebook</title>
+<script src="{{ BASE_URL }}/static/js/appearance.js"></script>
+<link rel="stylesheet" href="{{ BASE_URL }}/static/theme.css">
+<link rel="stylesheet" href="{{ BASE_URL }}/static/app.css"></head>
+<body data-base="{{ BASE_URL }}">
+<main class="tunnel-launch">
+  <p class="tunnel-help">GusNotebook · Remote connection</p>
+  <h1 id="connection-name">Connecting…</h1>
+  <p id="connection-status" role="status">Starting the connection.</p>
+  <p class="tunnel-help">Files, kernels, and terminals will run on the remote computer.</p>
+  <div class="actions"><button class="btn" id="connection-retry" hidden>Retry</button>
+    <button class="btn" id="connection-cancel">Cancel connection</button></div>
+</main>
+<script src="{{ BASE_URL }}/static/tunnel-connect.js"></script>
+</body></html>

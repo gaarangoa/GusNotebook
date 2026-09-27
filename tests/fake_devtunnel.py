@@ -9,6 +9,7 @@ import socket
 import socketserver
 import sys
 import threading
+import time
 
 
 root = Path(os.environ["GUSNOTEBOOK_FAKE_TUNNEL"])
@@ -33,11 +34,21 @@ def output(value):
 
 
 if args[:2] == ["user", "show"]:
-    output({"status": "Logged in", "provider": "GitHub", "username": "test-user"})
+    account = root / "account.json"
+    output(json.loads(account.read_text()) if account.exists() else
+           {"status": "Logged in", "provider": "GitHub", "username": "test-user"})
 elif args[:2] == ["user", "login"]:
+    if (root / "device-login").exists():
+        provider = "GitHub" if "--github" in args else "Microsoft"
+        url = "https://github.com/login/device" if provider == "GitHub" else "https://microsoft.com/devicelogin"
+        print(f"Open {url} and enter code TEST-1234", flush=True)
+        while not (root / "login-ready").exists():
+            time.sleep(.05)
+        (root / "account.json").write_text(json.dumps({"status": "Logged in", "provider": provider, "username": "test-user"}))
     output({"status": "Logged in"})
 elif args[0] == "show":
-    if not state():
+    if not state() or args[1] != state()["tunnelId"]:
+        print("Tunnel not found", file=sys.stderr)
         sys.exit(2)
     output({"tunnel": state()})
 elif args[0] == "create":
@@ -62,6 +73,9 @@ elif args[:2] == ["port", "delete"]:
     save(value)
     output({"status": "Deleted"})
 elif args[0] == "list":
+    if (root / "fail-list").exists():
+        print("Relay service unavailable", file=sys.stderr)
+        sys.exit(1)
     output({"tunnels": [state()] if state() else []})
 elif args[0] == "host":
     value = state()
@@ -76,6 +90,8 @@ elif args[0] == "host":
     print("Ready to accept connections for tunnel: " + args[1], flush=True)
     threading.Event().wait()
 elif args[0] == "connect":
+    if (root / "hold-connect").exists():
+        threading.Event().wait()
     port = state()["ports"][0]["portNumber"]
     class Forward(socketserver.BaseRequestHandler):
         def handle(self):

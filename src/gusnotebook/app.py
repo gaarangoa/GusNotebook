@@ -421,9 +421,11 @@ def kernel_for(key):
     return k
 
 
-@routes.context_processor
+@routes.app_context_processor
 def inject_base_url():
-    return {"BASE_URL": request.script_root or current_app.config["APP_BASE_URL"]}
+    from .tunnel_routes import is_local_manager
+    return {"BASE_URL": request.script_root or current_app.config["APP_BASE_URL"],
+            "LOCAL_TUNNEL_MANAGER": is_local_manager()}
 
 
 # --- Shell ---
@@ -2193,6 +2195,8 @@ def create_app(config=None):
 
     application.extensions["authenticated"] = auth.install(application)
     application.register_blueprint(routes)
+    from .tunnel_routes import tunnel_routes
+    application.register_blueprint(tunnel_routes)
 
     @application.errorhandler(notebook_mod.NotebookReadError)
     def notebook_error(exc):
@@ -2319,6 +2323,7 @@ def main(argv=None):
                                   "ALLOWED_HOSTS": allowed, "TRUST_PROXY": args.trust_proxy,
                                   "AUTH_REQUIRED": not (args.no_auth or args.tunnel),
                                   "PREVIEW_SINGLE_PORT": bool(args.tunnel),
+                                  "TUNNEL_NAME": name,
                                   "DEBUG": args.debug})
         server.app = application
         if args.tunnel:

@@ -24,6 +24,7 @@
     <button class="sidebar-button" id="sidebar-files" onclick="showSidebarSection('files', true)" aria-label="Files" title="Files" aria-controls="sidebar-files-pane" aria-pressed="true"><span data-icon="folder"></span></button>
     <button class="sidebar-button" id="sidebar-sessions" onclick="showSidebarSection('sessions', true)" aria-label="Sessions" title="Sessions" aria-controls="sessions" aria-pressed="false"><span data-icon="sessions"></span></button>
     <button class="sidebar-button" id="sidebar-skills" onclick="showSidebarSection('skills', true)" aria-label="Skills" title="Skills" aria-controls="skills" aria-pressed="false"><span data-icon="skills"></span></button>
+    {% if LOCAL_TUNNEL_MANAGER %}<button class="sidebar-button" id="sidebar-tunnels" onclick="showSidebarSection('tunnels', true)" aria-label="Tunnels" title="Tunnels" aria-controls="tunnels" aria-pressed="false"><span data-icon="tunnel"></span></button>{% endif %}
   </nav>
   <div class="files" id="files" role="region" aria-label="Sidebar">
     <div id="file-splitter" class="file-splitter" role="separator" tabindex="0" aria-label="Resize sidebar" aria-orientation="vertical" aria-controls="files"></div>
@@ -64,10 +65,31 @@
       <div class="skill-list" id="skill-list"></div>
     </section>
 
+    {% if LOCAL_TUNNEL_MANAGER %}
+    <section class="sidebar-pane" id="tunnels" aria-labelledby="sidebar-tunnels" hidden>
+      <div class="strip-head"><span class="grow">Tunnels</span>
+        <button class="strip-new" onclick="refreshTunnels()" id="tunnel-refresh">Refresh</button>
+        <button class="strip-new" onclick="openTunnelEditor()" aria-label="Add tunnel">+</button>
+      </div>
+      <div class="tunnel-account">
+        <div id="tunnel-account">Checking account…</div>
+        <div class="tunnel-signin"><button class="files-btn" onclick="loginTunnel('github')" aria-label="Sign in with GitHub">GitHub</button>
+          <button class="files-btn" onclick="loginTunnel('microsoft')" aria-label="Sign in with Microsoft">Microsoft</button></div>
+        <div id="tunnel-activity" role="status"></div>
+        <pre id="tunnel-login-output" role="log" aria-label="Tunnel sign-in instructions" hidden></pre>
+        <div id="tunnel-login-links"></div>
+        <button class="files-btn" id="tunnel-cancel-login" onclick="cancelTunnelLogin()" hidden>Cancel sign-in</button>
+      </div>
+      <div id="tunnel-error" class="tunnel-error" role="status" hidden></div>
+      <div class="tunnel-list" id="tunnel-list"></div>
+      <p class="tunnel-help">Open a remote workspace in a new window. The remote computer must already be running GusNotebook with <code>--tunnel</code>.</p>
+    </section>
+    {% endif %}
   </div>
 
   <div class="left">
     <header class="app-header">
+      {% if config.get('TUNNEL_NAME') %}<span class="remote-badge" title="Files, kernels, and terminals run on the remote computer">Remote: {{ config.TUNNEL_NAME }}</span>{% endif %}
       <div class="tabs" id="tabs" role="tablist" aria-label="Open documents"></div>
       <nav class="header-tools" aria-label="Workspace controls">
         <button class="files-btn icon-button" id="settings-button" onclick="openSettings()" title="Settings" aria-label="Settings"><span data-icon="settings"></span></button>
@@ -249,6 +271,20 @@
 </div>
 
 <button id="panel-backdrop" class="panel-backdrop" hidden aria-label="Close side panel" onclick="closePanelDrawer()"></button>
+
+<!-- ---------- Tunnels ---------- -->
+<div class="modal-back" id="tunnel-back" onclick="if (event.target === this) closeTunnelEditor()">
+  <form class="modal" role="dialog" aria-modal="true" aria-labelledby="tunnel-title" onsubmit="event.preventDefault(); saveTunnelEntry()">
+    <div class="mhead" id="tunnel-title">Add tunnel</div>
+    <div class="mbody">
+    <div class="field"><label for="tunnel-name">Display name</label><input type="text" id="tunnel-name" maxlength="100" placeholder="Research workstation"></div>
+    <div class="field"><label for="tunnel-id">Tunnel ID</label><input type="text" id="tunnel-id" required maxlength="100" placeholder="my-research.usw2" spellcheck="false"></div>
+    <p class="tunnel-help" id="tunnel-details"></p>
+    <p class="tunnel-error" id="tunnel-form-error" role="status"></p>
+    </div>
+    <div class="mfoot"><button class="btn" type="button" onclick="closeTunnelEditor()">Close</button><button class="btn primary" type="submit" id="tunnel-save">Add</button></div>
+  </form>
+</div>
 
 <!-- ---------- Environments ---------- -->
 <div class="modal-back" id="environment-back" onclick="if (event.target === this) closeEnvironments()">
@@ -606,6 +642,7 @@ results = pd.read_csv(<span class="sample-string">"data.csv"</span>)</pre><p>Rea
 <script src="{{ BASE_URL }}/static/js/terminals.js"></script>
 <script src="{{ BASE_URL }}/static/js/history.js"></script>
 <script src="{{ BASE_URL }}/static/js/environments.js"></script>
+<script src="{{ BASE_URL }}/static/js/tunnels.js"></script>
 <script src="{{ BASE_URL }}/static/js/accessibility.js"></script>
 
 </body>

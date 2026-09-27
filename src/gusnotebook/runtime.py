@@ -7,6 +7,7 @@ from . import bus, cellhistory, notebook, paths, preview, sessions, terminals, t
 from .history import History
 from .environments import EnvironmentManager
 from .kernel import KernelPool
+from .tunnel_manager import TunnelManager
 
 
 class Runtime:
@@ -31,6 +32,7 @@ class Runtime:
         self.settings_memory = {}
         self.history = History(paths.state("history"))
         self.environments = EnvironmentManager(paths.state("environments.json"))
+        self.tunnels = TunnelManager(paths.state("tunnels.json"))
         self.stop = threading.Event()
         self.watcher = None
         self.workers = set()
@@ -66,6 +68,7 @@ class Runtime:
 
     def close(self):
         self.stop.set()
+        self.tunnels.close()
         self.environments.close()
         if self.watcher:
             self.watcher.join(timeout=2)

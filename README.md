@@ -251,6 +251,40 @@ gusnotebook --tunnel my-research --tunnel-login github --port 4477
 
 The local `gusnotebook --connect my-research` command stays the same.
 
+### Connect from the Tunnels sidebar
+
+You can keep a local workspace open and use it to launch remote workspaces:
+
+1. Start the remote computer as above with `gusnotebook --tunnel my-research`.
+2. Start GusNotebook normally on your laptop: `gusnotebook` (or `uv run gusnotebook`
+   from a checkout). Open its local launch link.
+3. Select **Tunnels** in the left sidebar. Sign in with **GitHub** or **Microsoft**
+   using the same account as the remote computer. The sidebar shows the sign-in
+   link and device code; existing CLI sign-ins are reused.
+4. Click **Refresh** to discover your GusNotebook tunnels. Click a tunnel to save
+   it and open its remote workspace in a separate browser window or tab.
+
+Use **+** to save a friendly display name and the full tunnel ID printed by the
+remote computer. Saved entries survive local restarts; connections start when
+you click them. Entries show whether the tunnel is available, offline, connecting,
+or connected. The **…** menu includes rename, connection details, disconnect,
+and removal from your saved list. Repeated opens share the same connection.
+
+The remote window is marked **Remote: tunnel-name**. Its files, kernels,
+environments, and terminals belong to the remote computer; your local workspace
+stays open separately. Keep the local GusNotebook process running while connected.
+**Disconnect**, removing a saved entry, or closing the local app stops only the
+local connection. Remote kernels, variables, terminals, and files remain available
+when you reconnect. Closing a browser tab alone does not disconnect the tunnel.
+
+The picker is available when you access your local app through `localhost` or
+`127.0.0.1`. Install devtunnel on that computer to sign in and connect. It manages
+GusNotebook tunnels, not VS Code server tunnels. Saved names and IDs are stored
+in `tunnels.json` inside the local GusNotebook state directory; account credentials
+remain managed by Microsoft's CLI. To change accounts, disconnect first.
+
+### Connection details
+
 Tunnels created by GusNotebook are private to the signed-in account. Hosting
 binds the app to **loopback only**, regardless of `HOST`/`--host`, and refuses
 tunnels with shared access rules, unrelated labels, extra ports, or another
