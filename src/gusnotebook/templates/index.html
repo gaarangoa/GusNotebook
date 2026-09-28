@@ -25,6 +25,7 @@
     <button class="sidebar-button" id="sidebar-sessions" onclick="showSidebarSection('sessions', true)" aria-label="Sessions" title="Sessions" aria-controls="sessions" aria-pressed="false"><span data-icon="sessions"></span></button>
     <button class="sidebar-button" id="sidebar-skills" onclick="showSidebarSection('skills', true)" aria-label="Skills" title="Skills" aria-controls="skills" aria-pressed="false"><span data-icon="skills"></span></button>
     {% if LOCAL_TUNNEL_MANAGER %}<button class="sidebar-button" id="sidebar-tunnels" onclick="showSidebarSection('tunnels', true)" aria-label="Tunnels" title="Tunnels" aria-controls="tunnels" aria-pressed="false"><span data-icon="tunnel"></span></button>{% endif %}
+    <button class="sidebar-button" id="sidebar-git" onclick="showSidebarSection('git', true)" aria-label="Git" title="Git" aria-controls="git-pane" aria-pressed="false"><span data-icon="git"></span></button>
   </nav>
   <div class="files" id="files" role="region" aria-label="Sidebar">
     <div id="file-splitter" class="file-splitter" role="separator" tabindex="0" aria-label="Resize sidebar" aria-orientation="vertical" aria-controls="files"></div>
@@ -63,6 +64,35 @@
                 title="New skill">New</button>
       </div>
       <div class="skill-list" id="skill-list"></div>
+    </section>
+
+    <section class="sidebar-pane" id="git-pane" aria-labelledby="sidebar-git" hidden>
+      <div class="strip-head"><span class="grow">Git</span><button class="strip-new" onclick="refreshGit()">Refresh</button></div>
+      <div class="git-account">
+        <div id="git-account">Use existing Git credentials or sign in to GitHub.</div>
+        <div class="git-buttons"><button class="files-btn" id="git-login" onclick="gitSignIn()">Sign in to GitHub</button>
+          <button class="files-btn" id="git-auth-refresh" onclick="gitSignIn(false)" title="Check existing GitHub CLI sign-in">Check account</button></div>
+        <p id="git-install" hidden>Install <a href="https://cli.github.com" target="_blank" rel="noopener noreferrer">GitHub CLI</a> for browser sign-in. Existing Git credentials still work.</p>
+        <pre id="git-login-output" role="log" aria-label="GitHub sign-in instructions" hidden></pre>
+        <a id="git-login-link" href="https://github.com/login/device" target="_blank" rel="noopener noreferrer" hidden>Open GitHub sign-in</a>
+        <button class="files-btn" id="git-login-cancel" onclick="gitCancelLogin()" hidden>Cancel sign-in</button>
+      </div>
+      <div class="git-project"><div id="git-root"></div><div id="git-branch"></div></div>
+      <div id="git-error" class="tunnel-error" role="status" hidden></div>
+      <div id="git-operation" role="status"></div>
+      <button class="files-btn" id="git-operation-cancel" onclick="gitCancelOperation()" hidden>Cancel operation</button>
+      <button class="files-btn" id="git-init" onclick="gitAction('init')" hidden>Initialize repository</button>
+      <div class="git-buttons" id="git-network" hidden>
+        <button class="files-btn" onclick="gitAction('fetch')">Fetch</button>
+        <button class="files-btn" onclick="gitAction('pull')" title="Pull with fast-forward only">Pull</button>
+        <button class="files-btn" onclick="gitAction('push')">Push</button>
+      </div>
+      <div id="git-changes" class="git-changes"></div>
+      <form class="git-commit" id="git-commit" onsubmit="event.preventDefault(); gitAction('commit')" hidden>
+        <textarea id="git-message" rows="2" placeholder="Commit message" aria-label="Commit message" maxlength="10000" required></textarea>
+        <button class="files-btn" id="git-commit-button" type="submit">Commit staged</button>
+      </form>
+      <p class="tunnel-help">Uses the folder shown in Files. Changes reflect saved files. Git runs on this workspace’s computer.</p>
     </section>
 
     {% if LOCAL_TUNNEL_MANAGER %}
@@ -272,6 +302,14 @@
 
 <button id="panel-backdrop" class="panel-backdrop" hidden aria-label="Close side panel" onclick="closePanelDrawer()"></button>
 
+<!-- ---------- Git diff ---------- -->
+<div class="modal-back" id="git-diff-back" onclick="if(event.target === this) closeGitDiff()">
+  <div class="modal git-diff-modal" role="dialog" aria-modal="true" aria-labelledby="git-diff-title">
+    <div class="mhead"><span class="grow" id="git-diff-title">Changes</span><button class="tb" onclick="closeGitDiff()" aria-label="Close diff"><span data-icon="close"></span></button></div>
+    <pre id="git-diff-text" tabindex="0"></pre>
+    <div class="mfoot"><button class="btn" onclick="closeGitDiff()">Close</button></div>
+  </div>
+</div>
 <!-- ---------- Tunnels ---------- -->
 <div class="modal-back" id="tunnel-back" onclick="if (event.target === this) closeTunnelEditor()">
   <form class="modal" role="dialog" aria-modal="true" aria-labelledby="tunnel-title" onsubmit="event.preventDefault(); saveTunnelEntry()">
@@ -643,6 +681,7 @@ results = pd.read_csv(<span class="sample-string">"data.csv"</span>)</pre><p>Rea
 <script src="{{ BASE_URL }}/static/js/history.js"></script>
 <script src="{{ BASE_URL }}/static/js/environments.js"></script>
 <script src="{{ BASE_URL }}/static/js/tunnels.js"></script>
+<script src="{{ BASE_URL }}/static/js/git.js"></script>
 <script src="{{ BASE_URL }}/static/js/accessibility.js"></script>
 
 </body>

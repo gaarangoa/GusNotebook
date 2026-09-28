@@ -273,9 +273,14 @@ def add_arguments(parser):
 
 
 def connect_client(cli, name, no_browser=False):
+    from .git_auth import GitAuth
+    from .git_bridge import CredentialForward
     tunnel = cli.connect(name)
+    auth = GitAuth(Path.cwd())
+    forward = None
     try:
         tunnel.wait_ready()
+        forward = CredentialForward(tunnel.local_port, auth)
         url = f"http://gusnotebook.localhost:{tunnel.local_port}/"
         print(f"Remote GusNotebook — {url}\nFiles, kernels and terminals run on the remote computer.\n"
               "Keep this command running. Ctrl-C disconnects this computer only.", flush=True)
@@ -286,4 +291,7 @@ def connect_client(cli, name, no_browser=False):
     except KeyboardInterrupt:
         pass
     finally:
+        if forward:
+            forward.close()
+        auth.close()
         tunnel.close()

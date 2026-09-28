@@ -8,6 +8,7 @@ from .history import History
 from .environments import EnvironmentManager
 from .kernel import KernelPool
 from .tunnel_manager import TunnelManager
+from .git_manager import GitManager
 
 
 class Runtime:
@@ -32,7 +33,8 @@ class Runtime:
         self.settings_memory = {}
         self.history = History(paths.state("history"))
         self.environments = EnvironmentManager(paths.state("environments.json"))
-        self.tunnels = TunnelManager(paths.state("tunnels.json"))
+        self.git = GitManager(paths.work_dir())
+        self.tunnels = TunnelManager(paths.state("tunnels.json"), git_auth=self.git.auth)
         self.stop = threading.Event()
         self.watcher = None
         self.workers = set()
@@ -69,6 +71,7 @@ class Runtime:
     def close(self):
         self.stop.set()
         self.tunnels.close()
+        self.git.close()
         self.environments.close()
         if self.watcher:
             self.watcher.join(timeout=2)

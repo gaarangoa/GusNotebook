@@ -30,8 +30,9 @@ def _stop(process):
 
 
 class TunnelManager:
-    def __init__(self, registry_path):
+    def __init__(self, registry_path, git_auth=None):
         self.path = Path(registry_path)
+        self.git_auth = git_auth
         self.lock = threading.RLock()
         self.closed = False
         self.saved = {}
@@ -189,6 +190,8 @@ class TunnelManager:
                 if connection.get("state") in {"connecting", "connected", "error"}:
                     state = connection["state"]
                 rows.append({**entry, "state": state, "url": connection.get("url"),
+                             "git_sharing": getattr(connection.get("git_forward"), "connected", False),
+                             "git_error": getattr(connection.get("git_forward"), "error", None),
                              "error": connection.get("error"), "local_port": connection.get("port")})
             activity = None if self.activity is None else {k: v for k, v in self.activity.items() if k != "cancel"}
             registered = {row["tunnel"].lower() for row in rows}
@@ -281,6 +284,7 @@ class TunnelManager:
 
     def _connect(self, entry, connection):
         process = None
+        forward = None
         canonical = None
         cancel = connection["cancel"]
         try:
@@ -314,6 +318,11 @@ class TunnelManager:
             if cancel.is_set() or self.closed:
                 return
             process.wait_ready()
+            if self.git_auth and not cancel.is_set() and not self.closed:
+                from .git_bridge import CredentialForward
+                forward = CredentialForward(process.local_port, self.git_auth)
+                with self.lock:
+                    connection["git_forward"] = forward
             with self.lock:
                 if cancel.is_set() or self.closed:
                     return
@@ -332,6 +341,8 @@ class TunnelManager:
                 if not cancel.is_set():
                     connection.update(state="error", error=str(exc), url=None)
         finally:
+            if forward:
+                forward.close()
             if process:
                 process.close()
             with self.lock:
@@ -348,7 +359,10 @@ class TunnelManager:
             connection["cancel"].set()
             connection.update(state="disconnected", error=None, url=None)
             process = connection.get("process")
+            forward = connection.get("git_forward")
         # A separate close interrupts wait_ready as well as an active forward.
+        if forward:
+            forward.close()
         if process:
             process.close()
 
@@ -365,6 +379,8 @@ class TunnelManager:
         for process in children:
             _stop(process)
         for connection in connections:
+            if connection.get("git_forward"):
+                connection["git_forward"].close()
             if connection.get("process"):
                 connection["process"].close()
         deadline = time.monotonic() + 6

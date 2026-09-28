@@ -2032,7 +2032,7 @@ def main():
               [(pkg_dir / "static" / "app.css").is_file(),
                sorted(p.name for p in (pkg_dir / "static" / "js").glob("*.js"))],
               [True, ["accessibility.js", "actions.js", "appearance.js", "auth.js", "browser.js", "cells.js", "core.js",
-                      "editor.js", "environments.js", "events.js", "history.js", "icons.js", "layout.js", "markdown.js", "panels.js", "terminals.js", "tunnels.js"]])
+                      "editor.js", "environments.js", "events.js", "git.js", "history.js", "icons.js", "layout.js", "markdown.js", "panels.js", "terminals.js", "tunnels.js"]])
         # Work is separate again: the file browser and new tabs start where the
         # user launched the app, not where the code happens to be installed.
         work = pathlib.Path(get("/api/files")["cwd"])

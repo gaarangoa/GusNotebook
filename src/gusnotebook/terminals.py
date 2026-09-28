@@ -584,6 +584,9 @@ class Session:
         if self.kind == "claude":
             extra_env.update(bedrock_env())
         child_env = {**os.environ, **extra_env, "TERM": "xterm-256color"}
+        from flask import current_app, has_app_context
+        if has_app_context() and "gusnotebook" in current_app.extensions:
+            child_env = current_app.extensions["gusnotebook"].git.auth.environment(child_env)
         child_env.setdefault("COLORTERM", "truecolor")
         if not child_env.get("NO_COLOR"):
             child_env.setdefault("CLICOLOR", "1")

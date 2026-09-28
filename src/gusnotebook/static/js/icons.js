@@ -1,5 +1,6 @@
 /* A single local stroke icon set. Names are constants; no user SVG is inserted. */
 const ICON_PATHS = {
+  git: '<circle cx="6" cy="5" r="2"/><circle cx="6" cy="19" r="2"/><circle cx="18" cy="5" r="2"/><path d="M6 7v10M18 7v2a5 5 0 0 1-5 5H6"/>',
   more: '<circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/>',
   plus: '<path d="M12 5v14M5 12h14"/>', close: '<path d="m6 6 12 12M18 6 6 18"/>',
   folder: '<path d="M3 6h6l2 2h10v12H3z"/>', file: '<path d="M6 3h8l4 4v14H6zM14 3v5h4"/>',

@@ -143,7 +143,8 @@ function openTunnelEditor(row = null) {
   document.getElementById('tunnel-save').hidden = !!row;
   document.getElementById('tunnel-form-error').textContent = '';
   document.getElementById('tunnel-details').textContent = row
-    ? [row.state, row.url, row.last_connected ? 'Last connected: ' + new Date(row.last_connected * 1000).toLocaleString() : '', row.error].filter(Boolean).join('\n')
+    ? [row.state, row.url, row.git_sharing ? 'GitHub credential sharing connected' : row.git_error,
+       row.last_connected ? 'Last connected: ' + new Date(row.last_connected * 1000).toLocaleString() : '', row.error].filter(Boolean).join('\n')
     : 'Use the full tunnel ID printed by GusNotebook on the remote computer.';
   document.getElementById('tunnel-back').classList.add('on');
   document.getElementById(row ? 'tunnel-id' : 'tunnel-name').focus();

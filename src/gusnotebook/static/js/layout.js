@@ -1,7 +1,7 @@
 /* Persist preferred widths, while adapting the visible layout to the window. */
 const LAYOUT_KEY = 'gusnotebook.layout';
 const layoutDefaults = {filesWidth: 240, termWidth: 360, files: true, terminal: true, focus: false, sidebarSection: 'files'};
-const sidebarSections = {files: 'sidebar-files-pane', sessions: 'sessions', skills: 'skills'};
+const sidebarSections = {files: 'sidebar-files-pane', sessions: 'sessions', skills: 'skills', git: 'git-pane'};
 if (document.getElementById('sidebar-tunnels')) sidebarSections.tunnels = 'tunnels';
 let layoutPrefs = {...layoutDefaults};
 try {
@@ -76,6 +76,7 @@ function applyLayout() {
   }
   scheduleTerminalFit();
   if (typeof syncTunnelPanel === 'function') syncTunnelPanel();
+  if (typeof syncGitPanel === 'function') syncGitPanel();
 }
 function togglePanel(name) {
   const element = document.getElementById(name === 'files' ? 'files' : 'agent-pane');

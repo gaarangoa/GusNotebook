@@ -1951,3 +1951,28 @@ button:disabled { opacity: .55; cursor: default; }
 .tunnel-launch h1 { margin: 8px 0 16px; font-weight: 600; overflow-wrap: anywhere; }
 .tunnel-launch .tunnel-help { padding: 0; margin: 12px 0; }
 .tunnel-launch .actions { display: flex; gap: 8px; margin-top: 18px; }
+
+/* ---------- Git sidebar ---------- */
+.git-account { padding: 10px; border-bottom: 1px solid var(--border); line-height: 1.5; color: var(--muted); }
+.git-account a { color: var(--accent); }
+.git-buttons { display: flex; gap: 5px; flex-wrap: wrap; padding: 5px 10px; }
+.git-account .git-buttons { padding: 6px 0 0; }
+.git-buttons .files-btn { padding: 3px 6px; min-height: 24px; }
+#git-install { margin-top: 6px; }
+#git-login-output { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 140px; overflow: auto; padding: 6px; margin: 6px 0; background: var(--bg); color: var(--text); font-family: var(--mono); }
+.git-project { padding: 8px 10px; line-height: 1.6; border-bottom: 1px solid var(--border); }
+#git-root { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+#git-branch { color: var(--muted); overflow-wrap: anywhere; }
+#git-operation:not(:empty) { padding: 6px 10px; color: var(--muted); }
+#git-operation-cancel, #git-init { align-self: flex-start; margin: 4px 10px; }
+.git-changes { flex: 1; min-height: 0; overflow: auto; padding: 4px; }
+.git-group { display: flex; justify-content: space-between; align-items: center; padding: 4px 6px; color: var(--muted); font-weight: 600; }
+.git-row { display: flex; align-items: center; gap: 4px; min-height: 26px; border-radius: 4px; padding-right: 4px; }
+.git-row:hover { background: var(--hover); }
+.git-file { flex: 1; min-width: 0; padding: 4px 6px; border: 0; background: transparent; color: var(--text); font: inherit; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; cursor: pointer; }
+.git-status { color: var(--muted); font-family: var(--mono); }
+.git-row .files-btn { width: 22px; height: 22px; padding: 0; flex: 0 0 22px; background: transparent; border-color: transparent; }
+.git-commit { padding: 8px 10px; border-top: 1px solid var(--border); }
+.git-commit textarea { display: block; width: 100%; resize: vertical; max-height: 140px; padding: 6px; margin-bottom: 6px; border: 1px solid var(--border); border-radius: 4px; background: var(--panel); color: var(--text); font: inherit; }
+.git-diff-modal { width: min(920px, calc(100vw - 32px)); }
+#git-diff-text { padding: 16px; overflow: auto; max-height: 65vh; white-space: pre; font-family: var(--mono); font-size: var(--ui-size); line-height: 1.6; tab-size: 4; }

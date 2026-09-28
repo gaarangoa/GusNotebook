@@ -306,6 +306,66 @@ fails permanently, the command exits with an error; rerun it after restoring
 connectivity. No cloud sign-in or public tunnel is required to run the repository's
 automated tunnel tests: they substitute an offline TCP relay for the external service.
 
+## Git and GitHub sign-in
+
+Open **Git** in the left sidebar to work with the repository containing the
+folder shown in **Files**. The panel shows the branch, incoming/outgoing commit
+counts, and staged/unstaged files. Click a file to review its diff, use **+ / −**
+to stage or unstage it, enter a message, and select **Commit staged**. **Fetch**,
+**Pull**, and **Push** use the repository's configured remotes and upstream.
+Pull uses fast-forward only; resolve diverging branches or conflicts in the
+terminal. Changes reflect files saved to disk, including changes made by agents.
+For a folder without Git, use **Initialize repository**.
+
+Existing Git configuration and credentials are reused, including configured
+credential helpers. For browser sign-in, install GitHub's separate **`gh` CLI**
+on the computer where you want to keep your GitHub login. On macOS:
+
+```bash
+brew install gh
+```
+
+For Linux/WSL, follow [GitHub CLI's installation instructions](https://github.com/cli/cli#installation).
+If it is outside PATH, set `GUSNOTEBOOK_GH=/absolute/path/to/gh` before starting
+GusNotebook. Installing GusNotebook with uv does not install Git or GitHub CLI.
+
+Click **Sign in to GitHub** in the Git panel, open the displayed GitHub link,
+and enter the device code. **Check account** detects an existing `gh auth login`.
+GitHub CLI manages the login in the operating system credential store, falling
+back to its own configuration file when that store is unavailable, as described
+in [its authentication documentation](https://cli.github.com/manual/gh_auth_login).
+GusNotebook does not write OAuth tokens into notebooks, app settings, or saved
+tunnel entries. Sign out using `gh auth logout --hostname github.com` on the
+computer holding that login, then use **Check account**.
+
+The Git panel, newly opened terminals, and Claude/Codex sessions use the same
+GitHub authentication helper. Existing terminals created before upgrading the
+app need to be reopened once. This integration supports **GitHub.com over HTTPS**;
+SSH remotes continue using the machine's normal SSH configuration.
+
+### Share your local login with a remote workspace
+
+Sign in from your **local** GusNotebook, then connect through **Tunnels**. The
+remote Git panel, terminals, and agents can request GitHub credentials through
+that connection. This also works with `gusnotebook --connect NAME` when your
+local Git credentials or GitHub CLI login are already configured. Install the
+updated GusNotebook on both computers; GitHub CLI is only required on the
+computer holding the login. Git itself must be installed where commands run.
+
+Credentials already configured on the remote computer take precedence. Otherwise,
+the Git panel displays **GitHub credentials shared from your local app**. The
+Tunnels **Details** view reports sharing status. One local connection supplies
+credentials to a remote workspace at a time. Disconnecting ends credential
+sharing while the remote workspace keeps running. An abruptly lost connection
+expires after 30 seconds; reconnect to establish a new sharing session.
+
+Sharing is limited to HTTPS credential requests for `github.com`. Forwarded
+credentials are provided to the remote Git process in memory. The app helper
+does not save them in the remote credential store or change persistent Git
+configuration. This does not forward SSH keys or authenticate GitHub CLI/API
+commands on the remote computer. Tunnel sign-in and GitHub repository access
+are separate authorizations; a tunnel-only login can still require Git sign-in.
+
 ## Cell history
 
 Each cell has a persistent **History** timeline. Click the existing agent request
@@ -519,6 +579,7 @@ uv run playwright install chromium
 uv run python tests/test_reliability_ui.py
 uv run python tests/test_tabs_ui.py
 uv run python tests/test_environments_ui.py
+uv run python tests/test_git_ui.py
 uv run python tests/test_appearance_ui.py
 uv run python tests/test_notebook_math_ui.py
 uv run python scripts/benchmark.py
