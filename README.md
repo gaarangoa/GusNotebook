@@ -1,9 +1,20 @@
 # GusNotebook
 
-GusNotebook is a browser-based workspace for data analysis: Jupyter-compatible
-notebooks alongside Claude Code, Codex, and shell terminals. Agents can work on
-the cell or document you select. It includes uv environments, HTML and Markdown
-previews, cell history, Git, and light and dark themes.
+**Traceable data science, from exploration to communication.**
+
+GusNotebook connects analysis, AI collaboration, and scientific communication
+in one workspace. Jupyter-compatible notebooks, AI agents, and visual document
+editing support the analysis lifecycle, with human review and scientific
+judgment at the center.
+
+Track agent requests, code changes, executions, and analyst notes at the cell
+level. Bring notebook outputs—including tables and visualizations—directly into
+web pages and HTML presentations, using provenance snapshots to keep shared
+results connected to the analysis that produced them.
+
+Designed for everyday research in biopharma and other fields where traceability
+matters, GusNotebook helps you review agent contributions, document analytical
+decisions, and communicate findings with a clear record of how they evolved.
 
 Runs on **macOS and Linux (including WSL)**, locally or on a remote computer.
 Agent CLIs are optional; install and sign in to them where the workspace runs.
