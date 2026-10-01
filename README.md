@@ -90,8 +90,19 @@ Open the local browser address printed by GusNotebook. Files, kernels, and agent
 run remotely, with no additional notebook token or password. If needed, use the
 full tunnel name printed by the remote computer.
 
-Alternatively, start GusNotebook locally, open **Tunnels**, sign in, click
-**Refresh**, and select your tunnel. Use **+** to save a tunnel by its full name.
+Alternatively, start GusNotebook locally and open **Accounts** at the bottom of
+the left bar. **Sign in with GitHub** connects Git and tunnels in one guided
+workflow, reusing existing sign-ins. First-time setup requires separate approvals
+for GitHub CLI and Dev Tunnels. Microsoft sign-in for tunnels is also available
+under **Other sign-in options**. Then open **Tunnels**, click **Refresh**, and
+select your tunnel. Use **+** to save a tunnel by its full name.
+
+If either CLI is missing, Accounts offers **Set up GitHub** on macOS and Linux
+(Intel or ARM64). It downloads the official tools into GusNotebook's per-user
+state directory, shows progress, and continues to sign-in. No administrator
+password or Homebrew is needed. Existing installations are reused; a failed or
+canceled download can be retried from the same popup.
+Linux may also require the distribution's `libsecret` package for tunnel credential storage.
 
 Keep both processes running. Disconnecting locally leaves the remote workspace
 running; stopping GusNotebook on the remote computer shuts it down.

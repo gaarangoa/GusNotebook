@@ -32,6 +32,7 @@ def _stop(process):
 class TunnelManager:
     def __init__(self, registry_path, git_auth=None):
         self.path = Path(registry_path)
+        self.tools_dir = (self.path.parent / "tools").resolve()
         self.git_auth = git_auth
         self.lock = threading.RLock()
         self.closed = False
@@ -165,7 +166,7 @@ class TunnelManager:
                 self.children.discard(process)
 
     def _cli(self, cancel):
-        return DevTunnels(runner=lambda command, **kwargs: self._run(command, cancel, **kwargs))
+        return DevTunnels(command=executable(self.tools_dir), runner=lambda command, **kwargs: self._run(command, cancel, **kwargs))
 
     def _account(self, cli):
         status = cli.json("user", "show")
@@ -178,7 +179,7 @@ class TunnelManager:
     def snapshot(self):
         with self.lock:
             try:
-                executable()
+                executable(self.tools_dir)
                 cli_error = None
             except TunnelError as exc:
                 cli_error = str(exc)

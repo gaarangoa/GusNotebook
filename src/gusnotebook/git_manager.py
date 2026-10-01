@@ -9,9 +9,9 @@ from .git_process import Commands, GitError, redact
 
 
 class GitManager:
-    def __init__(self, work):
+    def __init__(self, work, tools_dir=None):
         self.work = str(work)
-        self.auth = GitAuth(work)
+        self.auth = GitAuth(work, tools_dir=tools_dir)
         self.commands = Commands()
         self.lock = threading.RLock()
         self.job = None
@@ -37,7 +37,7 @@ class GitManager:
         if check and result.returncode:
             error = redact(result.stderr or result.stdout or "Git command failed")[-6000:]
             if any(text in error.lower() for text in ("authentication failed", "could not read username", "could not read password")):
-                error += "\nSign in from the Git panel, or from your local Git panel when sharing through a tunnel."
+                error += "\nSign in from Accounts, or from Accounts in your local app when sharing through a tunnel."
             raise GitError(error)
         return result
 

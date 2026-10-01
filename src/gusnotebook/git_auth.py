@@ -14,12 +14,15 @@ import threading
 
 from .git_bridge import RemoteCredentials, credentials, github_query
 from .git_process import Commands, GitError, redact
+from . import paths
 
 
-def executable(name, variable):
-    candidate = os.environ.get(variable) or shutil.which(name)
-    if candidate and Path(candidate).is_file() and os.access(candidate, os.X_OK):
-        return str(Path(candidate).resolve())
+def executable(name, variable, tools_dir=None):
+    override = os.environ.get(variable)
+    candidates = [override] if override else [shutil.which(name), str(Path(tools_dir) / name) if tools_dir else None]
+    for candidate in candidates:
+        if candidate and Path(candidate).is_file() and os.access(candidate, os.X_OK):
+            return str(Path(candidate).resolve())
     return None
 
 
@@ -38,8 +41,9 @@ def base_environment(environment):
 
 
 class GitAuth:
-    def __init__(self, work):
+    def __init__(self, work, tools_dir=None):
         self.work = str(work)
+        self.tools_dir = (Path(tools_dir) if tools_dir is not None else paths.state("tools")).resolve()
         self.env = base_environment(os.environ)
         self.commands = Commands()
         self.lock = threading.RLock()
@@ -52,7 +56,7 @@ class GitAuth:
 
     def snapshot(self):
         with self.lock:
-            gh = executable("gh", "GUSNOTEBOOK_GH")
+            gh = executable("gh", "GUSNOTEBOOK_GH", self.tools_dir)
             job = None if self.job is None else {k: v for k, v in self.job.items() if k != "cancel"}
             return {"account": dict(self.account), "activity": job, "gh_available": bool(gh),
                     "shared": self.remote.active(), "shared_account": self.remote.account if self.remote.active() else None}
@@ -63,7 +67,7 @@ class GitAuth:
                 raise GitError("GusNotebook is shutting down")
             if self.job and self.job["state"] == "running":
                 return
-            gh = executable("gh", "GUSNOTEBOOK_GH")
+            gh = executable("gh", "GUSNOTEBOOK_GH", self.tools_dir)
             if not gh:
                 raise GitError("Install GitHub CLI (gh) to sign in: https://cli.github.com")
             job = {"state": "running", "kind": "login" if login else "refresh", "output": "", "error": None,
@@ -126,7 +130,7 @@ class GitAuth:
                     return found
             except (OSError, GitError):
                 pass
-        gh = executable("gh", "GUSNOTEBOOK_GH")
+        gh = executable("gh", "GUSNOTEBOOK_GH", self.tools_dir)
         if gh:
             try:
                 result = self.commands.run([gh, "auth", "token", "--hostname", "github.com"], env=env, timeout=5)
@@ -144,6 +148,8 @@ class GitAuth:
             if self.server is None:
                 self._serve()
             env = base_environment(environment if environment is not None else self.env)
+            if self.tools_dir.is_dir():
+                env["PATH"] = env.get("PATH", "") + os.pathsep + str(self.tools_dir)
             count = int(env.get("GIT_CONFIG_COUNT", "0"))
             env["GUSNOTEBOOK_GIT_BASE_COUNT"] = str(count)
             helper = "!" + shlex.join([sys.executable, str(Path(__file__).with_name("git_credential.py"))])

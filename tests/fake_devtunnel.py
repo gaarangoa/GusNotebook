@@ -33,7 +33,9 @@ def output(value):
     print(json.dumps(value), flush=True)
 
 
-if args[:2] == ["user", "show"]:
+if args == ["--help"]:
+    print("Dev Tunnels CLI (test fixture)")
+elif args[:2] == ["user", "show"]:
     account = root / "account.json"
     output(json.loads(account.read_text()) if account.exists() else
            {"status": "Logged in", "provider": "GitHub", "username": "test-user"})
@@ -44,7 +46,8 @@ elif args[:2] == ["user", "login"]:
         print(f"Open {url} and enter code TEST-1234", flush=True)
         while not (root / "login-ready").exists():
             time.sleep(.05)
-        (root / "account.json").write_text(json.dumps({"status": "Logged in", "provider": provider, "username": "test-user"}))
+        (root / "account.json").write_text(json.dumps({"status": "Logged in", "provider": provider,
+            "username": os.environ.get("GUSNOTEBOOK_FAKE_TUNNEL_USERNAME", "test-user")}))
     output({"status": "Logged in"})
 elif args[0] == "show":
     if not state() or args[1] != state()["tunnelId"]:

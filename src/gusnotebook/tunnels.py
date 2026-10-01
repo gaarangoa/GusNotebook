@@ -14,6 +14,7 @@ import signal
 import subprocess
 import threading
 import webbrowser
+from . import paths
 
 
 INSTALL_URL = "https://learn.microsoft.com/azure/developer/dev-tunnels/get-started#install"
@@ -32,12 +33,13 @@ def tunnel_name(value):
     return value
 
 
-def executable():
+def executable(tools_dir=None):
     override = os.environ.get("GUSNOTEBOOK_DEVTUNNEL")
     candidates = [override] if override else [shutil.which("devtunnel"),
         str(Path.home() / "bin/devtunnel"),
         str(Path.home() / ".devtunnel/bin/devtunnel"),
-        str(Path.home() / ".local/bin/devtunnel")]
+        str(Path.home() / ".local/bin/devtunnel"),
+        str((Path(tools_dir) if tools_dir is not None else paths.state("tools")) / "devtunnel")]
     for candidate in candidates:
         if candidate and Path(candidate).is_file() and os.access(candidate, os.X_OK):
             return str(Path(candidate).resolve())

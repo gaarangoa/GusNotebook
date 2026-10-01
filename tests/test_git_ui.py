@@ -61,6 +61,7 @@ def main():
             processes.append(process)
             return process, wait_log(process, log, r"GusNotebook — (http://\S+)")[1]
         try:
+            (relay / "account.json").write_text(json.dumps({"status": "Logged in", "provider": "GitHub", "username": "researcher"}))
             host, _ = start(["--tunnel", "git-workstation", "--port", "0", "--no-browser"], remote, remote_auth, "remote")
             client, url = start(["--port", "0", "--no-browser"], local, local_auth, "local")
             with sync_playwright() as playwright:
@@ -87,12 +88,13 @@ def main():
                 assert subprocess.run(["git", "-C", str(local), "log", "-1", "--format=%s"], env=env, capture_output=True, text=True).stdout.strip() == "Add analysis"
                 print("PASS: Git sidebar detects edits, renders diff, stages and commits", flush=True)
 
-                page.get_by_role("button", name="Sign in to GitHub", exact=True).click()
+                page.locator("#accounts-button").click()
+                page.get_by_role("button", name="Sign in with GitHub", exact=True).click()
                 expect(page.locator("#git-login-output")).to_contain_text("TEST-2468")
                 expect(page.locator("#git-login-link")).to_be_visible()
                 page.get_by_role("button", name="Cancel sign-in", exact=True).click()
                 expect(page.locator("#git-login-output")).to_be_hidden()
-                page.get_by_role("button", name="Sign in to GitHub", exact=True).click()
+                page.get_by_role("button", name="Sign in with GitHub", exact=True).click()
                 expect(page.locator("#git-login-output")).to_contain_text("TEST-2468")
                 (local_auth / "login-ready").touch()
                 expect(page.locator("#git-account")).to_have_text("GitHub · researcher")
@@ -114,7 +116,9 @@ def main():
                 remote_page = popup.value
                 remote_page.wait_for_function("typeof cells !== 'undefined' && cells.length && window.CM")
                 remote_page.locator("#sidebar-git").click()
+                remote_page.locator("#accounts-button").click()
                 expect(remote_page.locator("#git-account")).to_contain_text("shared from your local app")
+                remote_page.keyboard.press("Escape")
                 remote_page.evaluate("path => openTerminal(path, 'shell')", str(remote))
                 remote_page.wait_for_function("terms.length === 1 && terms[0].ws.readyState === 1")
                 remote_page.evaluate("command => terms[0].ws.send(command)", command)

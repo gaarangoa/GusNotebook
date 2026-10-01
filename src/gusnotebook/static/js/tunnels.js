@@ -1,4 +1,4 @@
-/* Optional local connection manager. No cloud calls until this pane is opened. */
+/* Optional local connection manager; account controls live in Accounts. */
 let tunnelState = null, tunnelPanelActive = false, tunnelPollTimer = null;
 let tunnelLoaded = false, tunnelPolling = false, tunnelRenderKey = '';
 
@@ -35,38 +35,15 @@ async function tunnelRequest(path, body = {}, method = 'POST') {
   } catch (error) { flash(errText(error)); }
 }
 function refreshTunnels() { return tunnelRequest('/refresh'); }
-function loginTunnel(provider) { return tunnelRequest('/login', {provider}); }
-function cancelTunnelLogin() { return tunnelRequest('/login', {}, 'DELETE'); }
 
 function renderTunnels() {
   if (!tunnelState || !document.getElementById('tunnels')) return;
   const key = JSON.stringify(tunnelState);
   if (key === tunnelRenderKey) return;
   tunnelRenderKey = key;
-  const {account, activity, saved = [], discovered = []} = tunnelState;
-  document.getElementById('tunnel-account').textContent = account?.logged_in
-    ? [account.provider, account.username].filter(Boolean).join(' · ') : 'Sign in to find your tunnels';
+  const {activity, saved = [], discovered = []} = tunnelState;
   const running = activity?.state === 'running';
   document.getElementById('tunnel-refresh').disabled = running || !!tunnelState.cli_error;
-  document.querySelectorAll('.tunnel-signin button').forEach(button => { button.disabled = running || !!tunnelState.cli_error; });
-  document.getElementById('tunnel-activity').textContent = running
-    ? (activity.kind === 'login' ? 'Complete sign-in using the instructions below.' : 'Refreshing…') : '';
-  const output = document.getElementById('tunnel-login-output');
-  output.hidden = !activity?.output || activity.kind !== 'login' || activity.state === 'done';
-  output.textContent = output.hidden ? '' : activity.output;
-  const links = document.getElementById('tunnel-login-links');
-  links.replaceChildren();
-  if (!output.hidden) {
-    for (const value of new Set(activity.output.match(/https:\/\/[^\s<>"']+/g) || [])) {
-      try {
-        const url = new URL(value.replace(/[.,;)]+$/, ''));
-        if (!['github.com','microsoft.com','www.microsoft.com','login.microsoftonline.com'].includes(url.hostname)) continue;
-        const link = document.createElement('a'); link.href = url.href; link.target = '_blank'; link.rel = 'noopener noreferrer';
-        link.textContent = 'Open sign-in page'; links.append(link);
-      } catch (_) {}
-    }
-  }
-  document.getElementById('tunnel-cancel-login').hidden = !running || activity.kind !== 'login';
   const notice = document.getElementById('tunnel-error');
   notice.textContent = tunnelState.error || tunnelState.cli_error || activity?.error || '';
   notice.hidden = !notice.textContent;

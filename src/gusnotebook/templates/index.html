@@ -26,6 +26,26 @@
     <button class="sidebar-button" id="sidebar-skills" onclick="showSidebarSection('skills', true)" aria-label="Skills" title="Skills" aria-controls="skills" aria-pressed="false"><span data-icon="skills"></span></button>
     {% if LOCAL_TUNNEL_MANAGER %}<button class="sidebar-button" id="sidebar-tunnels" onclick="showSidebarSection('tunnels', true)" aria-label="Tunnels" title="Tunnels" aria-controls="tunnels" aria-pressed="false"><span data-icon="tunnel"></span></button>{% endif %}
     <button class="sidebar-button" id="sidebar-git" onclick="showSidebarSection('git', true)" aria-label="Git" title="Git" aria-controls="git-pane" aria-pressed="false"><span data-icon="git"></span></button>
+    <button class="sidebar-button" id="accounts-button" onclick="toggleAccounts(event)" aria-label="Accounts" title="Accounts" aria-haspopup="dialog" aria-controls="accounts-popover" aria-expanded="false"><span data-icon="account"></span><span class="account-dot" hidden></span></button>
+    <div class="accounts-popover" id="accounts-popover" role="dialog" aria-labelledby="accounts-title" hidden>
+      <div class="accounts-head"><strong id="accounts-title">Accounts</strong><button class="strip-new" onclick="closeAccounts()" aria-label="Close accounts"><span data-icon="close"></span></button></div>
+      <div id="git-account">Checking GitHub account…</div>
+      <div id="tunnel-account">Checking tunnel account…</div>
+      <p class="accounts-help">Sign in here for Git and remote tunnels. Existing sign-ins are reused.</p>
+      <div class="account-actions"><button class="files-btn" id="git-login" onclick="accountSignIn()">Sign in with GitHub</button><button class="files-btn" id="git-auth-refresh" onclick="refreshAccounts()">Check account</button></div>
+      <p id="git-install" hidden>Install <a href="https://cli.github.com" target="_blank" rel="noopener noreferrer">GitHub CLI</a> to sign in for Git.</p>
+      <p id="account-tunnel-install" hidden></p>
+      <div id="account-tool-progress" role="status" hidden></div>
+      <div id="account-activity" role="status"></div>
+      <p class="accounts-help" id="account-login-help" hidden>Git and tunnels need separate authorizations. Complete each step here to connect both.</p>
+      <pre id="git-login-output" role="log" aria-label="GitHub sign-in instructions" hidden></pre>
+      <a id="git-login-link" href="https://github.com/login/device" target="_blank" rel="noopener noreferrer" hidden>Open GitHub sign-in</a>
+      <pre id="tunnel-login-output" role="log" aria-label="Tunnel sign-in instructions" hidden></pre>
+      <div id="tunnel-login-links"></div>
+      <button class="files-btn" id="account-login-cancel" onclick="cancelAccountLogin()" hidden>Cancel sign-in</button>
+      <div id="account-error" role="status" hidden></div>
+      {% if LOCAL_TUNNEL_MANAGER %}<details class="account-alternative"><summary>Other sign-in options</summary><button class="files-btn" id="account-microsoft" onclick="accountSignIn('microsoft')">Use Microsoft for tunnels</button></details>{% endif %}
+    </div>
   </nav>
   <div class="files" id="files" role="region" aria-label="Sidebar">
     <div id="file-splitter" class="file-splitter" role="separator" tabindex="0" aria-label="Resize sidebar" aria-orientation="vertical" aria-controls="files"></div>
@@ -68,15 +88,6 @@
 
     <section class="sidebar-pane" id="git-pane" aria-labelledby="sidebar-git" hidden>
       <div class="strip-head"><span class="grow">Git</span><button class="strip-new" onclick="refreshGit()">Refresh</button></div>
-      <div class="git-account">
-        <div id="git-account">Use existing Git credentials or sign in to GitHub.</div>
-        <div class="git-buttons"><button class="files-btn" id="git-login" onclick="gitSignIn()">Sign in to GitHub</button>
-          <button class="files-btn" id="git-auth-refresh" onclick="gitSignIn(false)" title="Check existing GitHub CLI sign-in">Check account</button></div>
-        <p id="git-install" hidden>Install <a href="https://cli.github.com" target="_blank" rel="noopener noreferrer">GitHub CLI</a> for browser sign-in. Existing Git credentials still work.</p>
-        <pre id="git-login-output" role="log" aria-label="GitHub sign-in instructions" hidden></pre>
-        <a id="git-login-link" href="https://github.com/login/device" target="_blank" rel="noopener noreferrer" hidden>Open GitHub sign-in</a>
-        <button class="files-btn" id="git-login-cancel" onclick="gitCancelLogin()" hidden>Cancel sign-in</button>
-      </div>
       <div class="git-project"><div id="git-root"></div><div id="git-branch"></div></div>
       <div id="git-error" class="tunnel-error" role="status" hidden></div>
       <div id="git-operation" role="status"></div>
@@ -101,15 +112,6 @@
         <button class="strip-new" onclick="refreshTunnels()" id="tunnel-refresh">Refresh</button>
         <button class="strip-new" onclick="openTunnelEditor()" aria-label="Add tunnel">+</button>
       </div>
-      <div class="tunnel-account">
-        <div id="tunnel-account">Checking account…</div>
-        <div class="tunnel-signin"><button class="files-btn" onclick="loginTunnel('github')" aria-label="Sign in with GitHub">GitHub</button>
-          <button class="files-btn" onclick="loginTunnel('microsoft')" aria-label="Sign in with Microsoft">Microsoft</button></div>
-        <div id="tunnel-activity" role="status"></div>
-        <pre id="tunnel-login-output" role="log" aria-label="Tunnel sign-in instructions" hidden></pre>
-        <div id="tunnel-login-links"></div>
-        <button class="files-btn" id="tunnel-cancel-login" onclick="cancelTunnelLogin()" hidden>Cancel sign-in</button>
-      </div>
       <div id="tunnel-error" class="tunnel-error" role="status" hidden></div>
       <div class="tunnel-list" id="tunnel-list"></div>
       <p class="tunnel-help">Open a remote workspace in a new window. The remote computer must already be running GusNotebook with <code>--tunnel</code>.</p>
@@ -123,8 +125,8 @@
       <div class="tabs" id="tabs" role="tablist" aria-label="Open documents"></div>
       <nav class="header-tools" aria-label="Workspace controls">
         <button class="files-btn icon-button" id="settings-button" onclick="openSettings()" title="Settings" aria-label="Settings"><span data-icon="settings"></span></button>
-        <button class="files-btn icon-button" id="toggle-terminal" onclick="togglePanel('terminal')" aria-label="Toggle terminal panel" title="Hide terminal panel" aria-controls="agent-pane" aria-pressed="true" aria-expanded="true"><span data-icon="terminal"></span></button>
         <button class="files-btn icon-button" id="workspace-more" onclick="toggleWorkspaceMenu(event)" aria-haspopup="menu" aria-expanded="false" aria-controls="workspace-menu" title="More workspace actions" aria-label="More workspace actions"><span data-icon="more"></span></button>
+        <button class="files-btn icon-button" id="toggle-terminal" onclick="togglePanel('terminal')" aria-label="Toggle terminal panel" title="Hide terminal panel" aria-controls="agent-pane" aria-pressed="true" aria-expanded="true"><span data-icon="terminal"></span></button>
       </nav>
       <div class="workspace-menu" id="workspace-menu" role="menu" aria-label="Workspace actions" hidden>
         <button id="focus-toggle" role="menuitemcheckbox" tabindex="-1" aria-checked="false" onclick="closeWorkspaceMenu(); toggleNotebookFocus()"><span data-icon="focus"></span>Focus notebook<span class="menu-check" data-icon="check"></span></button>
@@ -682,6 +684,7 @@ results = pd.read_csv(<span class="sample-string">"data.csv"</span>)</pre><p>Rea
 <script src="{{ BASE_URL }}/static/js/environments.js"></script>
 <script src="{{ BASE_URL }}/static/js/tunnels.js"></script>
 <script src="{{ BASE_URL }}/static/js/git.js"></script>
+<script src="{{ BASE_URL }}/static/js/accounts.js"></script>
 <script src="{{ BASE_URL }}/static/js/accessibility.js"></script>
 
 </body>

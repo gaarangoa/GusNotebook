@@ -1,6 +1,6 @@
 /* Git always runs on the computer that owns this workspace. */
 let gitState = null, gitPanelActive = false, gitTimer = null, gitPolling = false;
-let gitAuthChecked = false, gitRenderKey = '', gitActionPending = false;
+let gitRenderKey = '', gitActionPending = false;
 const gitMessages = new Map();
 let gitMessageRoot = null;
 
@@ -20,10 +20,6 @@ async function refreshGit() {
     if (path !== fileState.path) return;
     gitState = state;
     renderGit();
-    if (!gitAuthChecked && state.auth.gh_available) {
-      gitAuthChecked = true;
-      await gitSignIn(false);
-    }
   } catch (error) { gitNotice(errText(error)); }
   finally {
     gitPolling = false;
@@ -35,16 +31,6 @@ function gitNotice(message) {
   const element = document.getElementById('git-error');
   element.textContent = message; element.hidden = !message;
 }
-async function gitSignIn(login = true) {
-  try {
-    await api('/api/git/auth', {method:'POST', body:JSON.stringify({login})});
-    gitRenderKey = ''; await refreshGit();
-  } catch (error) { gitNotice(errText(error)); }
-}
-async function gitCancelLogin() {
-  try { await api('/api/git/auth', {method:'DELETE'}); await refreshGit(); }
-  catch (error) { gitNotice(errText(error)); }
-}
 async function gitCancelOperation() {
   try { await api('/api/git/operation', {method:'DELETE'}); await refreshGit(); }
   catch (error) { gitNotice(errText(error)); }
@@ -55,28 +41,15 @@ function renderGit() {
   const key = JSON.stringify([state, gitActionPending]);
   if (key === gitRenderKey) return;
   gitRenderKey = key;
-  const auth = state.auth, activity = auth.activity, operation = state.operation;
-  const signingIn = activity?.state === 'running';
+  const operation = state.operation;
   const busy = gitActionPending || operation?.state === 'running';
-  document.getElementById('git-account').textContent = auth.account?.logged_in
-    ? 'GitHub · ' + (auth.account.login || 'Signed in')
-    : auth.shared ? 'GitHub credentials shared from your local app' + (auth.shared_account ? ' · ' + auth.shared_account : '')
-    : 'Use existing Git credentials or sign in to GitHub.';
-  document.getElementById('git-login').disabled = signingIn || !auth.gh_available;
-  document.getElementById('git-auth-refresh').disabled = signingIn || !auth.gh_available;
-  document.getElementById('git-install').hidden = auth.gh_available || auth.shared;
-  const output = document.getElementById('git-login-output');
-  output.textContent = activity?.output || '';
-  output.hidden = !output.textContent;
-  document.getElementById('git-login-link').hidden = output.hidden;
-  document.getElementById('git-login-cancel').hidden = !signingIn || activity.kind !== 'login';
   document.getElementById('git-root').textContent = state.root || state.directory;
   document.getElementById('git-root').title = state.root || state.directory;
   document.getElementById('git-branch').textContent = state.root
     ? `${state.branch} · ${state.ahead} outgoing · ${state.behind} incoming` : 'No repository in this folder';
-  gitNotice(operation?.error || activity?.error || (state.truncated ? 'Showing the first 3,000 changed files.' : ''));
+  gitNotice(operation?.error || (state.truncated ? 'Showing the first 3,000 changed files.' : ''));
   document.getElementById('git-operation').textContent = operation?.state === 'running'
-    ? `${operation.action}…` : operation?.state === 'done' ? `${operation.action} completed` : operation?.state === 'canceled' ? 'Operation canceled' : signingIn ? 'Checking GitHub…' : '';
+    ? `${operation.action}…` : operation?.state === 'done' ? `${operation.action} completed` : operation?.state === 'canceled' ? 'Operation canceled' : '';
   document.getElementById('git-operation-cancel').hidden = operation?.state !== 'running';
   document.getElementById('git-init').hidden = !!state.root;
   document.getElementById('git-init').disabled = busy;

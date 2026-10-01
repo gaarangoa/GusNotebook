@@ -60,6 +60,21 @@ body {
   content: ''; position: absolute; left: -4px; top: 8px; bottom: 8px;
   width: 2px; border-radius: 2px; background: var(--accent);
 }
+#accounts-button { margin-top: auto; }
+#accounts-button[aria-expanded="true"] { color: var(--accent); background: var(--accent-soft); }
+.account-dot { position: absolute; right: 5px; bottom: 5px; width: 7px; height: 7px; border-radius: 50%; background: var(--green); border: 1px solid var(--panel); }
+.accounts-popover { position: fixed; z-index: 65; left: 50px; bottom: 6px; width: min(360px, calc(100vw - 56px)); max-height: calc(100dvh - 12px); overflow: auto; padding: 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--panel); box-shadow: var(--shadow); color: var(--text); line-height: 1.5; }
+.accounts-head, .account-actions { display: flex; align-items: center; gap: 6px; margin-bottom: 10px; flex-wrap: wrap; }
+.accounts-head strong { flex: 1; }
+.accounts-help { color: var(--muted); margin: 8px 0; }
+.accounts-popover pre { white-space: pre-wrap; overflow-wrap: anywhere; margin: 8px 0; padding: 8px; background: var(--surface); }
+.accounts-popover a { color: var(--accent); }
+.accounts-popover #git-account, .accounts-popover #tunnel-account, #account-tunnel-install, #account-error { overflow-wrap: anywhere; }
+#account-error { color: var(--red); margin-top: 8px; }
+#account-tool-progress { margin: 8px 0; color: var(--muted); }
+.account-alternative { margin-top: 12px; color: var(--muted); }
+.account-alternative summary { cursor: pointer; }
+.account-alternative button { margin-top: 8px; }
 .sidebar-pane { display: flex; flex-direction: column; flex: 1; min-height: 0; min-width: 0; }
 .files {
   display: flex;
@@ -1744,6 +1759,9 @@ button .icon, .ni .icon, .ic .icon { pointer-events: none; }
 .header-tools .icon-button { width: 28px; height: 28px; min-height: 28px; padding: 6px; flex: 0 0 auto; background: transparent; border-color: transparent; color: var(--muted); }
 .header-tools .icon-button:hover { background: var(--hover); color: var(--text); }
 .header-tools .icon-button.on, .header-tools .icon-button[aria-expanded="true"] { background: var(--accent-soft); color: var(--accent); }
+/* Keep the terminal toggle at the window edge in every panel layout. */
+#toggle-terminal { position: fixed; top: calc((var(--workspace-bar-height) - 28px) / 2); right: 6px; z-index: 41; }
+.app.terminal-hidden .header-tools { padding-right: 30px; }
 .workspace-menu { position: fixed; z-index: 65; width: 230px; max-width: calc(100vw - 12px); padding: 4px; border: 1px solid var(--border); border-radius: 8px; background: var(--panel); box-shadow: var(--shadow); }
 .workspace-menu button { display: flex; align-items: center; gap: 9px; width: 100%; min-height: 32px; padding: 6px 9px; border: 0; border-radius: 4px; font: var(--ui-size)/1.4 -apple-system, BlinkMacSystemFont, sans-serif; text-align: left; color: var(--secondary); background: transparent; cursor: pointer; }
 .workspace-menu button:hover, .workspace-menu button:focus-visible { background: var(--hover); color: var(--text); outline-offset: -2px; }
@@ -1834,7 +1852,7 @@ button:disabled { opacity: .55; cursor: default; }
 .output-view-btn, .fold-more, .view-btn, .undo-n, .hint { font-size: var(--small-size); }
 .view-btn { min-height: 24px; }
 .hint { padding: 5px 12px; background: var(--surface); }
-.right .bar { height: auto; min-height: 32px; flex-basis: auto; flex-wrap: wrap; padding: 3px 6px; gap: 3px; overflow: visible; }
+.right .bar { height: auto; min-height: 32px; flex-basis: auto; flex-wrap: wrap; padding: 3px 40px 3px 6px; gap: 3px; overflow: visible; }
 .term-btn, .agent-select { font-size: var(--ui-size); line-height: 16px; min-height: 24px; border-radius: 4px; }
 .term-btn { padding: 2px 6px; gap: 4px; }
 .term-btn .icon { width: 12px; height: 12px; }
@@ -1922,10 +1940,6 @@ button:disabled { opacity: .55; cursor: default; }
 }
 
 /* ---------- Local tunnel connections ---------- */
-.tunnel-account { padding: 10px; border-bottom: 1px solid var(--border); color: var(--muted); line-height: 1.5; }
-.tunnel-signin { display: flex; gap: 5px; margin-top: 6px; }
-.tunnel-signin .files-btn { padding: 3px 7px; min-height: 24px; }
-#tunnel-activity:not(:empty) { margin-top: 6px; }
 #tunnel-login-output { white-space: pre-wrap; overflow-wrap: anywhere; overflow: auto; max-height: 150px; padding: 6px; margin-top: 6px; background: var(--bg); color: var(--text); font-family: var(--mono); }
 #tunnel-login-links a { display: block; color: var(--accent); padding: 4px 0; }
 .tunnel-error { padding: 8px 10px; color: var(--red); overflow-wrap: anywhere; line-height: 1.5; }
@@ -1953,10 +1967,7 @@ button:disabled { opacity: .55; cursor: default; }
 .tunnel-launch .actions { display: flex; gap: 8px; margin-top: 18px; }
 
 /* ---------- Git sidebar ---------- */
-.git-account { padding: 10px; border-bottom: 1px solid var(--border); line-height: 1.5; color: var(--muted); }
-.git-account a { color: var(--accent); }
 .git-buttons { display: flex; gap: 5px; flex-wrap: wrap; padding: 5px 10px; }
-.git-account .git-buttons { padding: 6px 0 0; }
 .git-buttons .files-btn { padding: 3px 6px; min-height: 24px; }
 #git-install { margin-top: 6px; }
 #git-login-output { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 140px; overflow: auto; padding: 6px; margin: 6px 0; background: var(--bg); color: var(--text); font-family: var(--mono); }

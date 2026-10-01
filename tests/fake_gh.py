@@ -9,7 +9,9 @@ import time
 root = Path(os.environ["GUSNOTEBOOK_FAKE_GH"])
 account = root / "account.json"
 args = sys.argv[1:]
-if args[:2] == ["auth", "login"]:
+if args == ["--version"]:
+    print("gh version 1.2.3 (test fixture)")
+elif args[:2] == ["auth", "login"]:
     assert all(flag in args for flag in ["--web", "--skip-ssh-key", "--git-protocol"])
     assert not sys.stdin.isatty()
     print("! First copy your one-time code: TEST-2468", file=sys.stderr, flush=True)

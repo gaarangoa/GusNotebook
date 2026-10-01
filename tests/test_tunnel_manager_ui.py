@@ -26,7 +26,14 @@ def main():
         fake = root / "devtunnel"
         fake.write_text("#!" + sys.executable + "\n" + Path(__file__).with_name("fake_devtunnel.py").read_text())
         fake.chmod(0o755)
+        gh = root / "gh"
+        gh.write_text("#!" + sys.executable + "\n" + Path(__file__).with_name("fake_gh.py").read_text())
+        gh.chmod(0o755)
+        gh_account = root / "github"
+        gh_account.mkdir()
+        (gh_account / "account.json").write_text(json.dumps({"login": "test-user", "token": "gho_TEST_ONLY_NEVER_VALID"}))
         env = {**os.environ, "GUSNOTEBOOK_DEVTUNNEL": str(fake), "GUSNOTEBOOK_FAKE_TUNNEL": str(relay),
+               "GUSNOTEBOOK_GH": str(gh), "GUSNOTEBOOK_FAKE_GH": str(gh_account), "GH_TOKEN": "", "GITHUB_TOKEN": "",
                "NO_LLM": "1", "GUSNOTEBOOK_NO_AUTH": "0"}
         for key in ["APP_BASE_URL", "HOST", "PORT", "FLASK_DEBUG", "NOTEBOOK", "GUSNOTEBOOK_TOKEN", "NB_URL", "NB_TOKEN"]:
             env.pop(key, None)
@@ -77,16 +84,19 @@ def main():
                     return popup
 
                 open_local(url)
-                expect(page.locator("#tunnel-account")).to_have_text("Sign in to find your tunnels")
+                page.locator("#accounts-button").click()
+                expect(page.locator("#tunnel-account")).to_have_text("Tunnels · Not signed in")
                 page.get_by_role("button", name="Sign in with GitHub").click()
                 expect(page.locator("#tunnel-login-output")).to_contain_text("TEST-1234")
                 expect(page.get_by_role("link", name="Open sign-in page")).to_have_attribute("href", "https://github.com/login/device")
                 page.get_by_role("button", name="Cancel sign-in").click()
                 expect(page.locator("#tunnel-login-output")).to_be_hidden()
-                page.get_by_role("button", name="Sign in with Microsoft").click()
+                page.locator(".account-alternative summary").click()
+                page.get_by_role("button", name="Use Microsoft for tunnels").click()
                 expect(page.get_by_role("link", name="Open sign-in page")).to_have_attribute("href", "https://microsoft.com/devicelogin")
                 (relay / "login-ready").touch()
-                expect(page.locator("#tunnel-account")).to_have_text("Microsoft · test-user")
+                expect(page.locator("#tunnel-account")).to_have_text("Tunnels · Microsoft · test-user")
+                page.keyboard.press("Escape")
                 expect(row("remote-research")).to_contain_text("Available")
                 print("PASS: device-code instructions, cancellation, account sign-in and discovery", flush=True)
 
