@@ -3,7 +3,7 @@ import katex from 'katex';
 import DOMPurify from 'dompurify';
 
 // Tokenize before Markdown can consume TeX backslashes, underscores or HTML.
-// A separate parser keeps notebook syntax out of file previews and app help.
+// A separate parser keeps math syntax out of app help.
 function mathToken(source) {
   const open = ['$$', '\\[', '\\(', '$'].find(value => source.startsWith(value));
   if (!open) return;
@@ -33,37 +33,66 @@ function renderMath(token) {
   });
 }
 
-const notebookMarkdown = new Marked({extensions: [
-  {
-    name: 'mathBlock',
-    level: 'block',
-    start(source) { return source.match(/(?:^|\n) {0,3}(?:\$\$|\\\[)/)?.index; },
-    tokenizer(source) {
-      const indent = source.match(/^ {0,3}/)[0];
-      const token = mathToken(source.slice(indent.length));
-      if (!token?.displayMode) return;
-      const trailing = source.slice(indent.length + token.raw.length).match(/^[ \t]*(?:\n|$)/);
-      if (!trailing) return;
-      return {...token, type: 'mathBlock', raw: indent + token.raw + trailing[0]};
+function mathMarkdown(renderer) {
+  return new Marked({extensions: [
+    {
+      name: 'mathBlock',
+      level: 'block',
+      start(source) { return source.match(/(?:^|\n) {0,3}(?:\$\$|\\\[)/)?.index; },
+      tokenizer(source) {
+        const indent = source.match(/^ {0,3}/)[0];
+        const token = mathToken(source.slice(indent.length));
+        if (!token?.displayMode) return;
+        const trailing = source.slice(indent.length + token.raw.length).match(/^[ \t]*(?:\n|$)/);
+        if (!trailing) return;
+        return {...token, type: 'mathBlock', raw: indent + token.raw + trailing[0]};
+      },
+      renderer,
     },
-    renderer: renderMath,
-  },
-  {
-    name: 'mathInline',
-    level: 'inline',
-    start(source) { return source.match(/\$|\\[([]/)?.index; },
-    tokenizer(source) {
-      if (this.lexer.state.inRawBlock) return;
-      const token = mathToken(source);
-      if (token) return {...token, type: 'mathInline'};
+    {
+      name: 'mathInline',
+      level: 'inline',
+      start(source) { return source.match(/\$|\\[([]/)?.index; },
+      tokenizer(source) {
+        if (this.lexer.state.inRawBlock) return;
+        const token = mathToken(source);
+        if (token) return {...token, type: 'mathInline'};
+      },
+      renderer,
     },
-    renderer: renderMath,
-  },
-]});
+  ]});
+}
+
+const notebookMarkdown = mathMarkdown(renderMath);
 
 export function renderNotebookMarkdown(source) {
   // Sanitize the complete output, including math, before it enters the page.
   return DOMPurify.sanitize(notebookMarkdown.parse(source || ''), {
     ADD_TAGS: ['semantics', 'annotation'],
   });
+}
+
+export function renderMarkdownFileFragment(source) {
+  // Keep generated math separate so file HTML cannot supply KaTeX styles,
+  // classes, or MathML. Unpredictable markers cannot be forged by the source.
+  const prefix = `gusnotebook-math-${crypto.getRandomValues(new Uint32Array(4)).join('-')}-`;
+  const formulas = new Map();
+  const parser = mathMarkdown(token => {
+    const marker = prefix + formulas.size;
+    formulas.set(marker, renderMath(token));
+    return `<span>${marker}</span>`;
+  });
+  const fragment = DOMPurify.sanitize(parser.parse(source || ''), {
+    RETURN_DOM_FRAGMENT: true, USE_PROFILES: {html: true}, ALLOW_DATA_ATTR: false,
+    FORBID_TAGS: ['style', 'form', 'button', 'textarea', 'select', 'iframe', 'video', 'audio', 'picture', 'source'],
+    FORBID_ATTR: ['style', 'class', 'id', 'name', 'srcset'],
+  });
+  fragment.querySelectorAll('span').forEach(placeholder => {
+    const formula = formulas.get(placeholder.textContent);
+    if (!formula || placeholder.childElementCount) return;
+    placeholder.replaceWith(DOMPurify.sanitize(formula, {
+      RETURN_DOM_FRAGMENT: true, ADD_TAGS: ['semantics', 'annotation'],
+    }));
+  });
+  return fragment;
 }

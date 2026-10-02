@@ -14,11 +14,7 @@ function markdownFileUrl(t, value) {
 
 function renderMarkdownFile(t) {
   const preview = document.getElementById('markdown-preview');
-  const fragment = DOMPurify.sanitize(marked.parse(t.text || ''), {
-    RETURN_DOM_FRAGMENT: true, USE_PROFILES: {html: true}, ALLOW_DATA_ATTR: false,
-    FORBID_TAGS: ['style', 'form', 'button', 'textarea', 'select', 'iframe', 'video', 'audio', 'picture', 'source'],
-    FORBID_ATTR: ['style', 'class', 'id', 'name', 'srcset'],
-  });
+  const fragment = renderMarkdownFileFragment(t.text);
   // Raw Markdown HTML must not take over app IDs, styles, or controls.
   fragment.querySelectorAll('input').forEach(input => { input.disabled = true; });
   const anchors = new Set();
