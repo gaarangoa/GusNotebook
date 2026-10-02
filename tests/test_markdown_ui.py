@@ -23,6 +23,10 @@ def main():
 
 **Bold** and *italic* with `inline code`.
 
+These notes collect the observations, explain the method, and keep the results together for review.
+
+> Keep the experiment reproducible: record the inputs alongside the results.
+
 ## Methods
 
 - First item
@@ -34,6 +38,7 @@ def main():
 | A | 42 |
 
 ```python
+score = 42
 print("hello")
 ```
 
@@ -93,6 +98,8 @@ $\htmlStyle{position:fixed}{x}$
         page.on("pageerror", lambda error: errors.append(str(error)))
         page.goto(url, wait_until="domcontentloaded")
         page.wait_for_function("booted && tabs.length")
+        expect(page.locator('html')).to_have_attribute('data-markdown-style', 'compact')
+        page.evaluate("AppAppearance.update({markdownStyle: 'reading'})")
         notebook = page.evaluate("active")
         page.evaluate("path => openFile(path)", str(document))
         preview = page.locator("#markdown-preview")
@@ -102,16 +109,46 @@ $\htmlStyle{position:fixed}{x}$
         expect(preview.locator("h1")).to_have_text("Research notes")
         expect(preview.locator("strong")).to_have_text("Bold")
         expect(preview.locator("table")).to_contain_text("42")
-        expect(preview.locator("pre code")).to_have_text('print("hello")\n')
+        code_text = 'score = 42\nprint("hello")\n'
+        expect(preview.locator("pre code")).to_have_text(code_text)
+        expect(preview.locator(".hljs-string")).to_have_text('"hello"')
+        expect(preview.locator(".hljs-number")).to_have_text('42')
+        expect(preview.locator(".markdown-code-header")).to_contain_text('Python')
         expect(preview.locator('input[type="checkbox"]')).to_be_checked()
         page.wait_for_function("document.querySelector('#markdown-preview img[alt=Plot]').naturalWidth === 30")
-        assert not preview.locator("script, style, [style], [id], [class], [onerror]").count()
+        assert not preview.locator("script, style, [style], [id], [onerror]").count()
+        assert preview.get_by_text("Plain HTML text", exact=True).get_attribute("class") is None
         assert page.evaluate("window.markdownXss") is None
         assert page.locator("#toolbar").count() == 1
         assert preview.get_by_text("Unsafe", exact=True).get_attribute("href") is None
         expect(preview.get_by_role("link", name="External")).to_have_attribute("rel", "noopener noreferrer")
         assert document.read_text() == original
         print("PASS: Markdown renders by default, resolves local images, and strips active HTML", flush=True)
+
+        page.context.grant_permissions(['clipboard-read', 'clipboard-write'], origin=url.rstrip('/'))
+        copy = preview.locator('.markdown-code-copy')
+        copy.focus()
+        copy.press('Enter')
+        expect(copy).to_have_text('Copied')
+        expect(copy).to_be_focused()
+        assert page.evaluate('navigator.clipboard.readText()') == code_text
+        page.evaluate('''() => {
+          window.originalClipboardWrite = navigator.clipboard.writeText;
+          navigator.clipboard.writeText = async () => { throw new Error('denied'); };
+        }''')
+        copy.click()
+        expect(copy).to_have_text('Try again')
+        expect(copy).to_be_enabled()
+        page.evaluate('() => { navigator.clipboard.writeText = window.originalClipboardWrite; }')
+        copy.click()
+        expect(copy).to_have_text('Copied')
+        page.evaluate("Object.defineProperty(navigator, 'clipboard', {configurable: true, value: undefined})")
+        copy.click()
+        expect(copy).to_have_text('Copied')
+        expect(copy).to_be_focused()
+        page.evaluate('delete navigator.clipboard')
+        assert page.evaluate('navigator.clipboard.readText()') == code_text
+        print('PASS: highlighted code copies exact text by keyboard, and failed copies can be retried', flush=True)
 
         for extension in ("md", "markdown"):
             math_document = docs / f"equations.{extension}"
@@ -149,17 +186,66 @@ $\htmlStyle{position:fixed}{x}$
             page.reload(wait_until="domcontentloaded")
             page.wait_for_function("booted")
             expect(preview.locator("annotation").nth(1)).to_have_text(r"\sqrt{y}")
+        code_document = docs / 'code examples.md'
+        long_code = '<img src="x" onerror="window.codeXss = true">' + 'x' * 240
+        code_document.write_text('''# Code examples
+
+```js
+const answer = "hello";
+```
+
+```json
+{"answer": 42}
+```
+
+```sh
+echo "$HOME"
+```
+
+```unknown
+''' + long_code + '\n```\n')
+        page.evaluate('path => openFile(path)', str(code_document))
+        expect(preview.locator('.markdown-code')).to_have_count(4)
+        expect(preview.locator('.markdown-code').nth(0).locator('.hljs-keyword')).to_have_text('const')
+        expect(preview.locator('.markdown-code').nth(1).locator('.hljs-number')).to_have_text('42')
+        expect(preview.locator('.markdown-code').nth(2).locator('.hljs-string')).to_have_text('"$HOME"')
+        expect(preview.locator('pre code').nth(3)).to_have_text(long_code + '\n')
+        expect(preview.locator('pre code').nth(3).locator('span, img')).to_have_count(0)
+        assert page.evaluate('window.codeXss') is None
+        page.set_viewport_size({'width': 390, 'height': 900})
+        page.wait_for_function('document.querySelector("#markdown-preview").clientWidth >= innerWidth - 44')
+        assert preview.evaluate('el => el.scrollWidth <= el.clientWidth')
+        assert preview.locator('pre').nth(3).evaluate('el => el.scrollWidth > el.clientWidth')
+        page.set_viewport_size({'width': 1440, 'height': 960})
         page.evaluate("path => switchTab(path)", str(document))
         print("PASS: .md/.markdown render math safely and preserve TeX through edit/save/reload", flush=True)
 
         for theme in ("light", "dark"):
             page.evaluate("theme => AppAppearance.update({theme, fontSize: 10})", theme)
-            expect(preview).to_have_css("font-size", "10px")
-            expect(preview.locator("h1")).to_have_css("font-size", "20px")
-            expect(preview.locator("h2")).to_have_css("font-size", "15px")
+            expect(preview).to_have_css("font-size", "16px")
+            expect(preview.locator("h1")).to_have_css("font-size", "32px")
+            expect(preview.locator("h2")).to_have_css("font-size", "24px")
+            expect(preview.locator('table')).to_have_css('font-size', '14.4px')
+            expect(page.locator('#text-editor')).to_have_css('font-size', '10px')
+            expect(preview.locator('.hljs-string')).not_to_have_css('color', preview.locator('pre code').evaluate('el => getComputedStyle(el).color'))
             colors = preview.evaluate("el => [getComputedStyle(el).color, getComputedStyle(el).backgroundColor]")
             assert colors[0] != colors[1]
             page.screenshot(path=str(Path(tempfile.gettempdir()) / f"gusnb-markdown-{theme}.png"))
+        page.evaluate('AppAppearance.update({fontSize: 20})')
+        expect(preview).to_have_css('font-size', '20px')
+        page.evaluate('AppAppearance.update({fontSize: 12})')
+        page.set_viewport_size({'width': 1920, 'height': 960})
+        content_box = preview.locator('.markdown-content').bounding_box()
+        preview_box = preview.bounding_box()
+        assert content_box['width'] < preview_box['width'] - 80
+        assert abs(content_box['x'] + content_box['width'] / 2 - preview_box['x'] - preview_box['width'] / 2) < 2
+        for width in (768, 390, 320):
+            page.set_viewport_size({'width': width, 'height': 900})
+            page.wait_for_function('document.querySelector("#markdown-preview").clientWidth >= innerWidth - 44')
+            assert preview.evaluate('el => el.scrollWidth <= el.clientWidth')
+            assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
+        page.screenshot(path=str(Path(tempfile.gettempdir()) / 'gusnb-markdown-mobile.png'))
+        page.set_viewport_size({'width': 1440, 'height': 960})
         preview.get_by_role("link", name="Methods", exact=True).click()
         assert page.evaluate("active") == str(document)
         preview.get_by_role("link", name="Guide", exact=True).click()

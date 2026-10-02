@@ -1,11 +1,13 @@
 /* Loaded in <head> so the chosen palette is applied before the first paint. */
 window.AppAppearance = (() => {
   const key = 'gusnotebook.appearance';
-  const defaults = {theme: 'system', density: 'comfortable', fontSize: 12};
+  const defaults = {theme: 'system', density: 'comfortable', fontSize: 12, markdownStyle: 'compact'};
   const media = matchMedia('(prefers-color-scheme: dark)');
   function clean(value = {}) {
     return {theme: ['light', 'dark', 'system'].includes(value.theme) ? value.theme : defaults.theme,
       density: ['comfortable', 'compact'].includes(value.density) ? value.density : defaults.density,
+      markdownStyle: ['compact', 'reading', 'paper'].includes(value.markdownStyle)
+        ? value.markdownStyle : defaults.markdownStyle,
       fontSize: Number.isFinite(Number(value.fontSize))
         ? Math.max(10, Math.min(22, Number(value.fontSize))) : defaults.fontSize};
   }
@@ -19,6 +21,7 @@ window.AppAppearance = (() => {
     const root = document.documentElement;
     root.dataset.theme = isDark() ? 'dark' : 'light';
     root.dataset.density = preferences.density;
+    root.dataset.markdownStyle = preferences.markdownStyle;
     root.style.setProperty('--font-size', preferences.fontSize + 'px');
     root.style.colorScheme = root.dataset.theme;
     document.dispatchEvent(new CustomEvent('appearance-change', {detail: {...preferences}}));

@@ -1,6 +1,7 @@
 import {Marked} from 'marked';
 import katex from 'katex';
 import DOMPurify from 'dompurify';
+import {renderMarkdownCode} from './markdown-code.js';
 
 // Tokenize before Markdown can consume TeX backslashes, underscores or HTML.
 // A separate parser keeps math syntax out of app help.
@@ -73,26 +74,32 @@ export function renderNotebookMarkdown(source) {
 }
 
 export function renderMarkdownFileFragment(source) {
-  // Keep generated math separate so file HTML cannot supply KaTeX styles,
-  // classes, or MathML. Unpredictable markers cannot be forged by the source.
-  const prefix = `gusnotebook-math-${crypto.getRandomValues(new Uint32Array(4)).join('-')}-`;
-  const formulas = new Map();
-  const parser = mathMarkdown(token => {
-    const marker = prefix + formulas.size;
-    formulas.set(marker, renderMath(token));
+  // Insert app-generated math and code only after sanitizing file HTML, so raw
+  // HTML cannot supply styles, classes, MathML, or controls. Markers are private.
+  const prefix = `gusnotebook-content-${crypto.getRandomValues(new Uint32Array(4)).join('-')}-`;
+  const content = new Map();
+  const placeholder = node => {
+    const marker = prefix + content.size;
+    content.set(marker, node);
     return `<span>${marker}</span>`;
-  });
+  };
+  const parser = mathMarkdown(token => placeholder(DOMPurify.sanitize(renderMath(token), {
+    RETURN_DOM_FRAGMENT: true, ADD_TAGS: ['semantics', 'annotation'],
+  })));
+  parser.use({renderer: {
+    code(text, info) {
+      return placeholder(renderMarkdownCode(text.replace(/\n$/, '') + '\n', info));
+    },
+  }});
   const fragment = DOMPurify.sanitize(parser.parse(source || ''), {
     RETURN_DOM_FRAGMENT: true, USE_PROFILES: {html: true}, ALLOW_DATA_ATTR: false,
     FORBID_TAGS: ['style', 'form', 'button', 'textarea', 'select', 'iframe', 'video', 'audio', 'picture', 'source'],
     FORBID_ATTR: ['style', 'class', 'id', 'name', 'srcset'],
   });
   fragment.querySelectorAll('span').forEach(placeholder => {
-    const formula = formulas.get(placeholder.textContent);
-    if (!formula || placeholder.childElementCount) return;
-    placeholder.replaceWith(DOMPurify.sanitize(formula, {
-      RETURN_DOM_FRAGMENT: true, ADD_TAGS: ['semantics', 'annotation'],
-    }));
+    const node = content.get(placeholder.textContent);
+    if (!node || placeholder.childElementCount) return;
+    placeholder.replaceWith(node);
   });
   return fragment;
 }

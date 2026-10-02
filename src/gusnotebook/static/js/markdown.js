@@ -55,7 +55,24 @@ function renderMarkdownFile(t) {
       link.removeAttribute('href');
     }
   });
-  preview.replaceChildren(fragment);
+  fragment.querySelectorAll('table').forEach(table => {
+    const wrapper = document.createElement('div');
+    wrapper.className = 'markdown-table';
+    wrapper.tabIndex = 0;
+    wrapper.setAttribute('role', 'region');
+    wrapper.setAttribute('aria-label', 'Scrollable table');
+    table.replaceWith(wrapper);
+    wrapper.append(table);
+  });
+  // Scroll the whole pane while keeping the document at a comfortable width.
+  if (fragment.childNodes.length) {
+    const content = document.createElement('div');
+    content.className = 'markdown-content';
+    content.append(fragment);
+    preview.replaceChildren(content);
+  } else {
+    preview.replaceChildren();
+  }
   preview.scrollTop = t.markdownScroll || 0;
 }
 
@@ -85,6 +102,42 @@ document.getElementById('markdown-preview').addEventListener('scroll', event => 
 });
 
 document.getElementById('markdown-preview').addEventListener('click', async event => {
+  const copy = event.target.closest('.markdown-code-copy');
+  if (copy) {
+    const text = copy.closest('.markdown-code').querySelector('pre code').textContent;
+    const focused = document.activeElement;
+    copy.disabled = true;
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        const textarea = document.createElement('textarea');
+        textarea.value = text;
+        textarea.style.position = 'fixed';
+        textarea.style.left = '-9999px';
+        document.body.append(textarea);
+        try {
+          textarea.focus();
+          textarea.select();
+          if (!document.execCommand('copy')) throw new Error('Clipboard unavailable');
+        } finally { textarea.remove(); }
+      }
+      copy.textContent = 'Copied';
+      copy.setAttribute('aria-label', 'Code copied');
+    } catch (_) {
+      copy.textContent = 'Try again';
+      copy.setAttribute('aria-label', 'Copy failed. Try again');
+      flash('Could not copy code. Select the code and copy it manually.');
+    } finally {
+      copy.disabled = false;
+      focused?.focus({preventScroll: true});
+      setTimeout(() => {
+        copy.textContent = 'Copy';
+        copy.setAttribute('aria-label', 'Copy code');
+      }, 2000);
+    }
+    return;
+  }
   const link = event.target.closest('a[data-md-path]');
   if (!link || event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
   event.preventDefault();

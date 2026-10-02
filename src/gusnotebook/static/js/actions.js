@@ -751,6 +751,7 @@ function previewAppearance() {
   const size = document.getElementById('set-font-size').value;
   AppAppearance.update({theme: document.getElementById('set-theme').value,
     density: document.getElementById('set-density').value,
+    markdownStyle: document.getElementById('set-markdown-style').value,
     ...(size ? {fontSize: Number(size)} : {})}, false);
 }
 
@@ -830,6 +831,7 @@ async function openSettings() {
   document.getElementById('set-theme').value = settingsAppearance.theme;
   document.getElementById('set-density').value = settingsAppearance.density;
   document.getElementById('set-font-size').value = settingsAppearance.fontSize;
+  document.getElementById('set-markdown-style').value = settingsAppearance.markdownStyle;
   document.getElementById('settings-error').hidden = true;
   settingsSection('appearance');
   back.classList.add('on');
