@@ -276,7 +276,7 @@ def main():
         page.wait_for_selector('#tab-new')
         page.wait_for_function('cells.length === 3 && cmViews.size === 2 && terms.length === 1')
         assert page.evaluate('[layoutPrefs.filesWidth, layoutPrefs.termWidth]') == widths
-        assert page.evaluate('AppAppearance.get()') == {'theme': 'dark', 'density': 'compact', 'fontSize': 16, 'markdownStyle': 'compact'}
+        assert page.evaluate('AppAppearance.get()') == {'theme': 'dark', 'density': 'compact', 'fontSize': 16, 'markdownStyle': 'compact', 'markdownColors': 'colorful'}
         expect(page.locator('#agent-pane')).not_to_be_visible()
         expect(page.locator('#toggle-terminal')).to_have_attribute('aria-pressed', 'false')
         page.click('#toggle-terminal')

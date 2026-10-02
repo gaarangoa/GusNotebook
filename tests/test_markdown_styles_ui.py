@@ -25,7 +25,11 @@ Compare the two cohorts and keep the observations alongside the calculation.
 | Control | 12.4 |
 | Treatment | 15.8 |
 
+### Calculation
+
 The estimate is $\hat{\mu} = \frac{1}{n}\sum_i x_i$.
+
+[Method reference](https://example.com)
 
 $$\sigma^2 = \frac{1}{n}\sum_i (x_i - \mu)^2$$
 
@@ -49,6 +53,7 @@ print(sum(values) / len(values))
         preview = page.locator('#markdown-preview')
         root = page.locator('html')
         expect(root).to_have_attribute('data-markdown-style', 'compact')
+        expect(root).to_have_attribute('data-markdown-colors', 'colorful')
         expect(preview).to_have_css('font-size', '12px')
         page.click('#markdown-source-button')
         draft = original + '\nUnsaved observation.\n'
@@ -60,31 +65,40 @@ print(sum(values) / len(values))
             page.click('#settings-button')
             expect(page.locator('#settings-back')).to_be_visible()
             expect(page.locator('#set-markdown-style')).to_have_value('compact')
+            expect(page.locator('#set-markdown-colors')).to_have_value('colorful')
             page.get_by_label('Markdown preview style', exact=True).select_option(style)
+            page.get_by_label('Markdown colors', exact=True).select_option('neutral')
             expect(root).to_have_attribute('data-markdown-style', style)
+            expect(root).to_have_attribute('data-markdown-colors', 'neutral')
             expect(preview).to_have_css('font-size', f'{size}px')
             assert page.evaluate('document.querySelector(".markdown-content") === styleReviewContent')
             assert page.evaluate('activeTab().text') == draft
             assert document.read_text() == original
             page.keyboard.press('Escape')
             expect(root).to_have_attribute('data-markdown-style', 'compact')
+            expect(root).to_have_attribute('data-markdown-colors', 'colorful')
             expect(page.locator('#settings-button')).to_be_focused()
         print('PASS: Compact defaults correctly; live previews and Cancel preserve unsaved source and DOM', flush=True)
 
         for style, size in [('reading', 16), ('paper', 18), ('compact', 12)]:
+            palette = {'reading': 'neutral', 'paper': 'colorful', 'compact': 'accent'}[style]
             page.click('#settings-button')
             page.get_by_label('Markdown preview style', exact=True).select_option(style)
+            page.get_by_label('Markdown colors', exact=True).select_option(palette)
             page.click('#settings-save')
             expect(page.locator('#settings-back')).not_to_be_visible()
             # Saving settings must not save the document draft.
             assert document.read_text() == original
             assert page.evaluate('JSON.parse(localStorage.getItem("gusnotebook.appearance")).markdownStyle') == style
+            assert page.evaluate('JSON.parse(localStorage.getItem("gusnotebook.appearance")).markdownColors') == palette
             page.reload(wait_until='domcontentloaded')
             page.wait_for_function('booted')
             expect(root).to_have_attribute('data-markdown-style', style)
+            expect(root).to_have_attribute('data-markdown-colors', palette)
             expect(preview).to_have_css('font-size', f'{size}px')
             page.click('#settings-button')
             expect(page.locator('#set-markdown-style')).to_have_value(style)
+            expect(page.locator('#set-markdown-colors')).to_have_value(palette)
             page.keyboard.press('Escape')
             font = preview.evaluate('el => getComputedStyle(el).fontFamily')
             assert ('Georgia' in font) == (style == 'paper')
@@ -97,6 +111,23 @@ print(sum(values) / len(values))
                 assert abs(content['x'] + content['width'] / 2 - pane['x'] - pane['width'] / 2) < 2
             for theme in ('light', 'dark'):
                 page.evaluate('theme => AppAppearance.update({theme})', theme)
+                def expect_color(selector, token, property_name='color'):
+                    color = page.evaluate('''token => {
+                      const sample = document.createElement('span');
+                      sample.style.color = `var(--${token})`;
+                      document.body.append(sample);
+                      const color = getComputedStyle(sample).color;
+                      sample.remove();
+                      return color;
+                    }''', token)
+                    expect(preview.locator(selector).first).to_have_css(property_name, color)
+                heading = 'text' if palette == 'neutral' else 'accent'
+                expect_color('h1', heading)
+                expect_color('h2', 'blue' if palette == 'colorful' else heading)
+                expect_color('h3', 'cyan' if palette == 'colorful' else heading)
+                expect_color('a', {'neutral': 'secondary', 'accent': 'accent', 'colorful': 'blue'}[palette])
+                expect_color('blockquote', {'neutral': 'border', 'accent': 'accent-border', 'colorful': 'cyan'}[palette], 'border-left-color')
+                expect_color('.katex', 'text')
                 expect(preview.locator('.katex')).to_have_count(2)
                 expect(preview.locator('.katex-display')).to_have_count(1)
                 expect(preview.locator('.katex-error')).to_have_count(0)
@@ -117,8 +148,16 @@ print(sum(values) / len(values))
         page.reload(wait_until='domcontentloaded')
         page.wait_for_function('booted')
         assert page.evaluate('AppAppearance.get()') == {
-            'theme': 'light', 'density': 'compact', 'fontSize': 14, 'markdownStyle': 'compact'}
+            'theme': 'light', 'density': 'compact', 'fontSize': 14,
+            'markdownStyle': 'compact', 'markdownColors': 'colorful'}
         expect(preview).to_have_css('font-size', '14px')
+        page.evaluate('''() => localStorage.setItem('gusnotebook.appearance', JSON.stringify({
+          theme: 'dark', density: 'comfortable', fontSize: 12, markdownStyle: 'paper'
+        }))''')
+        page.reload(wait_until='domcontentloaded')
+        page.wait_for_function('booted')
+        expect(root).to_have_attribute('data-markdown-style', 'paper')
+        expect(root).to_have_attribute('data-markdown-colors', 'colorful')
         assert not errors, errors
         browser.close()
         print('PASS: existing appearance preferences migrate to the Compact default', flush=True)
