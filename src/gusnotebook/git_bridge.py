@@ -124,7 +124,15 @@ class CredentialForward:
                 {"Host": f"gusnotebook.localhost:{self.port}", "Content-Type": "application/json",
                  "X-GusNotebook-Git-Session": self.secret})
             response = connection.getresponse()
-            data = json.loads(response.read(1024 * 1024))
+            payload = response.read(1024 * 1024)
+            if response.status in {404, 405}:
+                raise GitError("This remote workspace does not support Git credential sharing. "
+                               "Update GusNotebook on the remote computer, then retry Git sharing.")
+            try:
+                data = json.loads(payload)
+            except ValueError as exc:
+                raise GitError(f"The remote workspace returned an unexpected Git sharing response (HTTP {response.status}). "
+                               "Retry Git sharing; if this continues, update the remote GusNotebook installation.") from exc
             if not isinstance(data, dict):
                 raise GitError("Invalid Git sharing response from remote workspace")
             if response.status != 200:
@@ -153,7 +161,7 @@ class CredentialForward:
                 self.error = redact(exc)
         except (OSError, ValueError, http.client.HTTPException):
             if not self.stop.is_set():
-                self.error = "Git credential sharing stopped. Reconnect the tunnel to retry; update older remote installations."
+                self.error = "Git credential sharing lost its connection. Use Retry Git sharing in tunnel details to reconnect."
         finally:
             self.connected = False
             try:

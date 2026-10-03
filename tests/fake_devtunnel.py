@@ -107,6 +107,11 @@ elif args[0] == "connect":
                             data = source.recv(65536)
                             if not data:
                                 return
+                            if source is self.request and data.startswith(b"POST /api/git/bridge/") and (root / "fail-git-sharing").exists():
+                                payload = b'{"error":"Git sharing relay unavailable"}'
+                                self.request.sendall(b"HTTP/1.1 503 Service Unavailable\r\nContent-Type: application/json\r\nConnection: close\r\nContent-Length: "
+                                                     + str(len(payload)).encode() + b"\r\n\r\n" + payload)
+                                return
                             (remote if source is self.request else self.request).sendall(data)
             except OSError:
                 pass

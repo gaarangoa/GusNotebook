@@ -134,6 +134,27 @@ def main():
                 menu("Research workstation", "Details")
                 expect(page.locator("#tunnel-id")).to_have_value("remote-research")
                 expect(page.locator("#tunnel-details")).to_contain_text("Last connected:")
+                expect(page.locator("#tunnel-details")).to_contain_text("GitHub credential sharing connected")
+                expect(page.get_by_role("button", name="Retry Git sharing", exact=True)).not_to_be_visible()
+                (relay / "fail-git-sharing").touch()
+                expect(page.locator("#tunnel-details")).to_contain_text("Git sharing relay unavailable", timeout=15000)
+                retry = page.get_by_role("button", name="Retry Git sharing", exact=True)
+                expect(retry).to_be_visible()
+                page.route("**/api/tunnels/*/git/retry", lambda route: route.fulfill(status=400, json={"error": "Retry request failed"}))
+                retry.click()
+                expect(page.locator("#tunnel-form-error")).to_have_text("Retry request failed")
+                expect(retry).to_be_enabled()
+                page.unroute("**/api/tunnels/*/git/retry")
+                (relay / "fail-git-sharing").unlink()
+                remote_url = remote_page.url
+                retry.press("Enter")
+                expect(page.locator("#tunnel-details")).to_contain_text("GitHub credential sharing connected", timeout=15000)
+                expect(page.locator("#tunnel-form-error")).to_be_empty()
+                assert remote_page.url == remote_url
+                assert len(calls("connect")) == 1
+                assert remote_page.evaluate("terms[0].id") == term_id
+                expect(row("Research workstation")).to_contain_text("Connected")
+                print("PASS: Git sharing failure and retry recover in place without closing the transport or remote terminal", flush=True)
                 page.keyboard.press("Escape")
                 for theme in ("light", "dark"):
                     page.evaluate("theme => AppAppearance.update({theme})", theme)
@@ -202,7 +223,15 @@ def main():
                 page.locator("#ask-ok").click()
                 expect(page.get_by_role("button", name="Actions for Research workstation")).to_have_count(0)
                 assert host.poll() is None
-                assert json.loads((root / "local-state" / "tunnels.json").read_text()) == []
+                assert all(entry["hidden"] for entry in json.loads((root / "local-state" / "tunnels.json").read_text()))
+                page.get_by_role("button", name="Refresh", exact=True).click()
+                expect(row("Research workstation")).to_have_count(0)
+                stop(client)
+                client, url = start(["--port", "0", "--no-browser"], local, "local-state", "local-hidden.log")
+                open_local(url)
+                expect(row("Research workstation")).to_have_count(0)
+                page.wait_for_function("tunnelLoaded && tunnelState.activity?.state === 'done'")
+                assert page.evaluate("tunnelState.saved.length === 0 && tunnelState.discovered.length === 0")
                 assert not errors, errors
                 browser.close()
                 print("PASS: cloud failures and missing IDs are actionable; removing saves never deletes or stops the remote", flush=True)

@@ -319,10 +319,10 @@
     <div class="mbody">
     <div class="field"><label for="tunnel-name">Display name</label><input type="text" id="tunnel-name" maxlength="100" placeholder="Research workstation"></div>
     <div class="field"><label for="tunnel-id">Tunnel ID</label><input type="text" id="tunnel-id" required maxlength="100" placeholder="my-research.usw2" spellcheck="false"></div>
-    <p class="tunnel-help" id="tunnel-details"></p>
+    <p class="tunnel-help" id="tunnel-details" aria-live="polite"></p>
     <p class="tunnel-error" id="tunnel-form-error" role="status"></p>
     </div>
-    <div class="mfoot"><button class="btn" type="button" onclick="closeTunnelEditor()">Close</button><button class="btn primary" type="submit" id="tunnel-save">Add</button></div>
+    <div class="mfoot"><button class="btn" type="button" onclick="closeTunnelEditor()">Close</button><button class="btn primary" type="button" id="tunnel-git-retry" onclick="retryTunnelGitSharing()" hidden>Retry Git sharing</button><button class="btn primary" type="submit" id="tunnel-save">Add</button></div>
   </form>
 </div>
 

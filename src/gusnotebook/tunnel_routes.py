@@ -79,6 +79,12 @@ def disconnect(identifier):
     return jsonify(manager().snapshot())
 
 
+@tunnel_routes.post("/api/tunnels/<identifier>/git/retry")
+def retry_git_sharing(identifier):
+    manager().retry_git_sharing(identifier)
+    return jsonify(manager().snapshot()), 202
+
+
 @tunnel_routes.get("/tunnels/connect")
 def connect_page():
     return render_template("tunnel-connect.html")

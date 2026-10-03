@@ -1,6 +1,8 @@
 /* Optional local connection manager; account controls live in Accounts. */
 let tunnelState = null, tunnelPanelActive = false, tunnelPollTimer = null;
 let tunnelLoaded = false, tunnelPolling = false, tunnelRenderKey = '';
+let tunnelDetailsId = null;
+const tunnelGitRetryPending = new Set();
 
 function syncTunnelPanel() {
   const visible = !!document.getElementById('tunnels') && layoutPrefs.sidebarSection === 'tunnels' && filesVisible();
@@ -38,6 +40,7 @@ function refreshTunnels() { return tunnelRequest('/refresh'); }
 
 function renderTunnels() {
   if (!tunnelState || !document.getElementById('tunnels')) return;
+  if (tunnelDetailsId) renderTunnelDetails(tunnelState.saved?.find(row => row.id === tunnelDetailsId));
   const key = JSON.stringify(tunnelState);
   if (key === tunnelRenderKey) return;
   tunnelRenderKey = key;
@@ -106,27 +109,59 @@ function tunnelMenu(event, row) {
     }},
     {label:'Details', action:() => openTunnelEditor(row)},
     {label:'Remove from list', action:async () => {
-      if (!await askConfirm(`Remove ${row.name}?`, 'Removes this saved entry and disconnects locally. The remote workspace keeps running.', 'Remove')) return;
+      if (!await askConfirm(`Remove ${row.name}?`, 'Hides this tunnel from the list and disconnects locally. Add its tunnel ID again to restore it. The remote workspace keeps running.', 'Remove')) return;
       try { await api('/api/tunnels/' + row.id, {method:'DELETE'}); await pollTunnels(); }
       catch (error) { flash(errText(error)); }
     }},
   ], 'Tunnel actions');
 }
 function openTunnelEditor(row = null) {
+  tunnelDetailsId = row?.id || null;
   document.getElementById('tunnel-title').textContent = row ? 'Tunnel details' : 'Add tunnel';
   for (const [id, value] of [['tunnel-name', row?.name || ''], ['tunnel-id', row?.tunnel || '']]) {
     const input = document.getElementById(id); input.value = value; input.readOnly = !!row;
   }
   document.getElementById('tunnel-save').hidden = !!row;
   document.getElementById('tunnel-form-error').textContent = '';
-  document.getElementById('tunnel-details').textContent = row
-    ? [row.state, row.url, row.git_sharing ? 'GitHub credential sharing connected' : row.git_error,
-       row.last_connected ? 'Last connected: ' + new Date(row.last_connected * 1000).toLocaleString() : '', row.error].filter(Boolean).join('\n')
-    : 'Use the full tunnel ID printed by GusNotebook on the remote computer.';
+  renderTunnelDetails(row);
   document.getElementById('tunnel-back').classList.add('on');
   document.getElementById(row ? 'tunnel-id' : 'tunnel-name').focus();
 }
-function closeTunnelEditor() { document.getElementById('tunnel-back').classList.remove('on'); }
+function renderTunnelDetails(row) {
+  const pending = tunnelGitRetryPending.has(row?.id) || row?.git_retrying;
+  const text = row
+    ? [row.state, row.url, pending ? 'Retrying Git credential sharing…'
+       : row.git_sharing ? 'GitHub credential sharing connected' : row.git_error,
+       row.last_connected ? 'Last connected: ' + new Date(row.last_connected * 1000).toLocaleString() : '', row.error].filter(Boolean).join('\n')
+    : tunnelDetailsId ? 'This saved tunnel is no longer available.'
+    : 'Use the full tunnel ID printed by GusNotebook on the remote computer.';
+  const details = document.getElementById('tunnel-details');
+  if (details.textContent !== text) details.textContent = text;
+  const retry = document.getElementById('tunnel-git-retry');
+  retry.hidden = !row || row.state !== 'connected' || (!row.git_error && !pending);
+  retry.disabled = !!pending;
+  retry.textContent = pending ? 'Retrying…' : 'Retry Git sharing';
+}
+async function retryTunnelGitSharing() {
+  if (!tunnelDetailsId || tunnelGitRetryPending.has(tunnelDetailsId)) return;
+  const identifier = tunnelDetailsId;
+  tunnelGitRetryPending.add(identifier);
+  document.getElementById('tunnel-form-error').textContent = '';
+  renderTunnelDetails(tunnelState.saved.find(row => row.id === identifier));
+  try {
+    tunnelState = await api('/api/tunnels/' + encodeURIComponent(identifier) + '/git/retry', {method:'POST', body:'{}'});
+    renderTunnels();
+  } catch (error) {
+    if (tunnelDetailsId === identifier) document.getElementById('tunnel-form-error').textContent = errText(error);
+  } finally {
+    tunnelGitRetryPending.delete(identifier);
+    if (tunnelDetailsId) renderTunnelDetails(tunnelState.saved.find(row => row.id === tunnelDetailsId));
+  }
+}
+function closeTunnelEditor() {
+  tunnelDetailsId = null;
+  document.getElementById('tunnel-back').classList.remove('on');
+}
 async function saveTunnelEntry() {
   const button = document.getElementById('tunnel-save'); button.disabled = true;
   try {

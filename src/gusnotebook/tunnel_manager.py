@@ -37,6 +37,7 @@ class TunnelManager:
         self.lock = threading.RLock()
         self.closed = False
         self.saved = {}
+        self.hidden = set()
         self.discovered = {}
         self.connections = {}
         self.canonical = {}
@@ -51,12 +52,16 @@ class TunnelManager:
             if not isinstance(data, list):
                 raise ValueError("expected a saved tunnel list")
             for row in data:
+                if isinstance(row, dict) and row.get("hidden") is True:
+                    self.hidden.add(tunnel_name(row.get("tunnel")).lower())
+                    continue
                 entry = self._entry(row)
                 self.saved[entry["id"]] = entry
         except FileNotFoundError:
             pass
         except (OSError, ValueError, TypeError, KeyError, TunnelError) as exc:
             self.saved = {}
+            self.hidden = set()
             self.load_error = f"Cannot read saved tunnels: {exc}. Check {self.path}."
 
     @staticmethod
@@ -76,7 +81,8 @@ class TunnelManager:
     def _save(self):
         if self.load_error:
             raise TunnelError(self.load_error)
-        atomic_write(self.path, json.dumps(list(self.saved.values()), indent=2) + "\n")
+        entries = list(self.saved.values()) + [{"tunnel": name, "hidden": True} for name in sorted(self.hidden)]
+        atomic_write(self.path, json.dumps(entries, indent=2) + "\n")
 
     def add(self, body):
         entry = self._entry({"name": body.get("name") or body.get("tunnel"), "tunnel": body.get("tunnel")})
@@ -87,10 +93,17 @@ class TunnelManager:
             if len(self.saved) >= 200:
                 raise TunnelError("At most 200 tunnels can be saved")
             self.saved[entry["id"]] = entry
+            hidden = set(self.hidden)
+            name = entry["tunnel"].lower()
+            # Dev Tunnels accepts a short ID and discovers the same ID with a
+            # regional suffix. Explicitly adding either form restores it.
+            self.hidden = {key for key in self.hidden
+                           if key != name and key.rsplit(".", 1)[0] != name and name.rsplit(".", 1)[0] != key}
             try:
                 self._save()
             except Exception:
                 self.saved.pop(entry["id"], None)
+                self.hidden = hidden
                 raise
             return dict(entry)
 
@@ -109,11 +122,14 @@ class TunnelManager:
     def remove(self, identifier):
         with self.lock:
             old = self._get(identifier)
+            hidden = set(self.hidden)
+            self.hidden.add(old["tunnel"].lower())
             del self.saved[identifier]
             try:
                 self._save()
             except Exception:
                 self.saved[identifier] = old
+                self.hidden = hidden
                 raise
             self.disconnect(identifier)
             self.connections.pop(identifier, None)
@@ -193,12 +209,14 @@ class TunnelManager:
                 rows.append({**entry, "state": state, "url": connection.get("url"),
                              "git_sharing": getattr(connection.get("git_forward"), "connected", False),
                              "git_error": getattr(connection.get("git_forward"), "error", None),
+                             "git_retrying": connection.get("git_retrying", False),
                              "error": connection.get("error"), "local_port": connection.get("port")})
             activity = None if self.activity is None else {k: v for k, v in self.activity.items() if k != "cancel"}
             registered = {row["tunnel"].lower() for row in rows}
             discovered = [{"tunnel": item["tunnelId"], "name": item["tunnelId"],
                            "state": "available" if item.get("hostConnections") else "offline"}
-                          for key, item in self.discovered.items() if key not in registered]
+                          for key, item in self.discovered.items()
+                          if key not in registered and key not in self.hidden and key.rsplit(".", 1)[0] not in self.hidden]
             return {"saved": rows, "discovered": discovered, "account": self.account,
                     "activity": activity, "checked_at": self.checked_at,
                     "cli_error": cli_error, "error": self.load_error}
@@ -342,6 +360,10 @@ class TunnelManager:
                 if not cancel.is_set():
                     connection.update(state="error", error=str(exc), url=None)
         finally:
+            # A Git-sharing retry can replace the worker while this transport
+            # stays alive. Always close the current worker on transport exit.
+            with self.lock:
+                forward = connection.get("git_forward", forward)
             if forward:
                 forward.close()
             if process:
@@ -351,6 +373,39 @@ class TunnelManager:
                     self.canonical.pop(canonical, None)
                 if cancel.is_set():
                     connection.update(state="disconnected", error=None, url=None)
+
+    def retry_git_sharing(self, identifier):
+        with self.lock:
+            self._get(identifier)
+            connection = self.connections.get(identifier)
+            if self.closed or not connection or connection["state"] != "connected" or connection["cancel"].is_set():
+                raise TunnelError("Connect this tunnel before retrying Git sharing")
+            if not self.git_auth:
+                raise TunnelError("Git credential sharing is unavailable in this workspace")
+            if connection.get("git_retrying"):
+                return
+            connection["git_retrying"] = True
+            self._thread(lambda: self._retry_git_sharing(connection))
+
+    def _retry_git_sharing(self, connection):
+        from .git_bridge import CredentialForward
+        try:
+            forward = connection.get("git_forward")
+            if forward:
+                forward.close()
+            with self.lock:
+                process = connection.get("process")
+                if (self.closed or connection["cancel"].is_set() or connection["state"] != "connected"
+                        or not process or process.done.is_set()):
+                    return
+                forward = CredentialForward(connection["port"], self.git_auth)
+                connection["git_forward"] = forward
+            while not forward.connected and forward.error is None and forward.thread.is_alive():
+                if connection["cancel"].wait(.05) or self.closed:
+                    return
+        finally:
+            with self.lock:
+                connection["git_retrying"] = False
 
     def disconnect(self, identifier):
         with self.lock:

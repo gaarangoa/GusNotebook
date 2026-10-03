@@ -231,6 +231,22 @@ class GitTests(unittest.TestCase):
             close_app(app)
             server.server_close()
 
+    def test_git_sharing_reports_unsupported_and_invalid_remote_responses(self):
+        forward = object.__new__(CredentialForward)
+        forward.port, forward.secret = 12345, "test-sharing-session"
+        for status, payload, message in [
+                (404, b"<html>Not found</html>", "Update GusNotebook on the remote computer"),
+                (405, b"<html>Method not allowed</html>", "does not support Git credential sharing"),
+                (200, b"<html>Unexpected login page</html>", "unexpected Git sharing response"),
+                (503, b'{"error":"Git sharing relay unavailable"}', "Git sharing relay unavailable")]:
+            with self.subTest(status=status), patch("gusnotebook.git_bridge.http.client.HTTPConnection") as connection:
+                response = connection.return_value.getresponse.return_value
+                response.status = status
+                response.read.return_value = payload
+                with self.assertRaisesRegex(GitError, message):
+                    forward.request("attach", {})
+                connection.return_value.close.assert_called_once()
+
     def test_git_api_requires_auth_and_same_origin(self):
         app = create_app({"WORK_DIR": str(self.repo), "STATE_DIR": self.root / "state", "START_WATCHERS": False,
                           "AUTH_TOKEN": "test-token", "APP_BASE_URL": "/nb"})

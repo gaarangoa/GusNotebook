@@ -96,6 +96,7 @@ class ManagerTests(unittest.TestCase):
                 with self.assertRaises(OSError):
                     callback()
                 self.assertEqual(list(self.manager.saved.values()), [self.entry])
+                self.assertEqual(self.manager.hidden, set())
 
     def test_invalid_id_type_in_registry_is_reported_without_breaking_startup(self):
         self.path.write_text(json.dumps([{"id": 42, "tunnel": "research"}]))
@@ -148,7 +149,36 @@ class ManagerTests(unittest.TestCase):
         self.assertTrue(self.forward.done.is_set())
         self.assertEqual(self.cli.json.call_args_list[0].args, ("user", "show"))
         self.assertEqual(self.cli.json.call_count, 1)
-        self.assertEqual(json.loads(self.path.read_text()), [])
+        self.assertEqual(json.loads(self.path.read_text()), [{"tunnel": "research.usw2", "hidden": True}])
+        self.assertEqual(self.manager.snapshot()["discovered"], [])
+
+    def test_removed_tunnel_stays_hidden_on_refresh_and_restart_and_can_be_added_again(self):
+        self.manager.refresh()
+        wait_for(lambda: self.manager.activity["state"] != "running")
+        self.assertEqual(len(self.manager.snapshot()["discovered"]), 1)
+        discovered = self.manager.add({"tunnel": "research.usw2"})
+        self.manager.remove(discovered["id"])
+        self.manager.refresh()
+        wait_for(lambda: self.manager.activity["state"] != "running")
+        self.assertEqual(self.manager.snapshot()["discovered"], [])
+        restored = TunnelManager(self.path)
+        try:
+            restored.discovered = dict(self.manager.discovered)
+            self.assertEqual(restored.snapshot()["discovered"], [])
+            restored.add({"tunnel": "research.usw2"})
+            self.assertEqual(restored.hidden, set())
+            self.assertEqual(len(restored.snapshot()["saved"]), 2)
+        finally:
+            restored.close()
+
+    def test_removing_short_id_hides_its_discovered_regional_id(self):
+        self.manager.refresh()
+        wait_for(lambda: self.manager.activity["state"] != "running")
+        self.manager.remove(self.entry["id"])
+        self.assertEqual(self.manager.snapshot()["saved"], [])
+        self.assertEqual(self.manager.snapshot()["discovered"], [])
+        self.manager.add({"tunnel": "research.usw2"})
+        self.assertEqual(self.manager.hidden, set())
 
     def test_offline_unowned_and_logged_out_errors_do_not_start_forward(self):
         for detail, account, error in [
@@ -179,6 +209,57 @@ class ManagerTests(unittest.TestCase):
         self.manager.close()
         self.assertTrue(second.done.is_set())
         self.assertFalse(self.manager.workers)
+
+    def test_git_retry_reuses_transport_and_aliases_and_closes_replacement_on_disconnect(self):
+        self.manager.git_auth = Mock()
+        first = Mock(connected=True, error=None)
+        second = Mock(connected=True, error=None)
+        with patch("gusnotebook.git_bridge.CredentialForward", side_effect=[first, second]) as factory:
+            self.manager.connect(self.entry["id"])
+            wait_for(lambda: self.row()["state"] == "connected")
+            url = self.row()["url"]
+            first.connected, first.error = False, "Git sharing lost its connection"
+            alias = self.manager.add({"name": "Alias", "tunnel": "other-alias"})
+            self.manager.connect(alias["id"])
+            wait_for(lambda: self.manager.connections[alias["id"]]["state"] == "connected")
+            self.manager.retry_git_sharing(alias["id"])
+            wait_for(lambda: self.row()["git_sharing"] and not self.row()["git_retrying"])
+            first.close.assert_called_once()
+            self.assertEqual(factory.call_count, 2)
+            factory.assert_called_with(self.forward.local_port, self.manager.git_auth)
+            self.cli.connect.assert_called_once()
+            self.assertEqual(self.row()["url"], url)
+            self.assertIsNone(self.row()["git_error"])
+            self.assertEqual(self.row()["state"], "connected")
+            self.manager.disconnect(alias["id"])
+            wait_for(lambda: not self.manager.workers)
+            second.close.assert_called()
+            self.assertTrue(self.forward.done.is_set())
+
+    def test_git_retry_is_deduplicated_and_cannot_restart_after_disconnect(self):
+        self.manager.git_auth = Mock()
+        started, release = threading.Event(), threading.Event()
+        first = Mock(connected=False, error="Sharing stopped")
+        def slow_close():
+            if not started.is_set():
+                started.set()
+                release.wait(3)
+        first.close.side_effect = slow_close
+        with patch("gusnotebook.git_bridge.CredentialForward", return_value=first) as factory:
+            self.manager.connect(self.entry["id"])
+            wait_for(lambda: self.row()["state"] == "connected")
+            self.manager.retry_git_sharing(self.entry["id"])
+            self.assertTrue(started.wait(3))
+            for _ in range(10):
+                self.manager.retry_git_sharing(self.entry["id"])
+            self.assertTrue(self.row()["git_retrying"])
+            self.manager.disconnect(self.entry["id"])
+            release.set()
+            wait_for(lambda: not self.manager.workers)
+            factory.assert_called_once()
+            self.assertFalse(self.row()["git_retrying"])
+        with self.assertRaisesRegex(TunnelError, "Connect this tunnel"):
+            self.manager.retry_git_sharing(self.entry["id"])
 
     def test_cancel_during_metadata_query_never_starts_forward(self):
         started, release = threading.Event(), threading.Event()
@@ -234,10 +315,16 @@ class TunnelRoutesTests(unittest.TestCase):
                 for body in [[], None, {"tunnel": "https://example.com"}]:
                     self.assertEqual(client.post("/nb/api/tunnels", json=body).status_code, 400)
                 self.assertEqual(client.post("/nb/api/tunnels", json={"tunnel": "research"}).status_code, 200)
+                identifier = client.get("/nb/api/tunnels").get_json()["saved"][0]["id"]
+                self.assertEqual(client.post(f"/nb/api/tunnels/{identifier}/git/retry").status_code, 400)
+                with patch.object(app.extensions["gusnotebook"].tunnels, "retry_git_sharing") as retry:
+                    self.assertEqual(client.post(f"/nb/api/tunnels/{identifier}/git/retry").status_code, 202)
+                    retry.assert_called_once_with(identifier)
                 self.assertEqual(client.post("/nb/api/tunnels", json={"tunnel": "evil"},
                                             headers={"Origin": "https://evil.invalid"}).status_code, 403)
                 auth = {"Authorization": "Bearer test-token"}
                 self.assertEqual(client.get("/nb/api/tunnels", base_url="http://100.79.110.127", headers=auth).status_code, 403)
+                self.assertEqual(client.post(f"/nb/api/tunnels/{identifier}/git/retry", base_url="http://100.79.110.127", headers=auth).status_code, 403)
                 self.assertNotIn(b'id="sidebar-tunnels"', client.get("/nb/", base_url="http://100.79.110.127", headers=auth).data)
                 app.config["PREVIEW_SINGLE_PORT"] = True
                 self.assertEqual(client.get("/nb/api/tunnels").status_code, 403)
