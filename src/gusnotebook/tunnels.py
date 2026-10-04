@@ -5,6 +5,7 @@ one private, labelled tunnel with one port. Clients forward that port to loopbac
 they never start a local notebook, kernel, or agent.
 """
 
+import http.client
 import json
 import os
 from pathlib import Path
@@ -13,6 +14,7 @@ import shutil
 import signal
 import subprocess
 import threading
+import time
 import webbrowser
 from . import paths
 
@@ -39,7 +41,7 @@ def executable(tools_dir=None):
         str(Path.home() / "bin/devtunnel"),
         str(Path.home() / ".devtunnel/bin/devtunnel"),
         str(Path.home() / ".local/bin/devtunnel"),
-        str((Path(tools_dir) if tools_dir is not None else paths.state("tools")) / "devtunnel")]
+        str((Path(tools_dir) if tools_dir is not None else paths.state_dir(create=False) / "tools") / "devtunnel")]
     for candidate in candidates:
         if candidate and Path(candidate).is_file() and os.access(candidate, os.X_OK):
             return str(Path(candidate).resolve())
@@ -231,7 +233,6 @@ class TunnelProcess:
             self.done.set()
 
     def wait_ready(self, timeout=60):
-        import time
         deadline = time.monotonic() + timeout
         try:
             while not self.ready.wait(.1):
@@ -241,9 +242,44 @@ class TunnelProcess:
                     raise TunnelError("Tunnel connection timed out. Check your login, remote host, and network.")
             if self.done.is_set():
                 raise TunnelError(self.failure or "Tunnel disconnected.")
+            if not self.hosting:
+                self._wait_for_workspace(deadline)
         except BaseException:
             self.close()
             raise
+
+    def _wait_for_workspace(self, deadline):
+        # devtunnel 1.0.2094 prints "Forwarding from" before its SSH port map
+        # is registered. An immediate connection (including Git sharing) can
+        # throw "Port ... is not being forwarded" and stop its accept loop
+        # without exiting the CLI. Let registration settle before probing.
+        if self.done.wait(min(1, max(0, deadline - time.monotonic()))):
+            raise TunnelError(self.failure or "Tunnel disconnected.")
+        last_error = "no response"
+        while time.monotonic() < deadline:
+            if self.done.is_set():
+                raise TunnelError(self.failure or "Tunnel disconnected.")
+            connection = http.client.HTTPConnection("127.0.0.1", self.local_port,
+                timeout=min(2, max(.01, deadline - time.monotonic())))
+            try:
+                # Use the same origin as the browser, without proxies,
+                # redirects, credentials, or changes to the remote workspace.
+                connection.request("GET", "/api/tabs", headers={
+                    "Host": f"gusnotebook.localhost:{self.local_port}",
+                    "Connection": "close"})
+                with connection.getresponse() as response:
+                    if (response.status == 200 and
+                            "application/json" in (response.getheader("Content-Type") or "")):
+                        return
+                    last_error = f"HTTP {response.status}"
+            except (OSError, http.client.HTTPException) as exc:
+                last_error = str(exc) or type(exc).__name__
+            finally:
+                connection.close()
+            if self.done.wait(min(.2, max(0, deadline - time.monotonic()))):
+                raise TunnelError(self.failure or "Tunnel disconnected.")
+        raise TunnelError("Tunnel opened a local port, but the remote GusNotebook did not respond "
+                          f"({last_error}). Reconnect and check that the remote app is still running.")
 
     def close(self):
         with self._close_lock:

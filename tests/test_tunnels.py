@@ -1,5 +1,6 @@
 """Tunnel ownership, privacy, CLI lifecycle and preview origin boundaries."""
 
+import http.client
 import io
 import json
 import os
@@ -12,7 +13,7 @@ from unittest.mock import Mock, patch
 from urllib.parse import urlsplit
 
 from gusnotebook.app import create_app, close_app
-from gusnotebook.tunnels import DevTunnels, TunnelError, TunnelProcess, tunnel_name
+from gusnotebook.tunnels import DevTunnels, TunnelError, TunnelProcess, executable, tunnel_name
 
 
 class TunnelTests(unittest.TestCase):
@@ -148,6 +149,67 @@ class TunnelTests(unittest.TestCase):
                 process.wait_ready(timeout=.1)
             self.assertIsNotNone(process.process.poll())
 
+    def test_forward_readiness_waits_for_registration_and_a_working_workspace(self):
+        # Real devtunnel accepts TCP before registering the SSH port. Touching
+        # it during that interval can permanently break forwarding.
+        script = '''
+import sys, time
+from pathlib import Path
+from http.server import HTTPServer, BaseHTTPRequestHandler
+class Handler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        if time.monotonic() < self.server.ready_after:
+            Path(sys.argv[1]).write_text("Connected before registration")
+            raise SystemExit(4)
+        if self.path != "/api/tabs" or self.headers.get("Host") != f"gusnotebook.localhost:{self.server.server_port}":
+            self.send_error(403)
+            return
+        body = b'{"tabs": []}'
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+    def log_message(self, *_): pass
+server = HTTPServer(("127.0.0.1", 0), Handler)
+server.ready_after = time.monotonic() + .4
+print(f"SSH: Forwarding from 127.0.0.1:{server.server_port} to host port 8888.", flush=True)
+server.serve_forever()
+'''
+        with tempfile.TemporaryDirectory() as temporary, patch("sys.stdout", new_callable=io.StringIO):
+            premature = Path(temporary) / "premature"
+            process = TunnelProcess([sys.executable, "-c", script, str(premature)], remote_port=8888)
+            try:
+                process.wait_ready(timeout=5)
+                connection = http.client.HTTPConnection("127.0.0.1", process.local_port, timeout=2)
+                try:
+                    connection.request("GET", "/api/tabs", headers={
+                        "Host": f"gusnotebook.localhost:{process.local_port}"})
+                    response = connection.getresponse()
+                    self.assertEqual(response.status, 200)
+                    self.assertEqual(json.loads(response.read()), {"tabs": []})
+                finally:
+                    connection.close()
+                self.assertFalse(premature.exists())
+            finally:
+                process.close()
+            self.assertIsNotNone(process.process.poll())
+
+    def test_listening_forward_without_http_response_is_not_ready(self):
+        script = '''
+import socket, time
+listener = socket.socket()
+listener.bind(("127.0.0.1", 0))
+listener.listen()
+print(f"SSH: Forwarding from 127.0.0.1:{listener.getsockname()[1]} to host port 8888.", flush=True)
+time.sleep(30)
+'''
+        with patch("sys.stdout", new_callable=io.StringIO):
+            process = TunnelProcess([sys.executable, "-c", script], remote_port=8888)
+            with self.assertRaisesRegex(TunnelError, "remote GusNotebook did not respond"):
+                process.wait_ready(timeout=1.3)
+            self.assertIsNotNone(process.process.poll())
+
     def test_missing_cli_does_not_create_a_local_workspace(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -157,6 +219,26 @@ class TunnelTests(unittest.TestCase):
             self.assertEqual(result.returncode, 1)
             self.assertIn("Install it on both computers", result.stderr)
             self.assertEqual(list(root.iterdir()), [])
+
+    def test_tool_discovery_does_not_create_local_state_for_a_connection(self):
+        from gusnotebook.git_auth import GitAuth
+        from gusnotebook import paths
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            state = root / "state"
+            with patch.dict(os.environ, {"GUSNOTEBOOK_HOME": str(state), "GUSNOTEBOOK_DEVTUNNEL": ""}):
+                try:
+                    executable()
+                except TunnelError:
+                    pass
+                auth = GitAuth(root)
+                try:
+                    self.assertEqual(auth.tools_dir, (state / "tools").resolve())
+                    self.assertFalse(state.exists())
+                finally:
+                    auth.close()
+                self.assertEqual(paths.state("settings.json"), state / "settings.json")
+                self.assertTrue(state.is_dir())
 
     def test_proxy_flags_are_rejected_before_login_or_workspace_creation(self):
         with tempfile.TemporaryDirectory() as temporary:

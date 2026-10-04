@@ -46,7 +46,7 @@ PACKAGE_DIR = pathlib.Path(__file__).resolve().parent
 LAUNCH_DIR = pathlib.Path.cwd()
 
 
-def _base():
+def _base(create=True):
     """The state directory, created on demand.
 
     One directory rather than the XDG config/data split: the four things in it
@@ -63,12 +63,14 @@ def _base():
         xdg = os.environ.get("XDG_CONFIG_HOME")
         root = pathlib.Path(xdg).expanduser() if xdg else pathlib.Path.home() / ".config"
         base = root / APP_NAME
-    base.mkdir(parents=True, exist_ok=True)
+    if create:
+        base.mkdir(parents=True, exist_ok=True)
     return base
 
 
-def state_dir():
-    return _base()
+def state_dir(*, create=True):
+    """Resolve app state; read-only tool discovery can skip creating it."""
+    return _base(create=create)
 
 
 def state(*parts):

@@ -43,7 +43,7 @@ def base_environment(environment):
 class GitAuth:
     def __init__(self, work, tools_dir=None):
         self.work = str(work)
-        self.tools_dir = (Path(tools_dir) if tools_dir is not None else paths.state("tools")).resolve()
+        self.tools_dir = (Path(tools_dir) if tools_dir is not None else paths.state_dir(create=False) / "tools").resolve()
         self.env = base_environment(os.environ)
         self.commands = Commands()
         self.lock = threading.RLock()
