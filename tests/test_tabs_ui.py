@@ -131,8 +131,10 @@ def main():
         check("text pane shown", pg.locator("#textpane").is_visible(), True)
         check("toolbar hidden for text", pg.locator("#toolbar").is_visible(), False)
         check("csv content loaded", pg.input_value("#text-editor").startswith("site,n"), True)
+        check("csv table preview shown by default", pg.locator("#table-preview").is_visible(), True)
 
         print("\n-- editing and saving text")
+        pg.click("#table-source-button")
         pg.click("#text-editor")
         pg.keyboard.press("Meta+ArrowDown")
         pg.keyboard.type("C,3\n")
@@ -156,12 +158,10 @@ def main():
 
         print("\n-- toolbar is down to the essentials")
         labels = [t.strip() for t in pg.locator("#toolbar button.tb").all_inner_texts()]
-        # + Raw / + AI joined the four cell types after this check was written,
-        # and ⚙ moved to the title bar; the point of it is that nothing *else*
-        # crept back in.
+        # Cell actions, kernel controls, and the existing disk-reload action.
         check("nothing but cell types and kernel controls", labels,
               ["Run", "Code", "Markdown", "Raw",
-               "Delete", "Stop", "Restart"])
+               "Delete", "Stop", "Restart", "Reload"])
         check("kernel badge is the env button",
               pg.evaluate("document.getElementById('venv-btn').classList.contains('kernel-badge')"),
               True)

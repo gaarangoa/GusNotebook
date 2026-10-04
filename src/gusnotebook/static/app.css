@@ -425,6 +425,32 @@ body {
 .markdown-preview img { max-width: 100%; height: auto; }
 .markdown-preview a { color: var(--accent); text-decoration: underline; }
 .markdown-preview input[type="checkbox"] { width: auto; margin-right: 4px; }
+
+/* Bounded, read-only previews for tabular files. */
+.table-preview { display: none; flex: 1; min-width: 0; min-height: 0; flex-direction: column; background: var(--panel); }
+.textpane.tabular:not(.table-source) #text-editor { display: none; }
+.textpane.tabular:not(.table-source) .table-preview { display: flex; }
+.table-controls, .table-footer { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; padding: 8px 12px; font-size: var(--ui-size); }
+.table-controls { border-bottom: 1px solid var(--border); }
+.table-controls label { display: inline-flex; align-items: center; gap: 6px; color: var(--secondary); min-width: 0; }
+.table-controls [hidden] { display: none; }
+.table-controls input[type="search"] { width: 180px; max-width: 45vw; }
+.table-controls select { max-width: 180px; }
+.table-controls input[type="checkbox"] { width: auto; }
+.table-notice { margin: 0; padding: 8px 12px; color: var(--secondary); background: var(--surface); font-size: var(--ui-size); overflow-wrap: anywhere; }
+.table-scroll { flex: 1; min-height: 0; min-width: 0; overflow: auto; }
+.table-scroll table { border-collapse: separate; border-spacing: 0; font-size: var(--ui-size); min-width: 100%; }
+.table-scroll caption { text-align: left; padding: 6px 10px; color: var(--muted); }
+.table-scroll th, .table-scroll td { padding: 6px 10px; border-right: 1px solid var(--border); border-bottom: 1px solid var(--border); text-align: left; max-width: 320px; min-width: 90px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.table-scroll thead th { position: sticky; top: 0; z-index: 1; background: var(--surface); color: var(--accent); }
+.table-scroll thead th:nth-child(3n) { color: var(--blue); }
+.table-scroll thead th:nth-child(3n + 1) { color: var(--cyan); }
+.table-scroll thead button { color: inherit; font: inherit; font-weight: 600; text-align: left; border: 0; background: transparent; cursor: pointer; padding: 0; overflow-wrap: anywhere; }
+.table-scroll tbody tr:nth-child(even) { background: var(--surface); }
+.table-scroll tbody tr:hover { background: var(--hover); }
+.table-scroll .table-row-number { color: var(--muted); font-weight: 400; min-width: 36px; width: 36px; }
+.table-footer { border-top: 1px solid var(--border); color: var(--secondary); }
+.table-footer .grow { flex: 1; }
 .html-preview iframe {
   flex: 1 1 auto; min-width: 0; min-height: 0;
   width: 100%; border: 0; background: var(--panel);

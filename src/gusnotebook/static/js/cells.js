@@ -259,6 +259,7 @@ window.addEventListener('message', event => {
 
 async function reloadTextFromDisk(target, force) {
   const t = target || activeTab();
+  if (t?.kind === 'table') return reloadTableFile(t);
   if (!t || t.kind !== 'text' || t.reloadInFlight) return false;
   t.reloadInFlight = true;
   try {
@@ -271,7 +272,14 @@ async function reloadTextFromDisk(target, force) {
     }
     const data = await api('/api/open', {
       method: 'POST', body: JSON.stringify({path: t.path})});
+    t.tableController?.abort();
+    t.tableController = null;
+    t.tableLoading = false;
+    t.tableRequestKey = null;
     t.text = data.text || '';
+    t.tablePreview = data.table_preview;
+    t.tablePreviewText = t.text;
+    t.tablePreviewDelimiter = 'auto';
     t.diskVersion = data.disk_version;
     t.previewOrigin = data.preview_origin || t.previewOrigin;
     t.previewVersion = data.preview_version;
@@ -301,7 +309,7 @@ async function reloadTextFromDisk(target, force) {
  */
 async function pollMarkupDisk() {
   const t = activeTab();
-  if (!(isMarkupTab(t) || isMarkdownTab(t)) || !t.diskVersion || t.saveInFlight || t.reloadInFlight ||
+  if (!(isMarkupTab(t) || isMarkdownTab(t) || isTableTab(t)) || !t.diskVersion || t.saveInFlight || t.reloadInFlight ||
       markupDiskPollBusy) return;
   markupDiskPollBusy = true;
   try {
@@ -359,10 +367,12 @@ function showActive() {
   document.getElementById('notebook-pane').style.display = isNb ? '' : 'none';
   document.getElementById('toolbar').style.display = kind === 'notebook' ? '' : 'none';
   const textPane = document.getElementById('textpane');
-  textPane.classList.toggle('on', kind === 'text');
+  textPane.classList.toggle('on', kind === 'text' || kind === 'table');
   textPane.classList.toggle('markup', isMarkupTab(t));
   document.getElementById('html-insert-card').hidden = !isMarkupTab(t) || t.language === 'svg';
   showMarkdownFile(t);
+  showTableFile(t);
+  document.getElementById('text-save').hidden = kind === 'table';
   document.getElementById('imgpane').classList.toggle('on', kind === 'image');
   document.getElementById('pdfpane').hidden = kind !== 'pdf';
   if (!tabs.some(entry => entry.kind === 'pdf' && entry.path === document.getElementById('pdf-viewer').dataset.path)) {
@@ -381,11 +391,11 @@ function showActive() {
     document.getElementById('notebook-pane').scrollTop = t.scroll || 0;
     setKernelStatus(t.status || 'stopped');
     refreshVenvBtn();
-  } else if (kind === 'text') {
+  } else if (kind === 'text' || kind === 'table') {
     const ed = document.getElementById('text-editor');
     ed.value = t.text || '';
     document.getElementById('text-lang').textContent = t.language || 'text';
-    document.getElementById('text-status').textContent = t.externalConflict
+    document.getElementById('text-status').textContent = kind === 'table' ? 'read-only preview' : t.externalConflict
       ? 'changed on disk · reload' : (t.dirty ? 'unsaved' : 'saved');
     if (isMarkupTab(t)) {
       const frame = document.getElementById('html-preview-frame');
@@ -496,6 +506,9 @@ async function openFile(path, options = {}) {
                       python: data.kernel_python || data.python,
                       status: data.kernel_status || 'stopped'});
     restoreNotebookView(t);
+  } else if (t.kind === 'table') {
+    Object.assign(t, {language: data.language, tablePreview: data.table_preview,
+                     tableOptions: cached && cached.tableOptions});
   } else if (t.kind === 'image' || t.kind === 'pdf') {
     t.url = data.url;
   } else {
@@ -515,7 +528,12 @@ async function openFile(path, options = {}) {
                         diskVersion: data.disk_version,
                         markupView: cached && cached.markupView,
                         markdownMode: cached && cached.markdownMode,
-                        markdownScroll: cached && cached.markdownScroll});
+                        markdownScroll: cached && cached.markdownScroll,
+                        tableMode: cached && cached.tableMode,
+                        tableOptions: cached && cached.tableOptions,
+                        tablePreview: data.table_preview,
+                        tablePreviewDelimiter: 'auto',
+                        tablePreviewText: data.text || ''});
     }
   }
 

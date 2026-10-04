@@ -51,6 +51,23 @@ To install into system Python instead, use:
 uv pip install --system 'git+https://github.com/gaarangoa/GusNotebook.git@main'
 ```
 
+## Table previews
+
+Open `.csv`, `.tsv`, `.json`, `.jsonl`, `.ndjson`, `.parquet`, `.feather`, or
+`.xlsx` files from the file browser to see a table. Search the preview, click a
+column heading to sort, or use Previous/Next to page through 50 rows at a time.
+Delimited files offer a delimiter selector and a header-row toggle; Excel also
+offers a sheet selector. CSV, TSV, and JSON formats retain a **Source** view for
+editing. Parquet, Feather, and Excel previews are read-only. Excel formulas show
+their last saved values and are not recalculated.
+
+Files larger than 2 MB are refused without loading their contents. Smaller files
+show at most 5,000 rows, 100 columns, and 100,000 cells, with long values shortened
+and an additional preview text budget. Compressed binary tables that expand past
+32 MB are also refused. A notice identifies partial snapshots; search and sorting
+apply only to the preview. These actions do not change the file or start a kernel.
+Use **Reload** to refresh binary snapshots after a file changes on disk.
+
 ## Tunnels: installation and setup
 
 Install GusNotebook and Microsoft's

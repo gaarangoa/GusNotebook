@@ -37,6 +37,7 @@ from . import sessions as sessions_mod
 from . import skills as skills_mod
 from . import terminals
 from . import textfile
+from . import tabular
 from . import venvs
 from .kernel import KernelPool
 from .notebook import Registry
@@ -1023,12 +1024,28 @@ def api_open():
         return jsonify({"path": str(path), "kind": "image",
                         "url": f"/api/raw?path={path}"})
 
+    if kind == "table":
+        try:
+            snapshot = tabular.preview_file(path)
+        except (OSError, ValueError) as error:
+            return jsonify(error=str(error)), 400
+        if remember:
+            store.add_tab(str(path), session.id if session else None)
+        return jsonify(path=str(path), kind="table", language=path.suffix[1:].lower(),
+                       table_preview=snapshot)
+
     if not path.exists():
         return jsonify({"error": f"no such file: {path}"}), 404
     try:
         data = texts.get(path).to_json()
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
+    if path.suffix.lower() in tabular.TEXT_SUFFIXES:
+        try:
+            data["table_preview"] = tabular.preview_text(data["text"], path.suffix.lower())
+        except (ValueError, tabular.csv.Error) as error:
+            # Invalid data must still open in Source so it can be repaired.
+            data["table_preview"] = {"error": str(error)}
     # Only after it loaded: a file refused for being binary or oversized never
     # became a tab, so recording it would resurrect it on the next reload.
     if path.suffix.lower() in textfile.MARKUP_SUFFIXES:
@@ -1041,6 +1058,34 @@ def api_open():
     if remember:
         store.add_tab(str(path), session.id if session else None)
     return jsonify(data)
+
+
+@routes.route("/api/table-preview", methods=["POST"])
+def api_table_preview():
+    """Read-only snapshot; a text buffer can be previewed without saving it."""
+    body = request.get_json(silent=True) or {}
+    raw = body.get("path")
+    if not isinstance(raw, str) or not raw:
+        return jsonify(error="path is required"), 400
+    if not Path(raw).expanduser().is_absolute():
+        return jsonify(error="path must be absolute"), 400
+    path = files.normalize(raw)
+    if not path.is_absolute():
+        return jsonify(error="path must be absolute"), 400
+    try:
+        if path.suffix.lower() in tabular.TEXT_SUFFIXES:
+            source = body.get("text")
+            if source is None:
+                source = texts.get(path).to_json()["text"]
+            snapshot = tabular.preview_text(source, path.suffix.lower(), body.get("delimiter"))
+        else:
+            sheet = body.get("sheet")
+            if sheet is not None and not isinstance(sheet, str):
+                raise ValueError("sheet must be a worksheet name")
+            snapshot = tabular.preview_file(path, sheet)
+        return jsonify(snapshot)
+    except (OSError, ValueError, tabular.csv.Error) as error:
+        return jsonify(error=str(error)), 400
 
 
 @routes.route("/api/close", methods=["POST"])
