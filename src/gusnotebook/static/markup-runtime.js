@@ -380,6 +380,30 @@
     viewFrame = requestAnimationFrame(reportView);
   }
 
+  var panTarget = null;
+  function panView(data) {
+    if (!Number.isFinite(data.dx) || !Number.isFinite(data.dy)) return;
+    userMovedAfterRestore = true;
+    if (data.start) {
+      panTarget = Number.isFinite(data.x) && Number.isFinite(data.y)
+        ? document.elementFromPoint(data.x, data.y) : null;
+    }
+    var dx = data.dx, dy = data.dy;
+    // Consume movement in nested scrollers first, then the document. This also
+    // lets drag navigation reach fixed-width pages using overflow:hidden.
+    for (var node = data.root ? null : panTarget; node && node !== document.scrollingElement &&
+         node !== document.documentElement; node = node.parentElement) {
+      var style = getComputedStyle(node);
+      var left = node.scrollLeft, top = node.scrollTop;
+      if (/auto|scroll|hidden/.test(style.overflowX)) node.scrollLeft += dx;
+      if (/auto|scroll|hidden/.test(style.overflowY)) node.scrollTop += dy;
+      dx -= node.scrollLeft - left;
+      dy -= node.scrollTop - top;
+    }
+    window.scrollBy({left: dx, top: dy, behavior: 'instant'});
+    queueViewReport();
+  }
+
   function findViewAnchor(anchor) {
     if (!anchor) return null;
     if (anchor.id) {
@@ -1140,6 +1164,15 @@
       reportView();
     } else if (data.command === 'restore-view') {
       restoreView(data.view);
+    } else if (data.command === 'pan-view') {
+      panView(data);
+    } else if (data.command === 'measure-view') {
+      requestAnimationFrame(function () {
+        var svg = config.mode === 'svg' && document.querySelector('body > svg');
+        sendToParent({channel: config.channel, nonce: config.nonce, kind: 'view-size',
+          request: data.request, width: Math.max(document.documentElement.scrollWidth,
+            document.body ? document.body.scrollWidth : 0, svg ? svg.width.baseVal.value : 0)});
+      });
     } else if (editingTools && data.command === 'insert-card') {
       editingTools.then(function (tools) { if (tools) tools.insertCard(); });
     } else if (editingTools && data.command === 'tools-appearance') {

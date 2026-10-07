@@ -234,6 +234,14 @@
         <span id="text-lang"></span>
         <button class="files-btn" id="html-insert-card" hidden onclick="markupCommand('insert-card')"
                 title="Insert a card after the current block" aria-label="Insert card">+</button>
+        <div id="html-view-controls" class="html-view-controls" role="group" aria-label="Document view" hidden>
+          <button class="files-btn" id="html-zoom-out" onclick="stepMarkupZoom(-1)" title="Zoom out" aria-label="Zoom out">−</button>
+          <button class="files-btn" id="html-zoom-reset" onclick="setMarkupZoom(1)" title="Reset zoom to 100%" aria-label="Reset zoom to 100%">100%</button>
+          <button class="files-btn" id="html-zoom-in" onclick="stepMarkupZoom(1)" title="Zoom in" aria-label="Zoom in">+</button>
+          <button class="files-btn" onclick="fitMarkupWidth()" title="Fit document width" aria-label="Fit width">Fit width</button>
+          <button class="files-btn" id="html-pan-toggle" onclick="toggleMarkupPan()" aria-pressed="false" aria-label="Pan"
+                  title="Drag to move around the document; turn off to edit">Pan</button>
+        </div>
         <div id="markdown-view" class="markdown-view" role="group" aria-label="Markdown view" hidden>
           <button class="files-btn" id="markdown-preview-button" aria-pressed="true" onclick="setMarkdownMode('preview')">Preview</button>
           <button class="files-btn" id="markdown-source-button" aria-pressed="false" onclick="setMarkdownMode('source')">Source</button>
@@ -281,6 +289,8 @@
           <iframe id="html-preview-frame" title="Visual document editor"
                   sandbox="allow-scripts allow-same-origin allow-forms allow-modals"
                   referrerpolicy="no-referrer"></iframe>
+          <div id="html-pan-surface" class="html-pan-surface" tabindex="0" role="region"
+               aria-label="Pan document. Drag or use arrow keys to move; Escape to return to editing." hidden></div>
         </div>
       </div>
     </div>
@@ -702,6 +712,7 @@ results = pd.read_csv(<span class="sample-string">"data.csv"</span>)</pre><p>Rea
 <script src="{{ BASE_URL }}/static/js/markdown.js"></script>
 <script src="{{ BASE_URL }}/static/js/tabular.js"></script>
 <script src="{{ BASE_URL }}/static/js/cells.js"></script>
+<script src="{{ BASE_URL }}/static/js/markup-view.js"></script>
 <script src="{{ BASE_URL }}/static/js/editor.js"></script>
 <script src="{{ BASE_URL }}/static/js/actions.js"></script>
 <script src="{{ BASE_URL }}/static/js/events.js"></script>

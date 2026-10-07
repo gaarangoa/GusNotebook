@@ -209,12 +209,17 @@ window.addEventListener('message', event => {
   }
   if (data.kind === 'ready') {
     syncMarkupAppearance();
+    if (active === t.path) syncMarkupViewControls();
     if (active === t.path && t.markupView && frame) {
       event.source.postMessage({
         channel: MARKUP_EDITOR_CHANNEL, nonce: t.previewNonce,
         command: 'restore-view', view: t.markupView,
       }, t.previewOrigin);
     }
+    return;
+  }
+  if (data.kind === 'view-size') {
+    if (active === t.path) acceptMarkupViewSize(t, data);
     return;
   }
   if (data.kind === 'tools-error') {
@@ -369,6 +374,7 @@ function showActive() {
   const textPane = document.getElementById('textpane');
   textPane.classList.toggle('on', kind === 'text' || kind === 'table');
   textPane.classList.toggle('markup', isMarkupTab(t));
+  syncMarkupViewControls();
   document.getElementById('html-insert-card').hidden = !isMarkupTab(t) || t.language === 'svg';
   showMarkdownFile(t);
   showTableFile(t);
@@ -527,6 +533,8 @@ async function openFile(path, options = {}) {
                         previewVersion: data.preview_version,
                         diskVersion: data.disk_version,
                         markupView: cached && cached.markupView,
+                        markupZoom: cached && cached.markupZoom,
+                        markupPan: cached && cached.markupPan,
                         markdownMode: cached && cached.markdownMode,
                         markdownScroll: cached && cached.markdownScroll,
                         tableMode: cached && cached.tableMode,
