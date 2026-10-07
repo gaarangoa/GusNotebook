@@ -1171,7 +1171,9 @@
         var svg = config.mode === 'svg' && document.querySelector('body > svg');
         sendToParent({channel: config.channel, nonce: config.nonce, kind: 'view-size',
           request: data.request, width: Math.max(document.documentElement.scrollWidth,
-            document.body ? document.body.scrollWidth : 0, svg ? svg.width.baseVal.value : 0)});
+            document.body ? document.body.scrollWidth : 0, svg ? svg.width.baseVal.value : 0),
+          height: Math.max(document.documentElement.scrollHeight,
+            document.body ? document.body.scrollHeight : 0, svg ? svg.height.baseVal.value : 0)});
       });
     } else if (editingTools && data.command === 'insert-card') {
       editingTools.then(function (tools) { if (tools) tools.insertCard(); });

@@ -181,6 +181,7 @@ function markMarkupDirty(t) {
 }
 
 function requestMarkupViewState(t) {
+  rememberMarkupCanvas(t);
   if (!isMarkupTab(t) || !t.previewNonce || !t.previewOrigin) return;
   const frame = document.getElementById('html-preview-frame');
   if (!frame || !frame.contentWindow || frame.src !== (t.previewUrl || '')) return;
@@ -535,6 +536,8 @@ async function openFile(path, options = {}) {
                         markupView: cached && cached.markupView,
                         markupZoom: cached && cached.markupZoom,
                         markupPan: cached && cached.markupPan,
+                        markupCanvasSize: cached && cached.markupCanvasSize,
+                        markupCanvasScroll: cached && cached.markupCanvasScroll,
                         markdownMode: cached && cached.markdownMode,
                         markdownScroll: cached && cached.markdownScroll,
                         tableMode: cached && cached.tableMode,

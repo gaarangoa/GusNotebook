@@ -236,7 +236,7 @@
                 title="Insert a card after the current block" aria-label="Insert card">+</button>
         <div id="html-view-controls" class="html-view-controls" role="group" aria-label="Document view" hidden>
           <button class="files-btn" id="html-zoom-out" onclick="stepMarkupZoom(-1)" title="Zoom out" aria-label="Zoom out">−</button>
-          <button class="files-btn" id="html-zoom-reset" onclick="setMarkupZoom(1)" title="Reset zoom to 100%" aria-label="Reset zoom to 100%">100%</button>
+          <button class="files-btn" id="html-zoom-reset" onclick="resetMarkupZoom()" title="Reset zoom to 100%" aria-label="Reset zoom to 100%">100%</button>
           <button class="files-btn" id="html-zoom-in" onclick="stepMarkupZoom(1)" title="Zoom in" aria-label="Zoom in">+</button>
           <button class="files-btn" onclick="fitMarkupWidth()" title="Fit document width" aria-label="Fit width">Fit width</button>
           <button class="files-btn" id="html-pan-toggle" onclick="toggleMarkupPan()" aria-pressed="false" aria-label="Pan"
@@ -286,9 +286,13 @@
         <div class="html-preview" id="html-preview">
           <!-- The preview has a separate localhost port, so same-origin web APIs
                work inside it without granting access to GusNotebook itself. -->
-          <iframe id="html-preview-frame" title="Visual document editor"
-                  sandbox="allow-scripts allow-same-origin allow-forms allow-modals"
-                  referrerpolicy="no-referrer"></iframe>
+          <div id="html-view-viewport" class="html-view-viewport">
+            <div id="html-view-stage" class="html-view-stage">
+              <iframe id="html-preview-frame" title="Visual document editor"
+                      sandbox="allow-scripts allow-same-origin allow-forms allow-modals"
+                      referrerpolicy="no-referrer"></iframe>
+            </div>
+          </div>
           <div id="html-pan-surface" class="html-pan-surface" tabindex="0" role="region"
                aria-label="Pan document. Drag or use arrow keys to move; Escape to return to editing." hidden></div>
         </div>
