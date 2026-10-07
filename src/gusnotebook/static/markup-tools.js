@@ -25,11 +25,17 @@ export function initMarkupTools(bridge) {
       input[type=number] { width:53px; padding:2px 4px; }
       input[type=color] { width:28px; padding:2px; cursor:pointer; }
       label { display:flex; align-items:center; justify-content:space-between; gap:6px; }
-      #text { flex-wrap:wrap; }
+      #text, #image { flex-wrap:wrap; }
       #card { display:grid; grid-template-columns:1fr 1fr; width:248px; padding:8px; gap:8px; }
       .heading { grid-column:1/-1; display:flex; gap:5px; align-items:center; }
       .heading strong { flex:1; font-weight:600; }
       .outline { position:fixed; pointer-events:none; outline:1px solid var(--accent); outline-offset:2px; border-radius:4px; }
+      #image-move { position:fixed; pointer-events:auto; cursor:grab; touch-action:none; }
+      #image-move.dragging { cursor:grabbing; }
+      .image-handle { position:fixed; pointer-events:auto; touch-action:none; width:12px; height:12px;
+        padding:0; background:var(--bg); border:1px solid var(--accent); border-radius:2px; }
+      [data-corner=nw], [data-corner=se] { cursor:nwse-resize; }
+      [data-corner=ne], [data-corner=sw] { cursor:nesw-resize; }
       .sr { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); }
     </style>
     <div id="text" class="panel" role="toolbar" aria-label="Text formatting" hidden>
@@ -41,6 +47,12 @@ export function initMarkupTools(bridge) {
       <button data-action="redo" aria-label="Redo" title="Redo (⌘/Ctrl Shift Z)">↷</button>
     </div>
     <div id="outline" class="outline" hidden></div>
+    <div id="image-move" role="button" tabindex="0" aria-label="Move image"
+         title="Drag to move image. Arrow keys move by 1 px; Shift moves by 10 px." hidden></div>
+    <button class="image-handle" data-corner="nw" aria-label="Resize image from top left" title="Drag to resize image" hidden></button>
+    <button class="image-handle" data-corner="ne" aria-label="Resize image from top right" title="Drag to resize image" hidden></button>
+    <button class="image-handle" data-corner="sw" aria-label="Resize image from bottom left" title="Drag to resize image" hidden></button>
+    <button class="image-handle" data-corner="se" aria-label="Resize image from bottom right" title="Drag to resize image" hidden></button>
     <div id="card" class="panel" role="group" aria-label="Card settings" hidden>
       <div class="heading"><strong>Card</strong>
         <button data-action="undo" aria-label="Undo">↶</button><button data-action="redo" aria-label="Redo">↷</button>
@@ -65,6 +77,7 @@ export function initMarkupTools(bridge) {
   document.documentElement.appendChild(host);
   const ui = id => shadow.getElementById(id);
   let savedRange = null, selectedCard = null, selectedImage = null, nativeEdit = null;
+  let imageGesture = null;
   let imagesBeforePaste = null;
   const history = [], future = [];
   const blocked = 'script,style,svg,canvas,iframe,object,input,textarea,select,button,[contenteditable="false"],[data-gusnb-viz],[' + runtimeAttr + ']';
@@ -178,9 +191,10 @@ export function initMarkupTools(bridge) {
     restore(redo ? entry.after : entry.before);
     if (!selectedCard?.isConnected) selectedCard = null;
     if (!selectedImage?.isConnected) selectedImage = null;
+    const card = selectedCard, image = selectedImage;
     bridge.changed(); updateUndo(); showSelection();
-    if (selectedCard) cardSettings(selectedCard);
-    if (selectedImage) imageSettings(selectedImage);
+    if (card) cardSettings(card);
+    if (image) imageSettings(image);
   }
   document.addEventListener('beforeinput', event => {
     if (event.composedPath().includes(host) || !editable(event.target)) return;
@@ -274,6 +288,11 @@ export function initMarkupTools(bridge) {
   // Clicking a control must not replace the document selection with its label.
   shadow.addEventListener('mousedown', event => { if (event.target.closest('button')) event.preventDefault(); });
   shadow.addEventListener('keydown', event => {
+    if (event.target.matches('#image-move, .image-handle') && (event.ctrlKey || event.metaKey) &&
+        !event.altKey && ['z','y'].includes(event.key.toLowerCase())) {
+      event.preventDefault(); event.stopImmediatePropagation();
+      replay(event.shiftKey || event.key.toLowerCase() === 'y'); return;
+    }
     if (event.key === 'Escape') { event.preventDefault(); hide(); focusRange(); }
     if (event.key === 'Enter' && event.target.matches('input')) { event.preventDefault(); event.target.blur(); }
   });
@@ -286,12 +305,12 @@ export function initMarkupTools(bridge) {
     panel.style.top = Math.max(6, Math.min(innerHeight - height - 6, above >= 6 ? above : rect.bottom + 8)) + 'px';
   }
   function showSelection() {
-    if (shadow.activeElement) return;
+    if (shadow.activeElement || imageGesture) return;
     rememberRange();
     const texts = selectedTexts();
     if (!texts.length) { ui('text').hidden = true; return; }
     selectedCard = null; ui('card').hidden = true; ui('outline').hidden = true;
-    selectedImage = null; ui('image').hidden = true;
+    clearImageSelection();
     const style = getComputedStyle(texts[0].node.parentElement);
     ui('font').value = Math.round(parseFloat(style.fontSize));
     ui('color').value = colorHex(style.color, '#263244');
@@ -301,11 +320,11 @@ export function initMarkupTools(bridge) {
   }
   function hide() {
     ui('text').hidden = true; ui('card').hidden = true; ui('outline').hidden = true;
-    ui('image').hidden = true; selectedImage = null; selectedCard = null;
+    clearImageSelection(); selectedCard = null;
   }
   function cardSettings(card) {
     if (!editable(card)) return;
-    selectedImage = null; ui('image').hidden = true;
+    clearImageSelection();
     selectedCard = card; bridge.deselectViz(); ui('text').hidden = true;
     const style = getComputedStyle(card);
     ui('background').value = colorHex(style.backgroundColor);
@@ -338,6 +357,11 @@ export function initMarkupTools(bridge) {
   });
   ui('close').addEventListener('click', () => { hide(); focusRange(); });
 
+  function clearImageSelection() {
+    ui('image').hidden = true; ui('image-move').hidden = true;
+    shadow.querySelectorAll('.image-handle').forEach(handle => { handle.hidden = true; });
+    selectedImage = null;
+  }
   function imageSettings(image) {
     if (!editable(image)) return;
     selectedImage = image; selectedCard = null;
@@ -346,17 +370,25 @@ export function initMarkupTools(bridge) {
     ui('image-width').value = Math.round(rect.width);
     Object.assign(ui('outline').style, {left:rect.left+'px', top:rect.top+'px', width:rect.width+'px', height:rect.height+'px'});
     ui('outline').hidden = false;
+    Object.assign(ui('image-move').style, {left:rect.left+'px', top:rect.top+'px', width:rect.width+'px', height:rect.height+'px'});
+    ui('image-move').hidden = false;
+    shadow.querySelectorAll('.image-handle').forEach(handle => {
+      const corner = handle.dataset.corner;
+      handle.style.left = ((corner.endsWith('w') ? rect.left : rect.right) - 6) + 'px';
+      handle.style.top = ((corner.startsWith('n') ? rect.top : rect.bottom) - 6) + 'px';
+      handle.hidden = false;
+    });
     position(ui('image'), rect);
+  }
+  function imageWidth(image, width) {
+    image.style.setProperty('width', Math.max(24, Math.min(2400, Math.round(width))) + 'px', 'important');
+    image.style.setProperty('max-width', 'none', 'important');
+    image.style.setProperty('height', 'auto', 'important');
+    image.removeAttribute('height');
   }
   function resizeImage(width) {
     if (!selectedImage?.isConnected) return;
-    width = Math.max(24, Math.min(2400, Math.round(width)));
-    edit(() => {
-      selectedImage.style.setProperty('width', width + 'px', 'important');
-      selectedImage.style.setProperty('max-width', '100%', 'important');
-      selectedImage.style.setProperty('height', 'auto', 'important');
-      selectedImage.removeAttribute('height');
-    });
+    edit(() => imageWidth(selectedImage, width));
     imageSettings(selectedImage);
   }
   number('image-width', resizeImage);
@@ -365,6 +397,116 @@ export function initMarkupTools(bridge) {
   ui('image-delete').addEventListener('click', () => {
     if (!selectedImage?.isConnected) return;
     edit(() => selectedImage.remove()); hide();
+  });
+
+  function imagePosition(image) {
+    const style = getComputedStyle(image);
+    const left = parseFloat(style.left), top = parseFloat(style.top);
+    return {position: style.position,
+      left: style.position === 'static' ? 0 : Number.isFinite(left) ? left : -(parseFloat(style.right) || 0),
+      top: style.position === 'static' ? 0 : Number.isFinite(top) ? top : -(parseFloat(style.bottom) || 0)};
+  }
+  function placeImage(image, origin, dx, dy) {
+    if (origin.position === 'static') image.style.setProperty('position', 'relative', 'important');
+    image.style.setProperty('left', origin.left + dx + 'px', 'important');
+    image.style.setProperty('top', origin.top + dy + 'px', 'important');
+    image.style.setProperty('right', 'auto', 'important');
+    image.style.setProperty('bottom', 'auto', 'important');
+  }
+  function imageAttributes(image) {
+    return {style: image.getAttribute('style'), height: image.getAttribute('height')};
+  }
+  function applyImageAttributes(image, attributes) {
+    for (const [name, value] of Object.entries(attributes)) {
+      if (value === null) image.removeAttribute(name);
+      else image.setAttribute(name, value);
+    }
+  }
+  function startImageGesture(event, image, corner = '') {
+    if (event.button !== 0 || !editable(image) || imageGesture) return;
+    event.preventDefault(); event.stopImmediatePropagation();
+    imageSettings(image);
+    const rect = image.getBoundingClientRect();
+    imageGesture = {image, corner, id:event.pointerId, x:event.clientX, y:event.clientY,
+      scrollX, scrollY, rect, width:parseFloat(getComputedStyle(image).width) || image.offsetWidth,
+      scaleX:rect.width / (image.offsetWidth || rect.width) || 1,
+      scaleY:rect.height / (image.offsetHeight || rect.height) || 1,
+      origin:imagePosition(image), before:imageAttributes(image), moved:false};
+    const control = corner ? shadow.querySelector(`[data-corner="${corner}"]`) : ui('image-move');
+    imageGesture.control = control;
+    control.focus({preventScroll:true}); control.setPointerCapture(event.pointerId);
+    ui('image-move').classList.toggle('dragging', !corner);
+  }
+  function moveImageGesture(event) {
+    const gesture = imageGesture;
+    if (!gesture || event.pointerId !== gesture.id) return;
+    event.preventDefault(); event.stopImmediatePropagation();
+    const {image, rect, corner, scaleX, scaleY, origin} = gesture;
+    const dx = event.clientX - gesture.x + (origin.position === 'fixed' ? 0 : scrollX - gesture.scrollX);
+    const dy = event.clientY - gesture.y + (origin.position === 'fixed' ? 0 : scrollY - gesture.scrollY);
+    if (!gesture.moved && Math.hypot(dx, dy) < 3) return;
+    gesture.moved = true;
+    authoredMutation(() => {
+      if (!corner) placeImage(image, origin, dx / scaleX, dy / scaleY);
+      else {
+        const horizontal = (corner.endsWith('w') ? -dx : dx) / scaleX;
+        const vertical = (corner.startsWith('n') ? -dy : dy) * rect.width / rect.height / scaleX;
+        imageWidth(image, gesture.width + (Math.abs(horizontal) >= Math.abs(vertical) ? horizontal : vertical));
+        const resized = image.getBoundingClientRect();
+        if (corner.endsWith('w') || corner.startsWith('n')) {
+          placeImage(image, origin, corner.endsWith('w') ? (rect.width - resized.width) / scaleX : 0,
+            corner.startsWith('n') ? (rect.height - resized.height) / scaleY : 0);
+        }
+      }
+    });
+    imageSettings(image);
+  }
+  function finishImageGesture(cancel = false) {
+    const gesture = imageGesture;
+    if (!gesture) return;
+    imageGesture = null;
+    const {image, before, control, id} = gesture;
+    const after = imageAttributes(image);
+    // Observe only the final synchronous edit, so animations and other scripts
+    // running during a drag never become part of this undo step.
+    authoredMutation(() => applyImageAttributes(image, before));
+    if (!cancel && gesture.moved) edit(() => applyImageAttributes(image, after));
+    if (control.hasPointerCapture(id)) control.releasePointerCapture(id);
+    ui('image-move').classList.remove('dragging');
+    if (image.isConnected) imageSettings(image); else hide();
+  }
+  document.addEventListener('pointerdown', event => {
+    if (event.target.tagName === 'IMG') startImageGesture(event, event.target);
+  }, true);
+  ui('image-move').addEventListener('pointerdown', event => startImageGesture(event, selectedImage));
+  shadow.querySelectorAll('.image-handle').forEach(handle => {
+    handle.addEventListener('pointerdown', event => startImageGesture(event, selectedImage, handle.dataset.corner));
+    handle.addEventListener('keydown', event => {
+      if (!['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(event.key)) return;
+      event.preventDefault();
+      resizeImage(Number(ui('image-width').value) + (event.key === 'ArrowRight' || event.key === 'ArrowDown' ? 1 : -1) * (event.shiftKey ? 10 : 1));
+    });
+  });
+  document.addEventListener('pointermove', moveImageGesture, true);
+  document.addEventListener('pointerup', event => {
+    if (event.pointerId === imageGesture?.id) { moveImageGesture(event); finishImageGesture(); }
+  }, true);
+  document.addEventListener('pointercancel', () => finishImageGesture(true), true);
+  shadow.addEventListener('lostpointercapture', () => finishImageGesture(true));
+  document.addEventListener('keydown', event => {
+    if (imageGesture && event.key === 'Escape') {
+      event.preventDefault(); event.stopImmediatePropagation(); finishImageGesture(true);
+    }
+  }, true);
+  window.addEventListener('blur', () => finishImageGesture());
+  ui('image-move').addEventListener('keydown', event => {
+    const moves = {ArrowLeft:[-1,0], ArrowRight:[1,0], ArrowUp:[0,-1], ArrowDown:[0,1]};
+    const move = moves[event.key];
+    if (!move || !selectedImage?.isConnected || event.ctrlKey || event.metaKey || event.altKey) return;
+    event.preventDefault();
+    const step = event.shiftKey ? 10 : 1;
+    edit(() => placeImage(selectedImage, imagePosition(selectedImage), move[0] * step, move[1] * step));
+    imageSettings(selectedImage);
   });
   document.addEventListener('paste', async event => {
     if (event.composedPath().includes(host) || !editable(event.target)) return;
@@ -405,7 +547,7 @@ export function initMarkupTools(bridge) {
       });
       const last = images.at(-1);
       last.scrollIntoView({block:'nearest'}); imageSettings(last);
-      ui('notice').textContent = 'Image pasted at a small size. Use minus or plus to resize.';
+      ui('notice').textContent = 'Image pasted. Drag it to move; drag a corner or use minus and plus to resize.';
     } catch (_) {
       ui('notice').textContent = 'This image could not be pasted.';
       bridge.notice('This image could not be pasted. Check that it is a valid image and the folder is writable.');
