@@ -53,11 +53,11 @@ uv pip install --system 'git+https://github.com/gaarangoa/GusNotebook.git@main'
 
 ## Table previews
 
-Open `.csv`, `.tsv`, `.json`, `.jsonl`, `.ndjson`, `.parquet`, `.feather`, or
+Open `.csv`, `.tsv`, `.parquet`, `.feather`, or
 `.xlsx` files from the file browser to see a table. Search the preview, click a
 column heading to sort, or use Previous/Next to page through 50 rows at a time.
 Delimited files offer a delimiter selector and a header-row toggle; Excel also
-offers a sheet selector. CSV, TSV, and JSON formats retain a **Source** view for
+offers a sheet selector. CSV and TSV retain a **Source** view for
 editing. Parquet, Feather, and Excel previews are read-only. Excel formulas show
 their last saved values and are not recalculated.
 
@@ -67,6 +67,11 @@ and an additional preview text budget. Compressed binary tables that expand past
 32 MB are also refused. A notice identifies partial snapshots; search and sorting
 apply only to the preview. These actions do not change the file or start a kernel.
 Use **Reload** to refresh binary snapshots after a file changes on disk.
+
+JSON files open as formatted, collapsible JSON with an editable **Source** view.
+Large branches show 100 entries at a time. Invalid or overly complex JSON falls
+back to plain text. `.jsonl` and `.ndjson` files also open as plain text.
+The same 2 MB file limit applies.
 
 ## Tunnels: installation and setup
 

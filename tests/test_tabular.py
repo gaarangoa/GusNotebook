@@ -216,12 +216,30 @@ class TableRouteTests(unittest.TestCase):
         path.write_text('{bad')
         opened = self.client.post('/api/open', json={'path': str(path)})
         self.assertEqual(opened.status_code, 200)
-        self.assertIn('error', opened.json['table_preview'])
+        self.assertEqual(opened.json['text'], '{bad')
+        self.assertNotIn('table_preview', opened.json)
         for body in ({}, {'path': 'relative.csv'}, {'path': str(path), 'text': []},
                      {'path': str(self.root / 'book.xlsx'), 'sheet': []},
                      {'path': str(self.root / 'file.exe')}):
             response = self.client.post('/api/table-preview', json=body)
             self.assertEqual(response.status_code, 400)
+
+    def test_json_opens_as_source_without_table_snapshot_and_is_size_limited(self):
+        for suffix in ('json', 'jsonl', 'ndjson'):
+            path = self.root / ('document.' + suffix)
+            source = '{"nested":{"value":9007199254740993}}\n'
+            path.write_text(source)
+            opened = self.client.post('/api/open', json={'path': str(path)}).json
+            self.assertEqual(opened['kind'], 'text')
+            self.assertEqual(opened['text'], source)
+            self.assertNotIn('table_preview', opened)
+        large = self.root / 'large.json'
+        large.write_text('"' + 'x' * tabular.MAX_BYTES + '"')
+        response = self.client.post('/api/open', json={'path': str(large)})
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('maximum 2 MB', response.json['error'])
+        self.assertNotIn(str(large), self.app.extensions['gusnotebook'].texts.paths())
+        self.assertNotIn(str(large), [entry['path'] for entry in self.client.get('/api/tabs').json['tabs']])
 
 
 if __name__ == '__main__':

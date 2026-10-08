@@ -250,6 +250,10 @@
           <button class="files-btn" id="table-preview-button" aria-pressed="true" onclick="setTableMode('preview')">Table</button>
           <button class="files-btn" id="table-source-button" aria-pressed="false" onclick="setTableMode('source')">Source</button>
         </div>
+        <div id="json-view" class="markdown-view" role="group" aria-label="JSON file view" hidden>
+          <button class="files-btn" id="json-preview-button" aria-pressed="true" onclick="setJsonMode('preview')">JSON</button>
+          <button class="files-btn" id="json-source-button" aria-pressed="false" onclick="setJsonMode('source')">Source</button>
+        </div>
         <span class="html-live" id="html-live">edit directly · double-click SVG text</span>
         <span class="grow"></span>
         <span id="text-status"></span>
@@ -257,12 +261,14 @@
                 title="Reload this file from disk">Reload</button>
         <button class="files-btn" id="text-save" onclick="saveText()">Save (⌘S)</button>
       </div>
+      <p id="json-notice" class="json-notice" role="status" hidden></p>
       <div class="text-workspace">
         <textarea id="text-editor" spellcheck="false"
                   aria-label="File source"
                   oninput="markTextDirty()"
                   onkeydown="return onTextKey(event)"></textarea>
         <article id="markdown-preview" class="markdown-preview md-rendered" aria-label="Rendered Markdown" tabindex="0"></article>
+        <section id="json-preview" class="json-preview" aria-label="Formatted JSON" tabindex="0" hidden></section>
         <section id="table-preview" class="table-preview" aria-label="Table preview">
           <div class="table-controls">
             <label>Search <input id="table-search" type="search" placeholder="Filter preview…" oninput="filterTablePreview(this.value)"></label>
@@ -714,6 +720,7 @@ results = pd.read_csv(<span class="sample-string">"data.csv"</span>)</pre><p>Rea
 <script src="{{ BASE_URL }}/static/js/browser.js"></script>
 <script src="{{ BASE_URL }}/static/js/markdown.js"></script>
 <script src="{{ BASE_URL }}/static/js/tabular.js"></script>
+<script src="{{ BASE_URL }}/static/js/json-view.js"></script>
 <script src="{{ BASE_URL }}/static/js/cells.js"></script>
 <script src="{{ BASE_URL }}/static/js/markup-view.js"></script>
 <script src="{{ BASE_URL }}/static/js/editor.js"></script>

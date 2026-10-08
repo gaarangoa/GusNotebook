@@ -677,6 +677,9 @@ function stashActive() {
     rememberNotebookView(t);
   } else if (t.kind === 'text' && !isMarkupTab(t)) {
     t.text = document.getElementById('text-editor').value;
+    if (isJsonTab(t) && !document.getElementById('json-preview').hidden) {
+      t.jsonScroll = document.getElementById('json-preview').scrollTop;
+    }
   } else if (isMarkupTab(t)) {
     requestMarkupViewState(t);
   }

@@ -315,7 +315,7 @@ async function reloadTextFromDisk(target, force) {
  */
 async function pollMarkupDisk() {
   const t = activeTab();
-  if (!(isMarkupTab(t) || isMarkdownTab(t) || isTableTab(t)) || !t.diskVersion || t.saveInFlight || t.reloadInFlight ||
+  if (!(isMarkupTab(t) || isMarkdownTab(t) || isTableTab(t) || isJsonTab(t)) || !t.diskVersion || t.saveInFlight || t.reloadInFlight ||
       markupDiskPollBusy) return;
   markupDiskPollBusy = true;
   try {
@@ -406,6 +406,7 @@ function showActive() {
   document.getElementById('html-insert-card').hidden = !isMarkupTab(t) || t.language === 'svg';
   showMarkdownFile(t);
   showTableFile(t);
+  showJsonFile(t);
   document.getElementById('text-save').hidden = kind === 'table';
   document.getElementById('imgpane').classList.toggle('on', kind === 'image');
   document.getElementById('pdfpane').hidden = kind !== 'pdf';
@@ -564,6 +565,9 @@ async function openFile(path, options = {}) {
                         markupCanvasScroll: cached && cached.markupCanvasScroll,
                         markdownMode: cached && cached.markdownMode,
                         markdownScroll: cached && cached.markdownScroll,
+                        jsonMode: cached && cached.jsonMode,
+                        jsonView: cached && cached.jsonView,
+                        jsonScroll: cached && cached.jsonScroll,
                         tableMode: cached && cached.tableMode,
                         tableOptions: cached && cached.tableOptions,
                         tablePreview: data.table_preview,

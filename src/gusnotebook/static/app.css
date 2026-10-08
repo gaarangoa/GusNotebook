@@ -436,7 +436,26 @@ body {
 .markdown-preview a { color: var(--accent); text-decoration: underline; }
 .markdown-preview input[type="checkbox"] { width: auto; margin-right: 4px; }
 
-/* Bounded, read-only previews for tabular files. */
+/* Bounded, read-only previews for JSON and tabular files. */
+.json-preview {
+  flex: 1; min-width: 0; min-height: 0; overflow: auto;
+  padding: 12px 18px; background: var(--panel); color: var(--text);
+  font-family: var(--mono); font-size: var(--ui-size); line-height: 1.65;
+}
+.textpane.json:not(.json-source) #text-editor { display: none; }
+.json-notice { margin: 0; padding: 6px 10px; color: var(--muted); border-bottom: 1px solid var(--border); }
+.json-preview summary { cursor: pointer; width: fit-content; }
+.json-preview summary:hover { background: var(--hover); }
+.json-preview summary:focus-visible { outline: 1px solid var(--accent); }
+.json-preview .json-children { margin-left: 2ch; border-left: 1px solid var(--border); padding-left: 1ch; }
+.json-preview .json-line, .json-preview summary { white-space: pre-wrap; overflow-wrap: anywhere; }
+.json-preview .json-key { color: var(--blue); }
+.json-preview .json-string { color: var(--green); }
+.json-preview .json-number { color: var(--accent); }
+.json-preview .json-literal { color: var(--secondary); }
+.json-preview .json-count { color: var(--muted); margin-left: 1ch; font-family: sans-serif; }
+.json-preview details[open] > summary > .json-collapsed { display: none; }
+.json-preview .json-more { display: block; margin: 3px 0; }
 .table-preview { display: none; flex: 1; min-width: 0; min-height: 0; flex-direction: column; background: var(--panel); }
 .textpane.tabular:not(.table-source) #text-editor { display: none; }
 .textpane.tabular:not(.table-source) .table-preview { display: flex; }

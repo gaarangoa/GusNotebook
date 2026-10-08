@@ -1,6 +1,5 @@
 """Table previews in an isolated server: source, controls, formats and limits."""
 
-import json
 import os
 from pathlib import Path
 import tempfile
@@ -30,14 +29,6 @@ def main():
     capped.write_text('Name,Value\n' + ''.join(f'Row {i},{i}\n' for i in range(6000)))
     large = work / 'large.csv'
     large.write_text('x' * (2 * 1024 * 1024 + 1))
-    json_file = work / 'records.json'
-    json_file.write_text(json.dumps([{'Name': 'E', 'Value': 5}, {'Name': 'F', 'Nested': {'a': 1}}]))
-    records = work / 'records.jsonl'
-    records.write_text('{"Name":"G","Value":6}\n{"Name":"H","Value":7}\n')
-    ndjson = work / 'records.ndjson'
-    ndjson.write_text(records.read_text())
-    invalid = work / 'invalid.json'
-    invalid.write_text('{bad')
     table = arrow.table({'Name': ['I', 'J'], 'Value': [8, 9]})
     parquet_file, feather_file = work / 'data.parquet', work / 'data.feather'
     parquet.write_table(table, parquet_file)
@@ -96,7 +87,7 @@ def main():
         expect(page.locator('#table-grid tbody tr td').first).to_have_text('External')
         print('PASS: CSV quotes, safe cells, numeric sorting, filtering, headers, unsaved preview, save and external reload', flush=True)
 
-        for path, value in ((tsv, 'C'), (semicolon, 'D'), (json_file, 'E'), (records, 'G'), (ndjson, 'G')):
+        for path, value in ((tsv, 'C'), (semicolon, 'D')):
             open_file(path)
             expect(page.locator('#table-grid tbody tr').first.locator('td').first).to_have_text(value)
             expect(page.locator('#table-source-button')).to_be_visible()
@@ -105,14 +96,7 @@ def main():
         expect(page.locator('#table-summary')).to_contain_text('1 columns')
         page.locator('#table-delimiter').select_option('auto')
         expect(page.locator('#table-summary')).to_contain_text('2 columns')
-        open_file(invalid)
-        expect(page.locator('#table-notice')).not_to_be_empty()
-        page.click('#table-source-button')
-        page.locator('#text-editor').fill('[{"fixed":42}]')
-        page.click('#table-preview-button')
-        expect(page.locator('#table-grid tbody tr td').first).to_have_text('42')
-        assert invalid.read_text() == '{bad'
-        print('PASS: TSV, delimiter selection, JSON, JSON Lines, NDJSON, and invalid-source recovery', flush=True)
+        print('PASS: TSV and delimiter selection', flush=True)
 
         for path in (parquet_file, feather_file, book):
             open_file(path)

@@ -1040,7 +1040,8 @@ def api_open():
         data = texts.get(path).to_json()
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
-    if path.suffix.lower() in tabular.TEXT_SUFFIXES:
+    # JSON keeps its document structure in the browser's JSON/source viewer.
+    if path.suffix.lower() in {".csv", ".tsv"}:
         try:
             data["table_preview"] = tabular.preview_text(data["text"], path.suffix.lower())
         except (ValueError, tabular.csv.Error) as error:

@@ -1,10 +1,10 @@
-/* Tables share the text buffer for delimited/JSON files. Binary files are
+/* Tables share the text buffer for delimited files. Binary files are
  * read-only snapshots; only the visible page is added to the DOM. */
 const TABLE_PAGE_SIZE = 50;
 
 function isTableTab(t) {
   return !!t && (t.kind === 'table' || (t.kind === 'text' &&
-    ['csv', 'tsv', 'json', 'jsonl', 'ndjson'].includes(t.language)));
+    ['csv', 'tsv'].includes(t.language)));
 }
 
 function tableOptions(t) {

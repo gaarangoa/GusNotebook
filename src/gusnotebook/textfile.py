@@ -70,7 +70,8 @@ class TextFile:
             size = self.path.stat().st_size
             if size > MAX_BYTES:
                 raise ValueError(
-                    f"{self.path.name} is {size // 1024} KB — too large to edit here")
+                    f"{self.path.name} is {size // 1024} KB — too large to edit here "
+                    f"(maximum {MAX_BYTES // (1024 * 1024)} MB)")
             version = self.disk_version()
             try:
                 text = self.path.read_text(encoding="utf-8")
