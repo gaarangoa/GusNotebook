@@ -196,6 +196,7 @@ function workspaceTabEntries(path) {
 
 function forgetWorkspace(sid) {
   workspaceViews.delete(sid);
+  syncPdfViewers();
   clearTimeout(rootTimers.get(sid));
   rootTimers.delete(sid);
   clearTimeout(activeTimers.get(sid));

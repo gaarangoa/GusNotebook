@@ -350,18 +350,45 @@ async function pollMarkupDisk() {
 
 setInterval(pollMarkupDisk, 800);
 
+const pdfViewers = new Map();
+
+function syncPdfViewers(t = activeTab()) {
+  for (const [path, viewer] of pdfViewers) {
+    if (!workspaceTabEntries(path).some(entry => entry.tab.kind === 'pdf')) {
+      viewer.remove();
+      pdfViewers.delete(path);
+      continue;
+    }
+    const visible = t?.kind === 'pdf' && t.path === path;
+    viewer.hidden = !visible;
+    viewer.inert = !visible;
+    if (visible) viewer.id = 'pdf-viewer';
+    else viewer.removeAttribute('id');
+  }
+}
+
 function showPdf(t, reload = false) {
   if (!t || t.kind !== 'pdf') return;
   const url = BASE + '/api/pdf?' + new URLSearchParams({path: t.path});
-  const viewer = document.getElementById('pdf-viewer');
-  // Leave the browser viewer alone during normal repaints to retain its page/zoom.
-  if (reload || viewer.dataset.path !== t.path) {
-    viewer.data = url + (reload ? '&v=' + Date.now() : '');
-    viewer.dataset.path = t.path;
-    viewer.setAttribute('aria-label', t.name);
-  }
   document.getElementById('pdf-open').href = url;
   document.getElementById('pdf-download').href = BASE + '/api/files/download?' + new URLSearchParams({path: t.path});
+  document.getElementById('pdf-unavailable').hidden = navigator.pdfViewerEnabled !== false;
+  if (navigator.pdfViewerEnabled === false) return;
+  let viewer = pdfViewers.get(t.path);
+  if (!viewer) {
+    // An iframe retains its native PDF document while hidden. An <object>
+    // can unload its plugin on display:none, even when its data URL is unchanged.
+    viewer = document.createElement('iframe');
+    viewer.className = 'pdf-viewer';
+    viewer.dataset.path = t.path;
+    viewer.src = url;
+    viewer.title = t.name;
+    pdfViewers.set(t.path, viewer);
+    document.getElementById('pdf-viewers').appendChild(viewer);
+  } else if (reload) {
+    viewer.src = url + '&v=' + Date.now();
+  }
+  syncPdfViewers(t);
 }
 
 /** Show whichever pane the active tab needs, and fill it. */
@@ -382,10 +409,7 @@ function showActive() {
   document.getElementById('text-save').hidden = kind === 'table';
   document.getElementById('imgpane').classList.toggle('on', kind === 'image');
   document.getElementById('pdfpane').hidden = kind !== 'pdf';
-  if (!tabs.some(entry => entry.kind === 'pdf' && entry.path === document.getElementById('pdf-viewer').dataset.path)) {
-    document.getElementById('pdf-viewer').removeAttribute('data');
-    delete document.getElementById('pdf-viewer').dataset.path;
-  }
+  syncPdfViewers(t);
   if (!isMarkupTab(t)) {
     clearMarkupFocus();
   }
@@ -619,6 +643,7 @@ async function closeTab(path, ev) {
     discardNotebookDrafts(t);
   }
   tabs.splice(i, 1);
+  syncPdfViewers();
   try {
     await api('/api/close', {method: 'POST', body: JSON.stringify({path})});
   } catch (err) { /* the tab is gone either way */ }
