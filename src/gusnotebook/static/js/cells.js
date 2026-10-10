@@ -2033,19 +2033,26 @@ function cellHtml(c) {
 
   let bodyInner = '';
   let hdBtn = '';
+  let headingSummary = '';
   if (isMd && !isEditing) {
     const level = headingLevel(c);
     const idx = cells.findIndex(x => x.id === c.id);
-    const hasSection = level > 0 && sectionCells(idx).length > 0;
+    const section = level > 0 ? sectionCells(idx) : [];
+    const hasSection = section.length > 0;
     const collapsed = headingsCollapsed.has(c.id);
     if (hasSection) {
       hdBtn = `<button class="hd-toggle" data-id="${c.id}"
            onclick="event.stopPropagation();toggleHeading('${c.id}')"
+           aria-expanded="${!collapsed}" aria-controls="${section.map(id => 'cell-' + id).join(' ')}"
+           aria-label="${collapsed ? 'Expand section' : 'Collapse section'}"
            title="${collapsed ? 'Expand section' : 'Collapse section'}"
            >${icon(collapsed ? 'chevron' : 'chevronDown')}</button>`;
+      headingSummary = `<button class="heading-summary" data-id="${c.id}" ${collapsed ? '' : 'hidden'}
+        onclick="event.stopPropagation();toggleHeading('${c.id}')" aria-label="Expand section">
+        ${section.length} cell${section.length === 1 ? '' : 's'} hidden</button>`;
     }
     bodyInner = `<div class="md-rendered" ondblclick="editMarkdown('${c.id}')">${
-      renderNotebookMarkdown(c.source)}</div>`;
+      renderNotebookMarkdown(c.source)}</div>${headingSummary}`;
   } else {
     const placeholder = isAi
       ? 'Describe what you want in plain English, then press ⇧⏎'
@@ -2168,7 +2175,7 @@ function cellHtml(c) {
       </div>`;
 
   return `
-  <div class="cell ${c._running ? 'is-running' : ''}" data-id="${c.id}" data-type="${c.cell_type}"
+  <div class="cell ${c._running ? 'is-running' : ''}" id="cell-${c.id}" data-id="${c.id}" data-type="${c.cell_type}"
        onclick="selectCell('${c.id}')">
     <div class="gutter">
       ${hdBtn}<span class="gutter-label"${c._running ? ' title="Cell is running"' : ''}>${labelHtml}</span>${viewBtns}${histBtns}${cellBtns}
@@ -2187,10 +2194,18 @@ function cellHtml(c) {
 // ---------- Heading collapse ----------
 
 /** The heading level of a markdown cell (1-6), or 0 if it's not a heading. */
+const headingLevels = new WeakMap();
 function headingLevel(c) {
-  if (c.cell_type !== 'markdown') return 0;
-  const m = /^(#{1,6})\s/.exec((c.source || '').trimStart());
-  return m ? m[1].length : 0;
+  if (!c || c.cell_type !== 'markdown') return 0;
+  const source = c.source || '';
+  const cached = headingLevels.get(c);
+  if (cached && cached.source === source) return cached.level;
+  // Match the renderer, including Setext headings, without treating a heading
+  // inside a code fence or later in a prose cell as a new section.
+  const first = marked.lexer(source).find(token => token.type !== 'space');
+  const level = first?.type === 'heading' ? first.depth : 0;
+  headingLevels.set(c, {source, level});
+  return level;
 }
 
 /**
@@ -2221,9 +2236,6 @@ function toggleHeading(id) {
     rememberNotebookView(t);
   }
   applyHeadingCollapse();
-  // Update just this button without a full render.
-  const btn = document.querySelector(`.hd-toggle[data-id="${id}"]`);
-  if (btn) btn.textContent = collapsed ? '▾' : '▸';
 }
 
 /** Show/hide cells according to headingsCollapsed, without re-rendering. */
@@ -2238,6 +2250,17 @@ function applyHeadingCollapse() {
   cells.forEach(c => {
     const el = document.querySelector(`.cell[data-id="${c.id}"]`);
     if (el) el.style.display = hidden.has(c.id) ? 'none' : '';
+    const button = el?.querySelector('.hd-toggle');
+    if (button) {
+      const collapsed = headingsCollapsed.has(c.id);
+      const label = collapsed ? 'Expand section' : 'Collapse section';
+      button.innerHTML = icon(collapsed ? 'chevron' : 'chevronDown');
+      button.setAttribute('aria-expanded', String(!collapsed));
+      button.setAttribute('aria-label', label);
+      button.title = label;
+      const summary = el.querySelector('.heading-summary');
+      if (summary) summary.hidden = !collapsed;
+    }
   });
 }
 

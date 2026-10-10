@@ -754,6 +754,12 @@ button.tb.primary:hover { background: var(--accent-soft); }
    here that drifts from it. Only the folded rule reads it, so unfolding is a
    class toggle with no inline style to undo. */
 .fold.folded { overflow: hidden; max-height: var(--fold-h); }
+/* Keep the code boundary visible above the fade without changing its size. */
+.cell[data-type="code"] .fold.folded::after {
+  content: ''; position: absolute; inset: 0; z-index: 1;
+  border: 1px solid var(--border); border-radius: 6px; pointer-events: none;
+}
+.cell[data-type="code"] .fold.folded:focus-within::after { border-color: var(--accent-border); }
 /* The transparency the fade is made of. Over the editor, not inside it: an
    overlay also means a click lands here rather than placing a caret halfway
    down code the user can't see the end of — opening it first is the only
@@ -940,6 +946,13 @@ button.tb.primary:hover { background: var(--accent-soft); }
   border-radius: 4px;
 }
 .hd-toggle:hover { color: var(--accent); background: var(--surface); }
+.heading-summary {
+  display: inline-flex; align-items: center; margin: 4px 0 8px; padding: 3px 8px;
+  border: 1px solid var(--border); border-radius: 6px; background: transparent;
+  color: var(--muted); font: inherit; font-size: var(--small-size); cursor: pointer;
+}
+.heading-summary[hidden] { display: none; }
+.heading-summary:hover { color: var(--accent); border-color: var(--accent-border); }
 .md-rendered:empty::after { content: 'Empty markdown cell — double-click to edit'; color: var(--muted); font-style: italic; }
 .md-rendered .katex-display { overflow-x: auto; overflow-y: hidden; padding: .2em 0; }
 /* Keep Markdown's heading hierarchy relative to the selected body font size. */
