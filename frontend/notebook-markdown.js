@@ -88,7 +88,27 @@ export function renderMarkdownFileFragment(source) {
   })));
   parser.use({renderer: {
     code(text, info) {
-      return placeholder(renderMarkdownCode(text.replace(/\n$/, '') + '\n', info));
+      const source = text.replace(/\n$/, '') + '\n';
+      const code = renderMarkdownCode(source, info);
+      if ((info || '').trim().split(/\s+/, 1)[0].toLowerCase() !== 'mermaid') {
+        return placeholder(code);
+      }
+      const block = document.createElement('section');
+      block.className = 'markdown-mermaid';
+      block.dataset.mermaidSource = source;
+      const diagram = document.createElement('div');
+      diagram.className = 'mermaid-diagram';
+      diagram.setAttribute('aria-busy', 'true');
+      const status = document.createElement('p');
+      status.className = 'mermaid-status';
+      status.setAttribute('role', 'status');
+      status.textContent = 'Rendering diagram…';
+      const details = document.createElement('details');
+      const summary = document.createElement('summary');
+      summary.textContent = 'Diagram source';
+      details.append(summary, code);
+      block.append(diagram, status, details);
+      return placeholder(block);
     },
   }});
   const fragment = DOMPurify.sanitize(parser.parse(source || ''), {

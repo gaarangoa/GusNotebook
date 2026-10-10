@@ -74,6 +74,7 @@ function renderMarkdownFile(t) {
     preview.replaceChildren();
   }
   preview.scrollTop = t.markdownScroll || 0;
+  renderMarkdownMermaid(preview);
 }
 
 function showMarkdownFile(t) {

@@ -56,6 +56,18 @@ editing, previewing, or saving, so reports can include large embedded figures.
 PDFs also have no file-size cap and are served to the browser viewer with
 byte-range support, without loading them into a text editor.
 
+Markdown files (`.md` and `.markdown`) render fenced `mermaid` blocks as diagrams.
+Diagrams follow the light/dark theme and include a **Diagram source** disclosure
+with a copy button. Invalid or oversized diagrams show an error and their source.
+The renderer is bundled locally, so diagrams work without a CDN connection.
+
+````markdown
+```mermaid
+flowchart LR
+    Data --> Analysis --> Report
+```
+````
+
 ## Table previews
 
 Open `.csv`, `.tsv`, `.parquet`, `.feather`, or

@@ -9,9 +9,9 @@ for (const singleton of ['@codemirror/state', '@codemirror/view']) {
   }
 }
 await mkdir(destination, {recursive: true});
-for (const entry of ['vendor', 'codemirror']) {
+for (const entry of ['vendor', 'codemirror', 'mermaid']) {
   await build({entryPoints: [`frontend/${entry}.js`], bundle: true, minify: true,
-    format: entry === 'vendor' ? 'iife' : 'esm', target: 'es2022',
+    format: entry === 'codemirror' ? 'esm' : 'iife', target: 'es2022',
     outfile: `${destination}/${entry}.js`, legalComments: 'eof'});
 }
 await copyFile('node_modules/@xterm/xterm/css/xterm.css', `${destination}/xterm.css`);
