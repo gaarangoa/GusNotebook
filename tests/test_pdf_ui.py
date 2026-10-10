@@ -9,7 +9,7 @@ from playwright.sync_api import expect, sync_playwright
 from ui_server import authenticate_browser, launch_browser, rerun_isolated
 
 
-def multipage_pdf():
+def multipage_pdf(padding=0):
     objects = [b'<< /Type /Catalog /Pages 2 0 R >>',
                b'<< /Type /Pages /Kids [4 0 R 6 0 R 8 0 R] /Count 3 >>',
                b'<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>']
@@ -17,6 +17,8 @@ def multipage_pdf():
         stream = f'BT /F1 24 Tf 72 700 Td (PDF page {page + 1}) Tj ET'.encode()
         objects += [f'<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents {5 + page * 2} 0 R >>'.encode(),
                     f'<< /Length {len(stream)} >>\nstream\n'.encode() + stream + b'\nendstream']
+    if padding:
+        objects.append(f'<< /Length {padding} >>\nstream\n'.encode() + b'x' * padding + b'\nendstream')
     result, offsets = b'%PDF-1.4\n', [0]
     for index, obj in enumerate(objects, 1):
         offsets.append(len(result))
@@ -32,7 +34,7 @@ def main():
     url = os.environ['GUSNOTEBOOK_TEST_URL']
     work = Path(os.environ['GUSNOTEBOOK_TEST_ROOT']).resolve() / 'work'
     pdf = work / 'report # & α.PDF'
-    content = multipage_pdf()
+    content = multipage_pdf(padding=3 * 1024 * 1024)
     pdf.write_bytes(content)
     second = work / 'second.pdf'
     second.write_bytes(content)

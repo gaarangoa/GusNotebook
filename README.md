@@ -51,6 +51,11 @@ To install into system Python instead, use:
 uv pip install --system 'git+https://github.com/gaarangoa/GusNotebook.git@main'
 ```
 
+HTML documents (`.html` and `.htm`) have no file-size limit for opening, visual
+editing, previewing, or saving, so reports can include large embedded figures.
+PDFs also have no file-size cap and are served to the browser viewer with
+byte-range support, without loading them into a text editor.
+
 ## Table previews
 
 Open `.csv`, `.tsv`, `.parquet`, `.feather`, or

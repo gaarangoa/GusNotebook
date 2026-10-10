@@ -247,8 +247,8 @@ def set_markup_focus(path, selection, source=None, expected_version=None,
         if not 0 <= start < end <= len(rendered):
             raise ValueError("invalid visual selection range")
         document = source if isinstance(source, str) else rendered
-        if (len(rendered.encode("utf-8")) > textfile.MAX_BYTES or
-                len(document.encode("utf-8")) > textfile.MAX_BYTES):
+        if (textfile.text_too_large(path, rendered) or
+                textfile.text_too_large(path, document)):
             raise ValueError("visual document is too large")
         start, end = _source_selection(rendered, document, start, end)
 
@@ -1156,7 +1156,7 @@ def api_preview():
         return jsonify({"error": "preview requires an HTML or SVG file"}), 400
     if not isinstance(source, str) or not isinstance(nonce, str):
         return jsonify({"error": "preview source and nonce are required"}), 400
-    if len(source.encode("utf-8")) > textfile.MAX_BYTES:
+    if textfile.text_too_large(path, source):
         return jsonify({"error": "visual document is too large"}), 400
     if (not isinstance(parent_origin, str) or
             not parent_origin.startswith(("http://", "https://"))):
@@ -1358,7 +1358,7 @@ def api_replace_markup_selection():
         start, end = focus["start"], focus["end"]
         document = focus["document"]
         updated = document[:start] + replacement + document[end:]
-        if len(updated.encode("utf-8")) > textfile.MAX_BYTES:
+        if textfile.text_too_large(path, updated):
             return jsonify({"error": "replacement makes the visual document too large"}), 400
         try:
             saved = texts.get(path).save(updated, focus["disk_version"])

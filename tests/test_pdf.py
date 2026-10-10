@@ -54,6 +54,26 @@ class PdfTests(unittest.TestCase):
         with self.client.get('/api/raw', query_string={'path': str(html)}) as response:
             self.assertEqual(response.headers['X-Frame-Options'], 'DENY')
 
+    def test_large_pdf_opens_and_streams_ranges_without_loading_a_text_buffer(self):
+        # Sparse file: exercise a 64 MB PDF without making the test read it all.
+        size = 64 * 1024 * 1024
+        with self.pdf.open('r+b') as stream:
+            stream.truncate(size)
+            stream.seek(size - 6)
+            stream.write(b'%%EOF\n')
+        opened = self.client.post('/api/open', json={'path': str(self.pdf)})
+        self.assertEqual(opened.status_code, 200)
+        self.assertEqual(opened.json['kind'], 'pdf')
+        self.assertNotIn('text', opened.json)
+        with self.client.head(opened.json['url']) as response:
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(int(response.headers['Content-Length']), size)
+        with self.client.get(opened.json['url'], headers={'Range': 'bytes=-6'}) as response:
+            self.assertEqual(response.status_code, 206)
+            self.assertEqual(response.data, b'%%EOF\n')
+            self.assertEqual(response.headers['Content-Range'], f'bytes {size - 6}-{size - 1}/{size}')
+        self.assertNotIn(str(self.pdf), self.app.extensions['gusnotebook'].texts.paths())
+
 
 if __name__ == '__main__':
     unittest.main()

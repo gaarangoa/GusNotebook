@@ -16,7 +16,7 @@ import nbformat
 from gusnotebook.app import create_app, close_app
 from gusnotebook.notebook import Notebook, NotebookReadError
 from gusnotebook.persistence import ExternalChangeError
-from gusnotebook.textfile import TextFile
+from gusnotebook.textfile import MAX_BYTES, TextFile
 
 
 class PersistenceTests(unittest.TestCase):
@@ -71,6 +71,32 @@ class PersistenceTests(unittest.TestCase):
         doc.save("print(2)")
         self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o755)
 
+    def test_large_html_loads_and_saves_but_other_text_stays_bounded(self):
+        document = '<html><body><!--' + 'figure payload ' * 200000 + '--><p>Report</p></body></html>'
+        self.assertGreater(len(document.encode()), MAX_BYTES)
+        for suffix in ('.html', '.htm', '.HTML', '.HTM'):
+            with self.subTest(suffix=suffix):
+                path = self.root / ('report' + suffix)
+                path.write_text(document)
+                doc = TextFile(path)
+                loaded = doc.to_json()
+                self.assertEqual(loaded['text'], document)
+                updated = document.replace('<p>Report</p>', '<p>Updated report</p>')
+                doc.save(updated, loaded['disk_version'])
+                self.assertEqual(path.read_text(), updated)
+        for suffix in ('.txt', '.md', '.csv', '.svg'):
+            with self.subTest(suffix=suffix):
+                path = self.root / ('bounded' + suffix)
+                path.write_text(document)
+                with self.assertRaisesRegex(ValueError, 'too large'):
+                    TextFile(path).load()
+                path.write_text('small')
+                doc = TextFile(path)
+                doc.load()
+                with self.assertRaisesRegex(ValueError, 'maximum'):
+                    doc.save(document)
+                self.assertEqual(path.read_text(), 'small')
+
     def test_stale_text_save_preserves_external_edit(self):
         path = self.root / "tool.py"
         path.write_text("base")
@@ -118,6 +144,63 @@ class ApplicationTests(unittest.TestCase):
         root.mkdir(exist_ok=True)
         return create_app({"WORK_DIR": str(root), "STATE_DIR": str(root / "state"),
                            "START_WATCHERS": False, "AUTH_TOKEN": "test-token", **config})
+
+    def test_large_html_open_preview_focus_replacement_and_save(self):
+        original = '<!doctype html><html><body><!--' + 'x' * (MAX_BYTES + 100) + '--><p>Report</p></body></html>'
+        for suffix in ('.html', '.htm'):
+            with self.subTest(suffix=suffix):
+                path = self.root / ('report' + suffix)
+                path.write_text(original)
+                opened = self.client.post('/api/open', json={'path': str(path)})
+                self.assertEqual(opened.status_code, 200, opened.json)
+                self.assertEqual(opened.json['text'], original)
+                preview = self.client.post('/api/preview', json={
+                    'path': str(path), 'source': original, 'nonce': 'large-report',
+                    'parent_origin': 'http://localhost'})
+                self.assertEqual(preview.status_code, 200, preview.json)
+                start = original.index('<p>Report</p>')
+                selection = self.client.post('/api/markup-focus', json={
+                    'path': str(path), 'source': original,
+                    'disk_version': opened.json['disk_version'],
+                    'selection': {'document': original, 'start': start,
+                                  'end': start + len('<p>Report</p>'), 'text': 'Report'}})
+                self.assertEqual(selection.status_code, 200, selection.json)
+                updated = original.replace('<p>Report</p>', '<p>Updated report with figure</p>')
+                replacement = self.client.patch('/api/markup-selection', json={
+                    'selection_id': selection.json['selection_id'],
+                    'replacement': '<p>Updated report with figure</p>'})
+                self.assertEqual(replacement.status_code, 200, replacement.json)
+                self.assertEqual(path.read_text(), updated)
+                current = self.client.post('/api/open', json={'path': str(path)}).json
+                saved = self.client.post('/api/text', json={
+                    'path': str(path), 'text': updated + '\n<!-- Added figure -->',
+                    'disk_version': current['disk_version']})
+                self.assertEqual(saved.status_code, 200, saved.json)
+                self.assertEqual(path.read_text(), updated + '\n<!-- Added figure -->')
+
+    def test_svg_visual_size_guards_remain_in_place(self):
+        path = self.root / 'figure.svg'
+        small = '<svg><text>Label</text></svg>'
+        path.write_text(small)
+        large = small + '<!--' + 'x' * MAX_BYTES + '-->'
+        opened = self.client.post('/api/open', json={'path': str(path)}).json
+        preview = self.client.post('/api/preview', json={
+            'path': str(path), 'source': large, 'nonce': 'svg',
+            'parent_origin': 'http://localhost'})
+        self.assertEqual(preview.status_code, 400)
+        selection = {'document': large, 'start': 5, 'end': 23, 'text': 'Label'}
+        focused = self.client.post('/api/markup-focus', json={
+            'path': str(path), 'selection': selection, 'source': large})
+        self.assertEqual(focused.status_code, 400)
+        selection['document'] = small
+        focused = self.client.post('/api/markup-focus', json={
+            'path': str(path), 'selection': selection, 'source': small,
+            'disk_version': opened['disk_version']})
+        self.assertEqual(focused.status_code, 200, focused.json)
+        replaced = self.client.patch('/api/markup-selection', json={
+            'selection_id': focused.json['selection_id'], 'replacement': large})
+        self.assertEqual(replaced.status_code, 400)
+        self.assertEqual(path.read_text(), small)
 
     def tearDown(self):
         close_app(self.app)

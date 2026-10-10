@@ -1,7 +1,7 @@
 """Plain-text documents for non-notebook tabs (.py, .csv, .md, ...).
 
-Text tabs are a simple read/save editor — no kernel involved. Files that aren't
-decodable text, or are very large, are reported as such instead of being loaded.
+Text tabs are a simple read/save editor — no kernel involved. HTML documents
+have no size cap; other text files retain a limit for the source editor.
 """
 
 import threading
@@ -10,10 +10,11 @@ from pathlib import Path
 from .persistence import (ANY_VERSION, ExternalChangeError, atomic_write,
                           disk_version)
 
-MAX_BYTES = 2 * 1024 * 1024      # refuse to open more than 2 MB in a textarea
+MAX_BYTES = 2 * 1024 * 1024      # default limit for non-HTML text files
+HTML_SUFFIXES = {".html", ".htm"}
 
 # Only these open as editable text; anything else is described, not loaded.
-MARKUP_SUFFIXES = {".html", ".htm", ".svg"}
+MARKUP_SUFFIXES = HTML_SUFFIXES | {".svg"}
 
 TEXT_SUFFIXES = {
     ".py", ".txt", ".md", ".markdown", ".csv", ".tsv", ".json", ".jsonl", ".ndjson", ".yaml", ".yml", ".toml",
@@ -25,6 +26,16 @@ TEXT_SUFFIXES = {
 IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"}
 
 _NO_EXPECTATION = ANY_VERSION
+
+
+def size_limit(path):
+    """HTML reports can grow with embedded figures; other formats stay bounded."""
+    return None if Path(path).suffix.lower() in HTML_SUFFIXES else MAX_BYTES
+
+
+def text_too_large(path, text):
+    limit = size_limit(path)
+    return limit is not None and len(text.encode("utf-8")) > limit
 
 
 def kind_of(path):
@@ -68,10 +79,11 @@ class TextFile:
                     raise ValueError(f"{self.path.name} is a binary file")
 
             size = self.path.stat().st_size
-            if size > MAX_BYTES:
+            limit = size_limit(self.path)
+            if limit is not None and size > limit:
                 raise ValueError(
                     f"{self.path.name} is {size // 1024} KB — too large to edit here "
-                    f"(maximum {MAX_BYTES // (1024 * 1024)} MB)")
+                    f"(maximum {limit // (1024 * 1024)} MB)")
             version = self.disk_version()
             try:
                 text = self.path.read_text(encoding="utf-8")
@@ -101,11 +113,13 @@ class TextFile:
         """Atomic write, matching Notebook._save."""
         if not isinstance(text, str):
             raise ValueError("text must be a string")
-        size = len(text.encode("utf-8"))
-        if size > MAX_BYTES:
-            raise ValueError(
-                f"edited document is {size // 1024} KB — maximum is "
-                f"{MAX_BYTES // 1024} KB")
+        limit = size_limit(self.path)
+        if limit is not None:
+            size = len(text.encode("utf-8"))
+            if size > limit:
+                raise ValueError(
+                    f"edited document is {size // 1024} KB — maximum is "
+                    f"{limit // 1024} KB")
         with self._lock:
             version = atomic_write(self.path, text, expected_version)
             self._text = text
