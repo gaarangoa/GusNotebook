@@ -68,27 +68,6 @@ flowchart LR
 ```
 ````
 
-## Table previews
-
-Open `.csv`, `.tsv`, `.parquet`, `.feather`, or
-`.xlsx` files from the file browser to see a table. Search the preview, click a
-column heading to sort, or use Previous/Next to page through 50 rows at a time.
-Delimited files offer a delimiter selector and a header-row toggle; Excel also
-offers a sheet selector. CSV and TSV retain a **Source** view for
-editing. Parquet, Feather, and Excel previews are read-only. Excel formulas show
-their last saved values and are not recalculated.
-
-Files larger than 2 MB are refused without loading their contents. Smaller files
-show at most 5,000 rows, 100 columns, and 100,000 cells, with long values shortened
-and an additional preview text budget. Compressed binary tables that expand past
-32 MB are also refused. A notice identifies partial snapshots; search and sorting
-apply only to the preview. These actions do not change the file or start a kernel.
-Use **Reload** to refresh binary snapshots after a file changes on disk.
-
-JSON files open as formatted, collapsible JSON with an editable **Source** view.
-Large branches show 100 entries at a time. Invalid or overly complex JSON falls
-back to plain text. `.jsonl` and `.ndjson` files also open as plain text.
-The same 2 MB file limit applies.
 
 ## Tunnels: installation and setup
 
@@ -147,16 +126,27 @@ Keep both processes running. Disconnecting locally leaves the remote workspace
 running; stopping GusNotebook on the remote computer shuts it down.
 
 The remote app renews its tunnel periodically and retries a disconnected or
-expired tunnel without stopping notebooks, kernels, or terminals. To request
-renewal yourself, run on the **remote computer** (over SSH if disconnected):
+expired tunnel without stopping notebooks, kernels, or terminals. To **check or
+restart just the tunnel**, connect over SSH. This example uses the SSH host
+`spark` and GusNotebook port `1524`; substitute your server and its app port:
 
 ```bash
-PORT=4477 gusnb tunnel renew
-PORT=4477 gusnb tunnel status
+ssh spark
+
+# Check status
+PORT=1524 gusnb tunnel status
+
+# Renew and restart the tunnel connection
+PORT=1524 gusnb tunnel renew
+
+# Confirm it reconnected
+PORT=1524 gusnb tunnel status
 ```
 
-Use your server's port. In GusNotebook's own terminal, `gusnb tunnel renew` is
-enough. Reconnect the local client after renewal if it lost its connection.
+The status should return `connected` after recovery. Notebooks, kernels, and
+terminals keep running during renewal. In GusNotebook's own terminal, omit
+`PORT=1524`: use `gusnb tunnel status` or `gusnb tunnel renew` directly.
+Reconnect the local client after renewal if it lost its connection.
 
 If the **account login** expired, sign in again on the remote computer first:
 
