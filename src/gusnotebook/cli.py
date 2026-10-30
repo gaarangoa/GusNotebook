@@ -17,6 +17,8 @@ browser immediately.
     gusnb delete <cell_id>
     gusnb clear
     gusnb restart
+    gusnb tunnel status                   # hosted tunnel connection state
+    gusnb tunnel renew                    # renew transport; keep kernels running
 
 The browser can have several notebooks open in tabs, each with its own kernel.
 Commands act on the first open notebook unless you name one with -n:
@@ -393,6 +395,18 @@ def cmd_env(args):
     print(f"kernel now on Python {data['version']} — {data['python']}")
 
 
+def cmd_tunnel(args):
+    if args.action == "renew":
+        result = call("/api/tunnel-host", method="POST", body={}, timeout=10)
+        print(f"Renewal requested for {result['name']}. Notebooks, kernels and terminals stay running.")
+        print("Use gusnb tunnel status to check progress, then reconnect your local client if needed.")
+    else:
+        result = call("/api/tunnel-host", timeout=10)
+        print(f"{result['name']}: {result['state']}")
+        if result.get("error"):
+            print(result["error"])
+
+
 def main():
     p = argparse.ArgumentParser(
         prog="gusnb",
@@ -460,6 +474,10 @@ def main():
     e.add_argument("python", nargs="?",
                    help="a virtualenv directory or python binary")
     e.set_defaults(fn=cmd_env)
+
+    t = sub.add_parser("tunnel", help="check or renew this server's hosted tunnel without restarting the workspace")
+    t.add_argument("action", nargs="?", choices=["status", "renew"], default="status")
+    t.set_defaults(fn=cmd_tunnel)
 
     args = p.parse_args()
     if args.notebook:

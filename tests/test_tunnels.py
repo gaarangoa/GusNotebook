@@ -62,6 +62,28 @@ class TunnelTests(unittest.TestCase):
             cli.connect("research")
         process.assert_not_called()
 
+    def test_renewal_preserves_ports_and_access_rules(self):
+        cli = self.client(hostConnections=1)
+        cli.renew('research', 8888)
+        cli.json.assert_any_call('update', 'research.usw2', '--expiration', '30d')
+        self.assertFalse(any(call.args[:2] in [('port', 'delete'), ('port', 'create'),
+                         ('access', 'create'), ('access', 'delete')] for call in cli.json.call_args_list))
+        for ports in ([], [{'portNumber': 22}], [{'portNumber': 8888}, {'portNumber': 22}]):
+            cli = self.client()
+            cli.ports.return_value = ports
+            with self.assertRaises(TunnelError):
+                cli.renew('research', 8888)
+            self.assertFalse(any(call.args[0] == 'update' for call in cli.json.call_args_list))
+        cli = self.client(labels=['other-app'])
+        with self.assertRaises(TunnelError):
+            cli.renew('research', 8888)
+        cli.json.assert_not_called()
+        cli = self.client()
+        cli.json.return_value = {'accessControlEntries': [{'isDeny': False}]}
+        with self.assertRaises(TunnelError):
+            cli.renew('research', 8888)
+        self.assertFalse(any(call.args[0] == 'update' for call in cli.json.call_args_list))
+
     def test_new_tunnel_without_ports_can_be_prepared(self):
         cli = DevTunnels("devtunnel-test")
         cli.show = Mock(return_value=None)

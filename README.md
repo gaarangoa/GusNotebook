@@ -145,3 +145,27 @@ Linux may also require the distribution's `libsecret` package for tunnel credent
 
 Keep both processes running. Disconnecting locally leaves the remote workspace
 running; stopping GusNotebook on the remote computer shuts it down.
+
+The remote app renews its tunnel periodically and retries a disconnected or
+expired tunnel without stopping notebooks, kernels, or terminals. To request
+renewal yourself, run on the **remote computer** (over SSH if disconnected):
+
+```bash
+PORT=4477 gusnb tunnel renew
+PORT=4477 gusnb tunnel status
+```
+
+Use your server's port. In GusNotebook's own terminal, `gusnb tunnel renew` is
+enough. Reconnect the local client after renewal if it lost its connection.
+
+If the **account login** expired, sign in again on the remote computer first:
+
+```bash
+devtunnel user login --github --use-device-code-auth
+```
+
+Open the displayed login URL in your local browser and approve the one-time code
+with the same account used locally. For Microsoft, replace `--github` with
+`--entra`. Then run the renewal command above. This keeps the existing workspace
+running; it does not require restarting GusNotebook. A network/service outage or
+expired account login can still delay recovery.

@@ -166,6 +166,18 @@ class DevTunnels:
                 and isinstance(entry.get("labels"), list) and LABEL in entry["labels"]
                 and isinstance(entry.get("tunnelId"), str) and _NAME.fullmatch(entry["tunnelId"])]
 
+    def renew(self, name, port):
+        """Extend our private tunnel without changing its ports or access rules."""
+        detail = self.show(name)
+        self.owned(detail)
+        name = tunnel_name(detail["tunnelId"])
+        self.private(name)
+        ports = self.ports(name)
+        if len(ports) != 1 or ports[0]["portNumber"] != port:
+            raise TunnelError("The tunnel's ports changed. Renewal did not modify them.")
+        self.private(name, port)
+        self.json("update", name, "--expiration", "30d")
+
     def list(self):
         entries = self.entries()
         if not entries:
@@ -200,6 +212,7 @@ class TunnelProcess:
         self.local_port = None
         self.ready = threading.Event()
         self.done = threading.Event()
+        self.expired = threading.Event()
         self.stopping = False
         self.failure = None
         self._close_lock = threading.Lock()
@@ -223,6 +236,11 @@ class TunnelProcess:
                     self.local_port = int(match[1])
                     if 0 < self.local_port < 65536:
                         self.ready.set()
+                if self.hosting and any(message in line.lower() for message in (
+                        "tunnel is expired", "token has expired", "token is expired", "expired token")):
+                    # Some CLI versions report expiry but leave the host process
+                    # running. Let the host supervisor replace that transport.
+                    self.expired.set()
                 # The browser relay URL is not the local-client workflow.
                 if line and not line.startswith(("Hosting port ", "Connecting to host tunnel relay ")):
                     print("[tunnel] " + line, flush=True)

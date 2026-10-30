@@ -437,6 +437,21 @@ def index():
     return render_template(template)
 
 
+@routes.route("/api/tunnel-host", methods=["GET", "POST"])
+def api_tunnel_host():
+    """Renew just this server's transport, using normal workspace authentication."""
+    host = current_app.extensions.get("gusnotebook_tunnel_host")
+    if host is None:
+        return jsonify(error="This GusNotebook was not started with --tunnel."), 409
+    if request.method == "POST":
+        from .tunnels import TunnelError
+        try:
+            return jsonify(host.request_renew()), 202
+        except TunnelError as error:
+            return jsonify(error=str(error)), 409
+    return jsonify(host.snapshot())
+
+
 # --- Path completions for the cell editor ---
 
 @routes.route("/api/completions")
@@ -2377,9 +2392,11 @@ def main(argv=None):
                                   "DEBUG": args.debug})
         server.app = application
         if args.tunnel:
+            from .tunnel_host import TunnelHost
             print(f"Starting private GusNotebook tunnel {name}…", flush=True)
-            tunnel = tunnel_cli.host(name)
-            tunnel.wait_ready()
+            tunnel = TunnelHost(tunnel_cli.command, name, server.server_port)
+            application.extensions["gusnotebook_tunnel_host"] = tunnel
+            tunnel.start()
             print(f"On your local computer: gusnotebook --connect {name}\n"
                   "GitHub/Microsoft sign-in controls access; no separate notebook token is needed.", flush=True)
     except BaseException as exc:
@@ -2407,13 +2424,6 @@ def main(argv=None):
                   f"  state in   {paths.state_dir()}", flush=True)
         if not args.no_browser and not args.tunnel:
             threading.Timer(1.0, lambda: webbrowser.open(url)).start()
-        if tunnel:
-            def watch_tunnel():
-                tunnel.done.wait()
-                if not tunnel.stopping:
-                    print(tunnel.failure, flush=True)
-                    server.shutdown()
-            threading.Thread(target=watch_tunnel, name="gusnb-tunnel-watch", daemon=True).start()
         server.serve_forever()
     except KeyboardInterrupt:
         pass
@@ -2427,8 +2437,6 @@ def main(argv=None):
                 connection.unlink()
         except (OSError, ValueError):
             pass
-    if tunnel and tunnel.failure:
-        parser.exit(1, tunnel.failure + "\n")
 
 
 if __name__ == "__main__":

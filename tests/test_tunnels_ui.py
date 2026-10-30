@@ -131,8 +131,37 @@ def main():
                 assert blocked
                 print("PASS: isolated HTML editing, modules, root-relative assets and fetch work through the same port", flush=True)
 
-                # Disconnect the client only, then attach a second local launcher.
+                # Expiry can leave the CLI alive. Authentication failures during
+                # recovery must leave the HTTP server, kernel and shell intact.
                 term_id = page.evaluate("terms[0].id")
+                old_relay_pid = (relay / 'host.pid').read_text()
+
+                def wait_host_state(state):
+                    deadline = time.monotonic() + 20
+                    while time.monotonic() < deadline:
+                        if page.evaluate("api('/api/tunnel-host')")['state'] == state:
+                            return
+                        time.sleep(.1)
+                    raise AssertionError(host_log.read_text())
+
+                (relay / 'fail-renew').touch()
+                (relay / 'expire-host').touch()
+                wait_host_state('retrying')
+                assert host.poll() is None
+                (relay / 'fail-renew').unlink()
+                remote_port = json.loads((relay / 'tunnel.json').read_text())['ports'][0]['portNumber']
+                renewal = subprocess.run([sys.executable, '-m', 'gusnotebook.cli', 'tunnel', 'renew'],
+                    cwd=remote, env={**env, 'PORT': str(remote_port), 'GUSNOTEBOOK_HOME': str(root / 'remote-state')},
+                    capture_output=True, text=True, timeout=15)
+                assert renewal.returncode == 0, renewal.stderr
+                assert 'Renewal requested' in renewal.stdout
+                wait_host_state('connected')
+                assert (relay / 'host.pid').read_text() != old_relay_pid
+                assert page.evaluate('terms[0].id') == term_id
+                assert host.poll() is None
+                print('PASS: expired transport and login recover through remote CLI renewal without stopping the workspace', flush=True)
+
+                # Disconnect the client only, then attach a second local launcher.
                 stop(client)
                 assert client.returncode == 0 and host.poll() is None
                 replacement, replacement_log = start(["--connect", "remote-research", "--no-browser"],

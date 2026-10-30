@@ -50,6 +50,8 @@ elif args[:2] == ["user", "login"]:
             "username": os.environ.get("GUSNOTEBOOK_FAKE_TUNNEL_USERNAME", "test-user")}))
     output({"status": "Logged in"})
 elif args[0] == "show":
+    if (root / "hold-show").exists():
+        threading.Event().wait()
     if not state() or args[1] != state()["tunnelId"]:
         print("Tunnel not found", file=sys.stderr)
         sys.exit(2)
@@ -60,6 +62,11 @@ elif args[0] == "create":
     value = {"tunnelId": args[1], "labels": ["gusnotebook"], "hostConnections": 0, "ports": []}
     save(value)
     output({"tunnel": value})
+elif args[0] == "update":
+    if (root / "fail-renew").exists():
+        print("Authentication token has expired. Sign in again.", file=sys.stderr)
+        sys.exit(1)
+    output({"tunnel": state()})
 elif args[:2] == ["access", "list"]:
     output({"accessControlEntries": []})
 elif args[:2] == ["port", "list"]:
@@ -90,8 +97,20 @@ elif args[0] == "host":
         save(value)
         sys.exit(0)
     signal.signal(signal.SIGTERM, stop)
+    (root / "host.pid").write_text(str(os.getpid()))
     print("Ready to accept connections for tunnel: " + args[1], flush=True)
-    threading.Event().wait()
+    while True:
+        if (root / "expire-host").exists():
+            (root / "expire-host").unlink()
+            print("Cannot get tunnel, tunnel is expired", flush=True)
+            # Deliberately remain alive, like CLI versions that get stuck.
+        if (root / "crash-host").exists():
+            (root / "crash-host").unlink()
+            value = state()
+            value["hostConnections"] = 0
+            save(value)
+            sys.exit(3)
+        time.sleep(.05)
 elif args[0] == "connect":
     if (root / "hold-connect").exists():
         threading.Event().wait()
