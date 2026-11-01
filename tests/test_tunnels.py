@@ -171,6 +171,30 @@ class TunnelTests(unittest.TestCase):
                 process.wait_ready(timeout=.1)
             self.assertIsNotNone(process.process.poll())
 
+    def test_quiet_tunnel_drains_chatty_output_and_still_detects_expiry(self):
+        # More than a pipe buffer: dropping output must still drain it, or
+        # devtunnel would block before reporting readiness or token expiry.
+        script = '''
+for _ in range(5000):
+    print("ClientSSH: SshChannel(Type: forwarded-tcpip, Id: 6649) send window is full. Waiting for window adjustment before sending.")
+print("Ready to accept connections for tunnel: research")
+print("Cannot get tunnel, tunnel is expired")
+raise SystemExit(3)
+'''
+        with patch("sys.stdout", new_callable=io.StringIO) as output, \
+                self.assertLogs("gusnotebook.tunnels", level="WARNING") as logs:
+            process = TunnelProcess([sys.executable, "-c", script], hosting=True)
+            try:
+                self.assertTrue(process.done.wait(5), "Quiet output must not block the child")
+                self.assertTrue(process.ready.is_set())
+                self.assertTrue(process.expired.is_set())
+                self.assertIn("exit 3", process.failure)
+            finally:
+                process.close()
+        self.assertEqual(output.getvalue(), "")
+        self.assertEqual(len(logs.records), 1)
+        self.assertIn("tunnel is expired", logs.records[0].getMessage())
+
     def test_forward_readiness_waits_for_registration_and_a_working_workspace(self):
         # Real devtunnel accepts TCP before registering the SSH port. Touching
         # it during that interval can permanently break forwarding.

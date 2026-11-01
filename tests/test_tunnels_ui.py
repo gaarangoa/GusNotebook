@@ -73,6 +73,8 @@ def main():
             client, client_log = start(["--connect", "remote-research", "--no-browser"],
                                        local, "local-state", "client.log")
             url = wait_log(client, client_log, r"Remote GusNotebook — (http://\S+)")[1]
+            assert "Forwarding from" not in client_log.read_text()
+            assert "Ready to accept connections" not in host_log.read_text()
             assert not list(local.iterdir()) and not (root / "local-state").exists()
             calls = [json.loads(line) for line in (relay / "calls.jsonl").read_text().splitlines()]
             assert not any("--allow-anonymous" in call for call in calls)
@@ -164,9 +166,10 @@ def main():
                 # Disconnect the client only, then attach a second local launcher.
                 stop(client)
                 assert client.returncode == 0 and host.poll() is None
-                replacement, replacement_log = start(["--connect", "remote-research", "--no-browser"],
+                replacement, replacement_log = start(["--connect", "remote-research", "--no-browser", "--verbose"],
                                                      local, "local-state", "reconnect.log")
                 reconnect_url = wait_log(replacement, replacement_log, r"Remote GusNotebook — (http://\S+)")[1]
+                assert "Forwarding from" in replacement_log.read_text()
                 page.goto(reconnect_url, wait_until="domcontentloaded")
                 page.wait_for_function("typeof terms !== 'undefined' && terms.length === 1 && terms[0].ws.readyState === 1")
                 assert page.evaluate("terms[0].id") == term_id
@@ -188,6 +191,7 @@ def main():
                 expect(page.locator(".output.stream").last).to_contain_text("43")
                 assert host.poll() is None
                 assert 'Exception in thread' not in host_log.read_text()
+                assert not re.search(r'"(?:GET|POST|PATCH|DELETE) /.* HTTP/1\.[01]"', host_log.read_text())
                 assert not list(local.iterdir()) and not (root / "local-state").exists()
                 assert not errors, errors
                 page.screenshot(path=str(Path(tempfile.gettempdir()) / "gusnb-tunnel.png"))

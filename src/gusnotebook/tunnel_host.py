@@ -1,5 +1,6 @@
 """Recover the hosted transport without stopping the workspace it exposes."""
 
+import logging
 import os
 import signal
 import subprocess
@@ -7,6 +8,9 @@ import threading
 import time
 
 from .tunnels import DevTunnels, TunnelError
+
+
+logger = logging.getLogger(__name__)
 
 
 def _stop(process):
@@ -115,9 +119,9 @@ class TunnelHost:
     def _report_error(self, error, state):
         message = str(error)
         if message != self.error:
-            print(f"[tunnel] {message}\n[tunnel] Retrying automatically; the workspace is still running. "
+            logger.warning(f"[tunnel] {message}\n[tunnel] Retrying automatically; the workspace is still running. "
                   "If sign-in expired, sign in again with the same GitHub/Microsoft account on the remote computer, "
-                  f"then run PORT={self.port} gusnb tunnel renew.", flush=True)
+                  f"then run PORT={self.port} gusnb tunnel renew.")
         self._status(state, message)
 
     def _watch(self):
@@ -133,7 +137,7 @@ class TunnelHost:
                         delay = self.retry_delay
                     self._status("reconnecting", self.error)
                     self._release()
-                    print("[tunnel] Reconnecting the tunnel; notebooks, kernels and terminals stay running.", flush=True)
+                    logger.info("[tunnel] Reconnecting the tunnel; notebooks, kernels and terminals stay running.")
                     if process and not requested:
                         self.wake.wait(delay)
                         self.wake.clear()
@@ -143,7 +147,7 @@ class TunnelHost:
                             delay = min(delay * 2, self.max_retry_delay)
                     try:
                         self._launch()
-                        print(f"[tunnel] Reconnected: {self.name}", flush=True)
+                        logger.info("[tunnel] Reconnected: %s", self.name)
                     except (TunnelError, OSError) as error:
                         self._release()
                         if self.stop.is_set():

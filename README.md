@@ -45,6 +45,10 @@ gusnotebook --port 4477
 The browser opens your workspace. The default port is 8888; the example uses
 4477 if 8888 is occupied. No environment activation or frontend build is needed.
 
+Normal launches show startup details, login prompts, and warnings/errors only.
+Add `--verbose` to show HTTP requests and detailed tunnel logs when troubleshooting.
+Notebook cell outputs and agent history are unaffected.
+
 To install into system Python instead, use:
 
 ```bash

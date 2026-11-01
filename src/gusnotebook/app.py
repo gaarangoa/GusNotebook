@@ -2315,6 +2315,7 @@ app = LocalProxy(_get_default_app)
 def main(argv=None):
     """Parse launch options before creating any documents or background work."""
     import argparse
+    import logging
     import signal
     import webbrowser
     from werkzeug.serving import make_server
@@ -2326,6 +2327,8 @@ def main(argv=None):
     parser.add_argument("--host", default=os.environ.get("HOST", "127.0.0.1"))
     parser.add_argument("--debug", action="store_true", default=os.environ.get("FLASK_DEBUG") == "1")
     parser.add_argument("--no-browser", action="store_true")
+    parser.add_argument("-v", "--verbose", action="store_true",
+                        help="show HTTP requests and detailed tunnel logs")
     parser.add_argument("--no-auth", action="store_true",
                         default=os.environ.get("GUSNOTEBOOK_NO_AUTH") == "1",
                         help="disable token authentication; anyone who can connect can run code")
@@ -2335,6 +2338,11 @@ def main(argv=None):
                         help="additional hostname used to reach this server")
     tunnels.add_arguments(parser)
     args = parser.parse_args(argv)
+    # Only the launcher configures logging; embedding create_app must not
+    # change the caller's logging policy. Keep errors visible in both modes.
+    logging.basicConfig(level=logging.WARNING, format="%(message)s")
+    logging.getLogger("werkzeug").setLevel(logging.INFO if args.verbose else logging.WARNING)
+    logging.getLogger("gusnotebook").setLevel(logging.DEBUG if args.verbose else logging.WARNING)
     if args.tunnel:
         if args.trust_proxy or args.allowed_host or args.debug or os.environ.get("APP_BASE_URL"):
             parser.error("tunnel mode uses its own loopback connection; omit proxy, debug, allowed-host and APP_BASE_URL settings")

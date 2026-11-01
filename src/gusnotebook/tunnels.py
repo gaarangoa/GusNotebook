@@ -7,6 +7,7 @@ they never start a local notebook, kernel, or agent.
 
 import http.client
 import json
+import logging
 import os
 from pathlib import Path
 import re
@@ -23,6 +24,8 @@ INSTALL_URL = "https://learn.microsoft.com/azure/developer/dev-tunnels/get-start
 LABEL = "gusnotebook"
 _NAME = re.compile(r"[a-zA-Z0-9][a-zA-Z0-9.-]{1,98}[a-zA-Z0-9]\Z")
 _FORWARD = re.compile(r"Forwarding from 127\.0\.0\.1:(\d+) to host port (\d+)")
+_PROBLEM = re.compile(r"\b(?:error|exception|failed|failure|cannot|denied|expired|warning)\b", re.IGNORECASE)
+logger = logging.getLogger(__name__)
 
 
 class TunnelError(RuntimeError):
@@ -241,9 +244,14 @@ class TunnelProcess:
                     # Some CLI versions report expiry but leave the host process
                     # running. Let the host supervisor replace that transport.
                     self.expired.set()
+                # Always drain and parse CLI output, even when it is quiet:
+                # a full pipe would block the tunnel. No log history is kept.
                 # The browser relay URL is not the local-client workflow.
                 if line and not line.startswith(("Hosting port ", "Connecting to host tunnel relay ")):
-                    print("[tunnel] " + line, flush=True)
+                    if _PROBLEM.search(line):
+                        logger.warning("[tunnel] %s", line)
+                    else:
+                        logger.debug("[tunnel] %s", line)
         finally:
             code = self.process.wait()
             if not self.stopping:
