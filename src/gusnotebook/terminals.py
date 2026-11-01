@@ -562,6 +562,10 @@ class Session:
         self._buffered = 0
         self._clients = []              # queues, one per attached WebSocket
         self._lock = threading.RLock()
+        self._io_lock = threading.Lock()  # fd ownership through each syscall
+        self._write_lock = threading.Lock()
+        self._closed = False
+        self._reader = None
         self._shell_startup = None
 
     # --- lifecycle ---
@@ -618,42 +622,71 @@ class Session:
 
         self.pid = pid
         self.fd = fd
+        # Reads/writes must not block while holding the fd lock: close() must
+        # still work when a child stops reading or the PTY's readiness changes.
+        os.set_blocking(fd, False)
         self.alive = True
-        threading.Thread(target=self._read_loop, daemon=True).start()
+        self._reader = threading.Thread(target=self._read_loop, name=f"gusnb-terminal-{self.id}", daemon=True)
+        self._reader.start()
         self._publish("terminal_opened", terminal=self.id, cwd=self.cwd,
                     label=self.label)
         return self
 
     def _read_loop(self):
         """Drain the PTY forever: into the buffer, and out to every client."""
-        while self.alive:
-            try:
-                r, _, _ = select.select([self.fd], [], [], 0.2)
-            except (OSError, ValueError):
-                break
-            if not r:
-                continue
-            try:
-                data = os.read(self.fd, 8192)
-            except OSError as e:
-                if e.errno == errno.EINTR:
+        try:
+            while True:
+                with self._io_lock:
+                    fd = self.fd
+                    if fd is None or not self.alive:
+                        break
+                try:
+                    r, _, _ = select.select([fd], [], [], 0.2)
+                except OSError as e:
+                    if e.errno == errno.EINTR:
+                        continue
+                    break
+                except ValueError:
+                    break
+                if not r:
                     continue
-                data = b""            # EIO — the child exited and closed the pty
-            if not data:
-                break
-            self._store(data)
-            self._fan_out(data)
+                with self._io_lock:
+                    # close() may have run while select waited. The integer
+                    # may even belong to another session now; don't read it.
+                    if not self.alive or self.fd != fd:
+                        break
+                    try:
+                        data = os.read(fd, 8192)
+                    except OSError as e:
+                        if e.errno in (errno.EINTR, errno.EAGAIN, errno.EWOULDBLOCK):
+                            continue
+                        data = b""      # EIO — the child closed the PTY
+                if not data:
+                    break
+                self._store(data)
+                self._fan_out(data)
+        finally:
+            self._reap()
 
-        self._reap()
+    def _close_fd(self):
+        """Release the master exactly once; caller holds _io_lock."""
+        fd, self.fd = self.fd, None
+        if fd is not None:
+            try:
+                os.close(fd)
+            except OSError:
+                pass
 
     def _reap(self):
-        self.alive = False
-        self._drop_shell_startup()
+        with self._io_lock:
+            self.alive = False
+            self._close_fd()
         try:
-            _, status = os.waitpid(self.pid, os.WNOHANG)
-            code = os.waitstatus_to_exitcode(status) if status else 0
+            waited, status = os.waitpid(self.pid, os.WNOHANG) if self.pid else (0, 0)
+            code = os.waitstatus_to_exitcode(status) if waited else None
         except (ChildProcessError, OSError, ValueError):
             code = None
+        self._drop_shell_startup()
         self.exit_note = f"[{self.command[0]} exited{'' if code is None else f' ({code})'}]"
         note = f"\r\n\x1b[31m{self.exit_note}\x1b[0m\r\n".encode()
         self._store(note)
@@ -662,9 +695,17 @@ class Session:
         self._publish("terminal_closed", terminal=self.id, note=self.exit_note)
 
     def _drop_shell_startup(self):
-        temporary, self._shell_startup = self._shell_startup, None
-        if temporary:
-            temporary.cleanup()
+        with self._lock:
+            temporary = self._shell_startup
+            if temporary:
+                try:
+                    temporary.cleanup()
+                except OSError:
+                    # A shell may still be saving history during shutdown.
+                    # Keep ownership so the reader/next close can retry; this
+                    # housekeeping error must not escape into the app.
+                    return
+                self._shell_startup = None
 
     def _drop_temp_files(self):
         """Remove the temp files this session's argv points at.
@@ -703,22 +744,22 @@ class Session:
 
     def close(self):
         """Terminate the session for good (the user closed the tab)."""
-        self.alive = False
+        with self._io_lock:
+            if self._closed:
+                self._drop_shell_startup()
+                return
+            self._closed = True
+            if self.alive and self.pid:
+                for sig in (signal.SIGTERM, signal.SIGKILL):
+                    try:
+                        os.kill(self.pid, sig)
+                        break
+                    except OSError:
+                        pass
+            self.alive = False
+            self._close_fd()
         self._drop_temp_files()
         self._drop_shell_startup()
-        if self.pid:
-            for sig in (signal.SIGTERM, signal.SIGKILL):
-                try:
-                    os.kill(self.pid, sig)
-                    break
-                except OSError:
-                    pass
-        if self.fd is not None:
-            try:
-                os.close(self.fd)
-            except OSError:
-                pass
-            self.fd = None
         self._fan_out(None)
 
     # --- buffer and clients ---
@@ -755,25 +796,48 @@ class Session:
     # --- input ---
 
     def write(self, data):
-        if self.fd is None or not self.alive:
-            return
         if isinstance(data, str):
             data = data.encode()
-        try:
-            os.write(self.fd, data)
-        except OSError:
-            pass
+        data = memoryview(data)
+        # Preserve whole inputs across short/nonblocking writes. Slow readers
+        # must not hold _io_lock or prevent the terminal from being closed.
+        with self._write_lock:
+            while data:
+                with self._io_lock:
+                    fd = self.fd
+                    if fd is None or not self.alive:
+                        return
+                    try:
+                        sent = os.write(fd, data)
+                    except OSError as e:
+                        if e.errno == errno.EINTR:
+                            continue
+                        if e.errno not in (errno.EAGAIN, errno.EWOULDBLOCK):
+                            return
+                        sent = 0
+                if sent:
+                    data = data[sent:]
+                else:
+                    try:
+                        select.select([], [fd], [], 0.2)
+                    except OSError as e:
+                        if e.errno == errno.EINTR:
+                            continue
+                        return
+                    except ValueError:
+                        return
 
     def resize(self, rows, cols):
-        self.rows, self.cols = int(rows), int(cols)
-        if self.fd is None:
-            return
-        try:
-            fcntl.ioctl(self.fd, termios.TIOCSWINSZ,
-                        struct.pack("HHHH", self.rows, self.cols, 0, 0))
-            os.kill(self.pid, signal.SIGWINCH)
-        except OSError:
-            pass
+        with self._io_lock:
+            self.rows, self.cols = int(rows), int(cols)
+            if self.fd is None or not self.alive:
+                return
+            try:
+                fcntl.ioctl(self.fd, termios.TIOCSWINSZ,
+                            struct.pack("HHHH", self.rows, self.cols, 0, 0))
+                os.kill(self.pid, signal.SIGWINCH)
+            except OSError:
+                pass
 
     def to_json(self):
         return {

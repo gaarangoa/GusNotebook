@@ -178,11 +178,22 @@ def main():
                   await load(); await runCell(cell.id);
                 }""")
                 expect(page.locator(".output.stream").last).to_contain_text("42")
+                # Closing a terminal must leave the notebook and its kernel
+                # alive, including state established before tunnel recovery.
+                page.evaluate("id => api('/api/terminals/' + id, {method: 'DELETE'})", term_id)
+                page.evaluate("""async () => {
+                  const cell = await api('/api/cells' + nbq(), {method:'POST', body:JSON.stringify({source:'print(remote_value + 2)'})});
+                  await load(); await runCell(cell.id);
+                }""")
+                expect(page.locator(".output.stream").last).to_contain_text("43")
+                assert host.poll() is None
+                assert 'Exception in thread' not in host_log.read_text()
                 assert not list(local.iterdir()) and not (root / "local-state").exists()
                 assert not errors, errors
                 page.screenshot(path=str(Path(tempfile.gettempdir()) / "gusnb-tunnel.png"))
                 browser.close()
                 print("PASS: local disconnect preserves remote kernel variables, terminals and files for reconnect", flush=True)
+                print("PASS: terminal close leaves the notebook and kernel state intact without reader exceptions", flush=True)
             stop(host)
             assert host.returncode == 0
             assert json.loads((relay / "tunnel.json").read_text())["hostConnections"] == 0
