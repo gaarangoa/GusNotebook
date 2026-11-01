@@ -380,8 +380,8 @@ body {
 }
 .html-view-controls { display: inline-flex; align-items: center; gap: 2px; }
 .html-view-controls[hidden], .html-pan-surface[hidden] { display: none; }
-.html-view-viewport { position: absolute; inset: 0; overflow: auto; overflow-anchor: none; background: var(--surface); }
-.html-view-stage { position: relative; overflow: hidden; }
+.html-view-viewport { position: absolute; inset: 0; display: flex; overflow: auto; overflow-anchor: none; background: var(--surface); }
+.html-view-stage { position: relative; flex: none; margin: auto; overflow: hidden; }
 #html-zoom-reset { min-width: 42px; font-variant-numeric: tabular-nums; }
 #html-pan-toggle[aria-pressed="true"] { color: var(--accent); background: var(--hover); }
 .html-pan-surface { position: absolute; inset: 0; cursor: grab; touch-action: none; user-select: none; }

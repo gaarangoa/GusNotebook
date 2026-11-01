@@ -381,6 +381,49 @@
   }
 
   var panTarget = null;
+  function resetView() {
+    userMovedAfterRestore = true;
+    panTarget = null;
+    [document.documentElement, document.body].forEach(function (node) {
+      if (node) node.scrollTo({left: 0, top: 0, behavior: 'instant'});
+    });
+    window.scrollTo({left: 0, top: 0, behavior: 'instant'});
+    queueViewReport();
+  }
+
+  function measureView() {
+    var root = document.documentElement, body = document.body;
+    var svg = config.mode === 'svg' && document.querySelector('body > svg');
+    var left = 0, top = 0;
+    var right = Math.max(root.scrollWidth, body ? body.scrollWidth : 0,
+                         svg ? svg.width.baseVal.value : 0);
+    var bottom = Math.max(root.scrollHeight, body ? body.scrollHeight : 0,
+                          svg ? svg.height.baseVal.value : 0);
+    // scrollWidth/Height omit negative overflow. A centered slide larger than
+    // the iframe can lose half its dimensions that way, even with overflow
+    // hidden. Include its rendered bounds without changing the authored CSS.
+    var pending = body ? [body] : [];
+    while (pending.length) {
+      var node = pending.pop();
+      if (isRuntimeNode(node)) continue;
+      var style = getComputedStyle(node);
+      if (style.display === 'none' || style.visibility === 'hidden' || style.visibility === 'collapse') continue;
+      var rect = node.getBoundingClientRect();
+      if (rect.width || rect.height) {
+        left = Math.min(left, rect.left + window.scrollX);
+        top = Math.min(top, rect.top + window.scrollY);
+        right = Math.max(right, rect.right + window.scrollX);
+        bottom = Math.max(bottom, rect.bottom + window.scrollY);
+      }
+      // Nested scrollers keep their own viewport. Their clipped children and
+      // SVG internals do not determine the outer page's dimensions.
+      if (node.localName === 'svg' || (node !== body &&
+          (style.overflowX !== 'visible' || style.overflowY !== 'visible'))) continue;
+      for (var child = node.lastElementChild; child; child = child.previousElementSibling) pending.push(child);
+    }
+    return {width: Math.ceil(right - left), height: Math.ceil(bottom - top)};
+  }
+
   function panView(data) {
     if (!Number.isFinite(data.dx) || !Number.isFinite(data.dy)) return;
     userMovedAfterRestore = true;
@@ -1166,14 +1209,13 @@
       restoreView(data.view);
     } else if (data.command === 'pan-view') {
       panView(data);
+    } else if (data.command === 'reset-view') {
+      resetView();
     } else if (data.command === 'measure-view') {
       requestAnimationFrame(function () {
-        var svg = config.mode === 'svg' && document.querySelector('body > svg');
+        var size = measureView();
         sendToParent({channel: config.channel, nonce: config.nonce, kind: 'view-size',
-          request: data.request, width: Math.max(document.documentElement.scrollWidth,
-            document.body ? document.body.scrollWidth : 0, svg ? svg.width.baseVal.value : 0),
-          height: Math.max(document.documentElement.scrollHeight,
-            document.body ? document.body.scrollHeight : 0, svg ? svg.height.baseVal.value : 0)});
+          request: data.request, width: size.width, height: size.height});
       });
     } else if (editingTools && data.command === 'insert-card') {
       editingTools.then(function (tools) { if (tools) tools.insertCard(); });

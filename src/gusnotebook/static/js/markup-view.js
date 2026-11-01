@@ -1,5 +1,5 @@
 /* View-only navigation. Scale the isolated iframe, never the authored HTML. */
-const MARKUP_ZOOM_STEPS = [.1, .25, .33, .5, .67, .75, .9, 1, 1.1, 1.25, 1.5, 1.75, 2, 2.5, 3];
+const MARKUP_ZOOM_STEPS = [.01, .02, .05, .1, .25, .33, .5, .67, .75, .9, 1, 1.1, 1.25, 1.5, 1.75, 2, 2.5, 3];
 let markupPanDrag = null;
 let markupFitSerial = 0;
 
@@ -48,20 +48,24 @@ function setMarkupZoom(value) {
   if (!isMarkupTab(t) || !Number.isFinite(value)) return;
   const viewport = document.getElementById('html-view-viewport');
   const previous = t.markupZoom || 1;
-  const center = {x: (viewport.scrollLeft + viewport.clientWidth / 2) / previous,
-    y: (viewport.scrollTop + viewport.clientHeight / 2) / previous};
+  const stage = document.getElementById('html-view-stage');
+  const viewRect = viewport.getBoundingClientRect(), before = stage.getBoundingClientRect();
+  const center = {x: (viewRect.left + viewport.clientWidth / 2 - before.left) / previous,
+    y: (viewRect.top + viewport.clientHeight / 2 - before.top) / previous};
   t.markupFitRequest = null;
   t.markupZoom = Math.max(MARKUP_ZOOM_STEPS[0], Math.min(MARKUP_ZOOM_STEPS.at(-1), value));
   syncMarkupViewControls();
-  viewport.scrollLeft = center.x * t.markupZoom - viewport.clientWidth / 2;
-  viewport.scrollTop = center.y * t.markupZoom - viewport.clientHeight / 2;
+  const after = stage.getBoundingClientRect();
+  viewport.scrollLeft += after.left + center.x * t.markupZoom - viewRect.left - viewport.clientWidth / 2;
+  viewport.scrollTop += after.top + center.y * t.markupZoom - viewRect.top - viewport.clientHeight / 2;
   rememberMarkupCanvas(t);
 }
 
 function resetMarkupZoom() {
   const t = activeTab();
   if (!isMarkupTab(t)) return;
-  t.markupCanvasSize = null;
+  // Keep the measured document viewport: shrinking it here would crop a
+  // fixed-size, centered report again even though the zoom reads 100%.
   setMarkupZoom(1);
 }
 
@@ -72,13 +76,19 @@ function stepMarkupZoom(direction) {
   if (next !== undefined) setMarkupZoom(next);
 }
 
-function fitMarkupWidth() {
+function fitMarkupWidth() { fitMarkupView('width'); }
+function fitMarkupPage() { fitMarkupView('page'); }
+
+function fitMarkupView(mode) {
   const t = activeTab();
   if (!isMarkupTab(t)) return;
   // Fit can explicitly expand the canvas for a fixed-size document. Regular
   // zooming then scales that canvas without reflowing the page again.
-  resetMarkupZoom();
+  t.markupCanvasSize = null;
+  setMarkupZoom(1);
+  t.markupFitMode = mode;
   t.markupFitRequest = ++markupFitSerial;
+  markupCommand('reset-view');
   markupCommand('measure-view', {request: t.markupFitRequest});
 }
 
@@ -87,13 +97,16 @@ function acceptMarkupViewSize(t, data) {
       !Number.isFinite(data.width) || data.width <= 0 ||
       !Number.isFinite(data.height) || data.height <= 0) return;
   const preview = document.getElementById('html-preview');
-  const width = preview.clientWidth;
-  t.markupCanvasSize = {width: Math.max(width, data.width), height: Math.max(preview.clientHeight, data.height)};
-  setMarkupZoom(Math.min(1, Math.max(1, width - 16) / data.width));
+  t.markupCanvasSize = {width: Math.max(preview.clientWidth, data.width),
+    height: Math.max(preview.clientHeight, data.height)};
+  const widthScale = Math.max(1, preview.clientWidth - 24) / t.markupCanvasSize.width;
+  const heightScale = t.markupFitMode === 'page'
+    ? Math.max(1, preview.clientHeight - 24) / t.markupCanvasSize.height : 1;
+  setMarkupZoom(Math.min(1, widthScale, heightScale));
   const viewport = document.getElementById('html-view-viewport');
-  viewport.scrollLeft = 0;
+  viewport.scrollLeft = viewport.scrollTop = 0;
   rememberMarkupCanvas(t);
-  markupCommand('pan-view', {dx: -data.width, dy: 0, root: true});
+  markupCommand('reset-view');
 }
 
 function toggleMarkupPan(enabled) {
@@ -115,11 +128,10 @@ function endMarkupPan() {
 
 const markupPanSurface = document.getElementById('html-pan-surface');
 function markupPanPoint(event) {
-  const rect = markupPanSurface.getBoundingClientRect();
-  const viewport = document.getElementById('html-view-viewport');
+  const rect = document.getElementById('html-preview-frame').getBoundingClientRect();
   const zoom = activeTab()?.markupZoom || 1;
-  return {x: (event.clientX - rect.left + viewport.scrollLeft) / zoom,
-    y: (event.clientY - rect.top + viewport.scrollTop) / zoom};
+  return {x: (event.clientX - rect.left) / zoom,
+    y: (event.clientY - rect.top) / zoom};
 }
 
 function panMarkupView(data) {
