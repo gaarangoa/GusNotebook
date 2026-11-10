@@ -34,4 +34,5 @@ jobs:
       - run: python tests/test_cell_history_ui.py
       - run: python tests/test_gspy_ui.py
       - run: python tests/test_gspy_content_ui.py
+      - run: python tests/test_gspy_editor_ui.py
       - run: python tests/test_environments_ui.py

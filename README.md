@@ -45,12 +45,12 @@ gusnotebook --port 4477
 The browser opens your workspace. The default port is 8888; the example uses
 4477 if 8888 is occupied. No environment activation or frontend build is needed.
 
-Choose **+ → Scientific notebook** to create a `.gspy` alongside ordinary
-`.ipynb` notebooks. Its **More workspace actions → Document history** retains
-recorded changes, deleted blocks, producing runs, and output versions; restore a
-block or export the full `.jsonl` log there. **Content** adds paragraphs, live
-values, and figures in document, two-column, or slide sections. **Code** reveals
-the executable source. [Get started with scientific notebooks](docs/gspy.md).
+Choose **+ → Scientific notebook** for a `.gspy` rich-text document powered by
+Quill. Write directly on the page and insert Python to show results inline or
+run background steps in the selected kernel. Inspect producing code and the
+full recorded history, including deleted steps and output versions, and export
+the audit log as `.jsonl`. Ordinary `.ipynb` notebooks remain available.
+[Get started with scientific notebooks](docs/gspy.md).
 
 Normal launches show startup details, login prompts, and warnings/errors only.
 Add `--verbose` to show HTTP requests and detailed tunnel logs when troubleshooting.

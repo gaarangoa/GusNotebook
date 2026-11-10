@@ -398,6 +398,11 @@ function showActive() {
   const isNb = kind === 'notebook' || kind === 'none';
   document.getElementById('document-history-button').hidden = t?.format !== 'gspy';
   document.getElementById('gspy-run-all-button').hidden = t?.format !== 'gspy';
+  document.getElementById('gspy-format-tools').hidden = t?.format !== 'gspy';
+  document.getElementById('toolbar').classList.toggle('gspy-toolbar', t?.format === 'gspy');
+  document.querySelector('.hint').textContent = t?.format === 'gspy'
+    ? 'Write directly · + Python adds a step · click a result to inspect its source · ⌘/Ctrl S save'
+    : '⇧⏎ run+next · ⌘/ comment · ⇧⌘M code⇄md · ⇧⌘↑↓ move cell · ⌘S save';
 
   document.getElementById('notebook-pane').style.display = isNb ? '' : 'none';
   document.getElementById('toolbar').style.display = kind === 'notebook' ? '' : 'none';
@@ -530,6 +535,7 @@ async function openFile(path, options = {}) {
         : {...c, _running: Object.prototype.hasOwnProperty.call(running, c.id)};
     });
     Object.assign(t, {cells: freshCells, format: data.format || 'ipynb',
+                      editorVersion: data.editor_version,
                       cellDrafts: cached && cached.cellDrafts,
                       dirty: !!(cached && cached.cellDrafts && cached.cellDrafts.size),
                       selected: cached && cached.selected,
@@ -646,6 +652,11 @@ async function closeTab(path, ev) {
   if (path === active) stashActive();
   if (t.kind === 'notebook') {
     t.closing = true;
+    if (t.gspyEditor) {
+      clearTimeout(t.gspyEditor.timer);
+      if (t.gspyEditor.saving) await t.gspyEditor.saving.catch(() => {});
+      t.gspyEditor.quill.disable();
+    }
     await Promise.allSettled([...notebookDrafts(t).values()].map(d => d.promise).filter(Boolean));
     discardNotebookDrafts(t);
   }
@@ -2031,8 +2042,7 @@ function outputSlotHtml(c) {
 }
 
 function cellHtml(c) {
-  return activeTab()?.format === 'gspy' && ['code', 'markdown'].includes(c.cell_type)
-    ? gspyCellHtml(c) : notebookCellHtml(c);
+  return notebookCellHtml(c);
 }
 
 function notebookCellHtml(c) {
@@ -2283,6 +2293,8 @@ function applyHeadingCollapse() {
 // Keep unchanged cell nodes, including their live iframe and editor state.
 const renderedCellHtml = new WeakMap();
 function render() {
+  if (activeTab()?.format === 'gspy') { renderGspyDocument(); return; }
+  document.getElementById('notebook').classList.remove('gspy-document');
   const pane = document.getElementById('notebook-pane');
   const container = document.getElementById('notebook');
   const scroll = pane.scrollTop;

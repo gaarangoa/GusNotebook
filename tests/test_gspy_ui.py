@@ -41,7 +41,7 @@ def main():
             result = subprocess.run([sys.executable, "-m", "gusnotebook.cli", "-n", str(scientific),
                                      "add", "--no-run", source], capture_output=True, text=True, timeout=15)
             assert result.returncode == 0, result.stderr
-        page.wait_for_function("cells.length === 3 && cells.filter(c => c.cell_type === 'code').every(c => cmViews.has(c.id))")
+        page.wait_for_function("cells.length === 3 && document.querySelectorAll('.gspy-python').length === 2")
         page.evaluate("() => runAll()")
         expect(page.locator(".output.stream").last).to_contain_text("42")
         cid = page.evaluate("cells[2].id")

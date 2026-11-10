@@ -15,9 +15,12 @@ runs retain the last successful view; unsaved completions can be retried without
 executing again. The run journal is also included in the JSONL export.
 
 Richer agent capture, component-aware CLI commands, conversion/export, activity
-tracking, and scale hardening remain subsequent phases. The initial content
-editor uses Markdown paragraphs and explicit value fields rather than a new
-rich-text framework. [Usage and current limits](gspy.md).
+tracking, and scale hardening remain subsequent phases. The content editor now
+uses Quill: a continuous editable document with embedded Python steps, an
+inspector for source and execution
+logs, and output/background modes. Prose is saved as HTML plus Quill metadata
+over the existing ordered, audited cells. Live values remain explicit fields.
+[Usage and current limits](gspy.md).
 
 ## Product contract
 

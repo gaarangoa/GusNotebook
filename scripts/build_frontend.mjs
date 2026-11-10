@@ -9,13 +9,14 @@ for (const singleton of ['@codemirror/state', '@codemirror/view']) {
   }
 }
 await mkdir(destination, {recursive: true});
-for (const entry of ['vendor', 'codemirror', 'mermaid']) {
+for (const entry of ['vendor', 'codemirror', 'mermaid', 'gspy-quill']) {
   await build({entryPoints: [`frontend/${entry}.js`], bundle: true, minify: true,
     format: entry === 'codemirror' ? 'esm' : 'iife', target: 'es2022',
     outfile: `${destination}/${entry}.js`, legalComments: 'eof'});
 }
 await copyFile('node_modules/@xterm/xterm/css/xterm.css', `${destination}/xterm.css`);
 await copyFile('node_modules/katex/dist/katex.min.css', `${destination}/katex.css`);
+await copyFile('node_modules/quill/dist/quill.core.css', `${destination}/quill.css`);
 // Carry the UMD source into sandboxed output frames as an inline script. Frames
 // have opaque origins: fetching app assets from inside them would be blocked.
 const d3Source = await readFile('node_modules/d3/dist/d3.min.js', 'utf8');

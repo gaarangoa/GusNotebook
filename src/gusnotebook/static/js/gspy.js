@@ -1,113 +1,5 @@
-/* Content-first notebooks. Saved receipts power the view; opening it runs no code. */
-const gspyCodeOpen = new Set();
+/* Saved result inspection, configuration and ordered execution. */
 let gspyDialog = null;
-
-function gspyMarkdown(source, bindings) {
-  const root = document.createElement('div');
-  root.innerHTML = renderNotebookMarkdown(source);
-  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
-  const nodes = [];
-  while (walker.nextNode()) nodes.push(walker.currentNode);
-  for (const node of nodes) {
-    if (node.parentElement.closest('pre, code, a, button, script, style, .katex')) continue;
-    const text = node.textContent, pattern = /\{\{([\p{L}_][\p{L}\p{N}_]*)\}\}/gu;
-    const fragment = document.createDocumentFragment();
-    let end = 0, match;
-    while ((match = pattern.exec(text))) {
-      fragment.append(document.createTextNode(text.slice(end, match.index)));
-      const value = bindings[match[1]];
-      const button = document.createElement('button');
-      button.className = 'gspy-value ' + (value?.state || 'missing');
-      button.textContent = value?.text ?? 'missing';
-      button.title = value?.error || `${match[1]} · ${value?.state || 'unlinked'} · Inspect producing code`;
-      button.dataset.gspyProducer = value?.producer || '';
-      button.dataset.gspyRun = value?.run_id || '';
-      fragment.append(button);
-      end = pattern.lastIndex;
-    }
-    if (end) { fragment.append(document.createTextNode(text.slice(end))); node.replaceWith(fragment); }
-  }
-  return root.innerHTML;
-}
-
-function gspyCellHtml(c) {
-  const root = document.createElement('div');
-  root.innerHTML = notebookCellHtml(c);
-  const block = root.firstElementChild, body = block.querySelector('.cell-body');
-  block.classList.add('gspy-cell');
-  const content = c.content;
-  if (!content) return root.innerHTML;
-  const layout = content.definition.layout;
-  const presented = `<div class="gspy-content gspy-${layout}">${content.components.map(component => {
-    if (component.kind === 'markdown') {
-      return `<div class="md-rendered" data-component="${escapeAttr(component.id)}">${gspyMarkdown(component.source, content.bindings)}</div>`;
-    }
-    const controls = `<button class="gspy-output-source" data-gspy-producer="${escapeAttr(component.producer)}"
-      data-gspy-run="${escapeAttr(component.run_id || '')}" title="Inspect producing code">Source · ${escapeHtml(component.state)}</button>`;
-    const empty = component.run_id ? (component.result === '*' ? 'No display output in this run.' : 'No saved output with this name.') : 'No saved output. Run the producing block.';
-    return `<figure class="gspy-figure" data-component="${escapeAttr(component.id)}">${
-      component.outputs.length ? renderOutputs(component.outputs, component.producer, c.id + '-' + component.id) : `<div class="gspy-empty">${empty}</div>`}${controls}</figure>`;
-  }).join('')}</div>`;
-  const toolbar = document.createElement('div');
-  toolbar.className = 'gspy-tools';
-  toolbar.innerHTML = `<button onclick="event.stopPropagation();openGspyContent('${c.id}')">${c.cell_type === 'code' ? 'Content' : 'Values'}</button>`;
-  if (content.review_pending) {
-    const review = document.createElement('div'); review.className = 'gspy-state stale';
-    review.innerHTML = `Supporting results changed. Review the interpretation. <button data-gspy-review="${escapeAttr(c.id)}">Mark reviewed</button>`;
-    body.prepend(review);
-  }
-  if (c.cell_type === 'code') {
-    toolbar.innerHTML += `<button onclick="event.stopPropagation();runCell('${c.id}')">Run</button>
-      <button onclick="event.stopPropagation();gspyRunThrough('${c.id}')">Run through here</button>`;
-    const code = body.querySelector('.fold') || body.querySelector('.ed-host');
-    if (code) {
-      const details = document.createElement('details');
-      const key = active + ':' + c.id;
-      details.className = 'gspy-code';
-      details.dataset.cell = c.id;
-      if (gspyCodeOpen.has(key) || !c.source.trim()) details.open = true;
-      details.innerHTML = '<summary>Code</summary>';
-      code.replaceWith(details);
-      details.append(code);
-      details.insertAdjacentHTML('beforebegin', presented);
-    }
-    const output = body.querySelector('.output-area');
-    output.classList.add('gspy-live');
-    output.hidden = !c._running;
-    output.querySelector('[id^="out-"]').innerHTML = c._running ? renderCellOutput(c) : '';
-    const state = content.run;
-    if (state && state.state !== 'fresh') {
-      const status = document.createElement('div');
-      status.className = 'gspy-state ' + state.state;
-      status.textContent = state.reason;
-      if (state.error) status.textContent += ' · ' + state.error;
-      if (state.pending_run_id) {
-        const retry = document.createElement('button');
-        retry.textContent = 'Retry saving result'; retry.dataset.gspyRetry = state.pending_run_id;
-        status.append(' ', retry);
-      }
-      body.prepend(status);
-    }
-    const errors = Object.entries(content.capture_errors || {});
-    if (errors.length) {
-      const error = document.createElement('div'); error.className = 'gspy-state stale';
-      error.textContent = errors.map(([name, why]) => `${name}: ${why}`).join(' · '); body.prepend(error);
-    }
-  } else {
-    const prose = body.querySelector('.md-rendered');
-    if (prose) prose.innerHTML = gspyMarkdown(c.source, content.bindings);
-  }
-  body.prepend(toolbar);
-  return root.innerHTML;
-}
-
-document.addEventListener('toggle', event => {
-  const details = event.target;
-  if (!details.matches?.('.gspy-code')) return;
-  const key = active + ':' + details.dataset.cell;
-  if (details.open) gspyCodeOpen.add(key); else gspyCodeOpen.delete(key);
-  if (details.open) cmViews.get(details.dataset.cell)?.requestMeasure();
-}, true);
 
 document.addEventListener('click', event => {
   const link = event.target.closest('[data-gspy-producer]') || (event.target.matches('.gspy-figure img')
@@ -161,7 +53,7 @@ function showGspyDialog(title, html) {
 }
 
 async function inspectGspyResult(producer, runId) {
-  if (!producer) { flash('Link this value in the Values or Content editor.'); return; }
+  if (!producer) { flash('Link this value using Live values.'); return; }
   const key = active;
   const run = runId ? await api(`/api/notebook/runs/${encodeURIComponent(runId)}${nbq()}`) : null;
   if (active !== key) return;
@@ -174,8 +66,7 @@ async function inspectGspyResult(producer, runId) {
     <button data-run ${c?.cell_type === 'code' ? '' : 'disabled'}>Run current code</button>
     <button data-history>History</button><button data-close>Close</button></div>`);
   back.querySelector('[data-edit]').onclick = () => {
-    closeGspyDialog(); gspyCodeOpen.add(active + ':' + producer); render(); selectCell(producer);
-    scrollToCell(producer); focusCellEditor(producer);
+    closeGspyDialog(); openGspyPython(producer).catch(error => flash(errText(error)));
   };
   back.querySelector('[data-run]').onclick = () => { closeGspyDialog(); runCell(producer); };
   back.querySelector('[data-history]').onclick = () => { closeGspyDialog(); openCellHistory(producer); };
@@ -183,7 +74,8 @@ async function inspectGspyResult(producer, runId) {
 
 async function gspyRunThrough(id = null) {
   const key = active, t = activeTab();
-  await flushNotebook(t);
+  try { await flushNotebook(t); }
+  catch (error) { flash('Cannot run until the document is saved: ' + errText(error)); return; }
   for (const cell of [...cells]) {
     if (active !== key) break;
     if (cell.cell_type === 'code' && cell.source.trim()) {
@@ -204,15 +96,15 @@ function gspyProducerOptions(id, value) {
 }
 
 async function openGspyContent(id) {
+  await flushNotebook();
   const c = getCell(id); if (!c?.content) return;
-  await saveCell(id);
   const config = structuredClone(c.content.definition), version = c.content.version;
   const code = c.cell_type === 'code';
-  const back = showGspyDialog(code ? 'Block content' : 'Live values', `
+  const back = showGspyDialog(code ? 'Python results' : 'Live values', `
     ${code ? `<label>Publish Python variables <input id="gspy-results" value="${escapeAttr(config.results.join(', '))}" placeholder="performance, sample_count"></label>
     <p>Capture these variables with each run. Use scalar values or JSON records; place figures and tables as outputs.</p>
     <label>Layout <select id="gspy-layout"><option value="flow">Document flow</option><option value="columns">Two columns</option><option value="slide">Slide section</option></select></label>
-    <div id="gspy-components"></div><div class="gspy-dialog-actions"><button id="gspy-add-paragraph">Add paragraph</button><button id="gspy-add-output">Add output</button></div>` : '<p>Write references such as {{estimate}} in your Markdown. Link each name to a published result below.</p>'}
+    <div id="gspy-components"></div><div class="gspy-dialog-actions"><button id="gspy-add-output">Add output</button></div>` : '<p>Write references such as {{estimate}} in this paragraph. Link each name to a published result below.</p>'}
     <h3>Live values</h3><p>Use {{name}} in a paragraph. A field path such as estimate or ci.0 selects a scalar. Use .2f for two decimal places.</p>
     <div id="gspy-bindings"></div><button id="gspy-add-binding">Add value</button>
     <p id="gspy-save-error" role="alert"></p>
@@ -235,8 +127,7 @@ async function openGspyContent(id) {
   }
   if (code) {
     components.forEach(componentRow);
-    back.querySelector('#gspy-add-paragraph').onclick = () => componentRow({id: 'p_' + crypto.randomUUID().replaceAll('-', ''), kind: 'markdown', source: ''});
-    back.querySelector('#gspy-add-output').onclick = () => componentRow({id: 'o_' + crypto.randomUUID().replaceAll('-', ''), kind: 'output', producer: id, result: '*'});
+    back.querySelector('#gspy-add-output').onclick = () => componentRow({id: gspyId(), kind: 'output', producer: id, result: '*'});
   }
   const bindingRoot = back.querySelector('#gspy-bindings');
   function bindingRow(name, binding) {
@@ -280,7 +171,10 @@ async function refreshGspy(notebook) {
   if (active === notebook) await load();
   else {
     const data = await api(notebookUrl(notebook));
-    for (const entry of workspaceTabEntries(notebook)) entry.tab.cells = data.cells;
+    for (const entry of workspaceTabEntries(notebook)) {
+      entry.tab.cells = data.cells;
+      entry.tab.editorVersion = data.editor_version;
+    }
   }
 }
 
@@ -304,6 +198,10 @@ function gspyExecutionEvent(msg, target) {
     if (area) {
       area.closest('.output-area').hidden = msg.type === 'cell_done';
       area.innerHTML = msg.type === 'cell_output' ? renderCellOutput(c) : runningStatusHtml();
+    }
+    if (target.gspyEditor) {
+      refreshGspyEmbeds(target.gspyEditor);
+      renderGspyInspector(target.gspyEditor);
     }
   }
   if (msg.type === 'cell_done') {

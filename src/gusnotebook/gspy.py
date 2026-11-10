@@ -17,6 +17,7 @@ from . import cellhistory
 from .notebook import Notebook, NotebookReadError
 from .persistence import ExternalChangeError, atomic_write, disk_version
 from .gspy_content import ContentNotebook, definition, validate_definition
+from .gspy_editor import EditorNotebook, RICH_KEY, validate_delta
 
 KEY = "gusnotebook"
 SCHEMA_VERSION = 1
@@ -84,6 +85,11 @@ def validate(nb):
     for cell in nb.get("cells", []):
         if "gusnotebook_content" in cell.get("metadata", {}):
             validate_definition(cell["metadata"]["gusnotebook_content"])
+        rich = cell.get("metadata", {}).get(RICH_KEY)
+        if rich is not None:
+            if not isinstance(rich, dict):
+                raise ValueError("Invalid rich-text metadata")
+            validate_delta(rich.get("ops"))
     for event in meta["journal"]:
         if event["kind"] == "run_started" or (event.get("run_id") and event["kind"] == "run"):
             if (not isinstance(event.get("run_id"), str) or not event["run_id"]
@@ -212,7 +218,7 @@ def reconcile(previous, current, actor="GusNotebook", context=None):
             append(meta, {"kind": "metadata", "actor": actor, "before": before, "after": after})
 
 
-class GspyNotebook(ContentNotebook, Notebook):
+class GspyNotebook(EditorNotebook, ContentNotebook, Notebook):
     def __init__(self, path, publish=None):
         super().__init__(path, publish)
         self._committed = None
@@ -290,6 +296,9 @@ class GspyNotebook(ContentNotebook, Notebook):
         result = super()._cell_json(cell)
         result["history_summary"] = self.cell_history(cell["id"])["summary"]
         result["content"] = self.content_json(cell)
+        result["display_mode"] = cell.metadata.get("gusnotebook_display", "output")
+        rich = cell.metadata.get(RICH_KEY)
+        result["rich_text"] = deepcopy(rich["ops"]) if rich and rich.get("source_hash") == digest(cell.source) else None
         return result
 
     def to_json(self):
@@ -297,6 +306,7 @@ class GspyNotebook(ContentNotebook, Notebook):
             result = super().to_json()
             meta = metadata(self.nb)
             result.update(document_id=meta["document_id"], history_revision=len(meta["journal"]))
+            result["editor_version"] = self.editor_version()
             return result
 
     def cell_history(self, cell_id):

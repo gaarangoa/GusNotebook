@@ -17,6 +17,7 @@
      deployment builds URLs one way throughout. -->
 <link rel="stylesheet" href="{{ BASE_URL }}/static/app.css">
 <link rel="stylesheet" href="{{ BASE_URL }}/static/gspy.css">
+<link rel="stylesheet" href="{{ BASE_URL }}/static/vendor/quill.css">
 </head>
 <body>
 
@@ -150,7 +151,7 @@
       <div class="new-item" role="menuitem" tabindex="-1" onclick="newFromMenu('gspy')">
         <span class="ni" data-icon="notebook"></span>
         <span class="nl">Scientific notebook</span>
-        <span class="nh">.gspy · saved document history</span>
+        <span class="nh">.gspy · rich text with executable Python</span>
       </div>
       <div class="new-item" role="menuitem" tabindex="-1" onclick="newFromMenu('text')">
         <span class="ni" data-icon="text"></span>
@@ -206,6 +207,19 @@
     </div>
 
     <div class="toolbar" id="toolbar" role="toolbar" aria-label="Notebook actions">
+      <span id="gspy-format-tools" hidden role="group" aria-label="Document formatting">
+        <select aria-label="Text style" onchange="gspyFormat('header', this.value ? Number(this.value) : false)">
+          <option value="">Paragraph</option><option value="1">Heading 1</option><option value="2">Heading 2</option><option value="3">Heading 3</option>
+        </select>
+        <button class="tb" aria-label="Bold" data-gspy-format="bold" onmousedown="event.preventDefault()" onclick="gspyFormat('bold')"><b>B</b></button>
+        <button class="tb" aria-label="Italic" data-gspy-format="italic" onmousedown="event.preventDefault()" onclick="gspyFormat('italic')"><i>I</i></button>
+        <button class="tb" aria-label="Inline code" data-gspy-format="code" onmousedown="event.preventDefault()" onclick="gspyFormat('code')">&lt;/&gt;</button>
+        <button class="tb" aria-label="Bulleted list" onmousedown="event.preventDefault()" onclick="gspyFormat('list', 'bullet')">• List</button>
+        <button class="tb" aria-label="Numbered list" onmousedown="event.preventDefault()" onclick="gspyFormat('list', 'ordered')">1. List</button>
+        <button class="tb" onmousedown="event.preventDefault()" onclick="gspyInsertPython()">+ Python</button>
+        <button class="tb" onmousedown="event.preventDefault()" onclick="gspyEditValues()">Live values</button>
+        <button class="tb" onclick="gspyRunThrough()">Run all</button>
+      </span>
       <button class="tb" id="run-selected" onclick="runSelected()" title="Run selected cell (Ctrl/⌘ Enter)"><span data-icon="play"></span>Run</button>
       <button class="tb" onclick="addCell('code')"><span data-icon="plus"></span>Code</button>
       <button class="tb" onclick="addCell('markdown')"><span data-icon="plus"></span>Markdown</button>
@@ -740,6 +754,7 @@ results = pd.read_csv(<span class="sample-string">"data.csv"</span>)</pre><p>Rea
 </div>
 
 <script src="{{ BASE_URL }}/static/vendor/vendor.js"></script>
+<script src="{{ BASE_URL }}/static/vendor/gspy-quill.js"></script>
 <script src="{{ BASE_URL }}/static/vendor/d3-source.js"></script>
 <script type="module" src="{{ BASE_URL }}/static/vendor/codemirror.js"></script>
 
@@ -765,6 +780,7 @@ results = pd.read_csv(<span class="sample-string">"data.csv"</span>)</pre><p>Rea
 <script src="{{ BASE_URL }}/static/js/editor.js"></script>
 <script src="{{ BASE_URL }}/static/js/actions.js"></script>
 <script src="{{ BASE_URL }}/static/js/gspy.js"></script>
+<script src="{{ BASE_URL }}/static/js/gspy-editor.js"></script>
 <script src="{{ BASE_URL }}/static/js/events.js"></script>
 <script src="{{ BASE_URL }}/static/js/panels.js"></script>
 <script src="{{ BASE_URL }}/static/js/terminal-clipboard.js"></script>

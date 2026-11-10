@@ -167,8 +167,6 @@ function cellRedo(id) {
 
 /** Focus the editable surface for a cell, including empty CodeMirror cells. */
 function focusCellEditor(id, atEnd = true) {
-  const disclosure = document.querySelector(`#cell-${id} .gspy-code`);
-  if (disclosure) disclosure.open = true;
   const view = cmViews.get(id);
   if (view) {
     const pos = atEnd ? view.state.doc.length : view.state.selection.main.head;

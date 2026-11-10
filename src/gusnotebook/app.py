@@ -1299,6 +1299,31 @@ def api_cell_content(cell_id):
         return jsonify(error=str(exc)), 400
 
 
+@routes.route("/api/notebook/document", methods=["PUT"])
+def api_save_scientific_document():
+    doc = get_nb(doc_key())
+    if notebook_format(doc.path) != "gspy":
+        return jsonify(error="Rich document editing requires .gspy"), 400
+    body = request.get_json(silent=True) or {}
+    try:
+        return jsonify(doc.save_document(body.get("blocks"), body.get("expected_version"),
+                                         audit_context=cell_audit_context(agent=not from_browser())))
+    except ValueError as exc:
+        return jsonify(error=str(exc)), 400
+
+
+@routes.route("/api/cells/<cell_id>/display", methods=["PATCH"])
+def api_python_display(cell_id):
+    doc = get_nb(doc_key())
+    if notebook_format(doc.path) != "gspy":
+        return jsonify(error="Python display modes require .gspy"), 400
+    try:
+        return jsonify(doc.set_display_mode(cell_id, (request.get_json(silent=True) or {}).get("mode"),
+                                            audit_context=cell_audit_context(agent=not from_browser())))
+    except ValueError as exc:
+        return jsonify(error=str(exc)), 400
+
+
 @routes.route("/api/notebook/runs/<run_id>", methods=["GET", "POST"])
 def api_document_run(run_id):
     doc = get_nb(doc_key())

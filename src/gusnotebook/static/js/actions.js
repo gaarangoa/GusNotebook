@@ -95,6 +95,7 @@ async function saveCell(id, t = activeTab()) {
 }
 
 async function flushNotebook(t = activeTab()) {
+  if (t?.format === 'gspy') await saveGspyDocument(t);
   await Promise.all([...notebookDrafts(t).keys()].map(id => saveCell(id, t)));
 }
 
@@ -288,6 +289,7 @@ function applyNotebookRunSnapshot(notebook, data) {
   });
   if (target) {
     target.cells = nextCells;
+    target.editorVersion = data.editor_version;
     if (data.kernel_python) target.python = data.kernel_python;
     if (data.kernel_status) target.status = data.kernel_status;
   }
@@ -359,6 +361,7 @@ async function reconcileRunWaiters() {
  * notebook. This is what ⇧⏎ does after running.
  */
 async function advanceFrom(id) {
+  if (activeTab()?.format === 'gspy') { gspyContinueWriting(id); return; }
   const i = cells.findIndex(c => c.id === id);
   if (i === -1) return;
 
@@ -378,6 +381,10 @@ async function advanceFrom(id) {
 }
 
 async function runCell(id, advance = false) {
+  if (activeTab()?.format === 'gspy') {
+    try { await saveGspyDocument(activeTab()); }
+    catch (error) { flash('Cannot run until the document is saved: ' + errText(error)); return; }
+  }
   const c = getCell(id);
   if (!c) return;
 

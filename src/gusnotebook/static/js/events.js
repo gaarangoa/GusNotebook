@@ -31,6 +31,7 @@ async function load(force = false) {
   });
   if (t) {
     t.format = data.format || 'ipynb';
+    t.editorVersion = data.editor_version;
     t.cells = cells;
     restoreNotebookView(t);
     codeOpen = t.codeOpen || codeOpen;
@@ -75,7 +76,7 @@ async function load(force = false) {
 async function reloadNotebookFromDisk() {
   const t = activeTab();
   if (!t || t.kind !== 'notebook') return;
-  if (unsaved.size) {
+  if (unsaved.size || t.gspyEditor?.dirty) {
     const ok = await askConfirm(`${t.name} has unsaved cell edits.`,
       'Reloading keeps the notebook on disk and discards edits not saved from this browser.',
       'Reload');
@@ -83,6 +84,11 @@ async function reloadNotebookFromDisk() {
     await Promise.allSettled([...notebookDrafts(t).values()].map(d => d.promise).filter(Boolean));
     unsaved.clear();
 
+  }
+  if (t.gspyEditor) {
+    clearTimeout(t.gspyEditor.timer);
+    if (t.gspyEditor.saving) await t.gspyEditor.saving.catch(() => {});
+    t.gspyEditor.dirty = false; t.gspyEditor.base = null;
   }
   try {
     await load(true);
@@ -358,6 +364,7 @@ document.addEventListener('keydown', (e) => {
   const focusedCell = a && a.closest ? a.closest('.cell') : null;
   const focusedCellId = focusedCell && focusedCell.dataset.id;
   const claimed = a && (a.closest('#terminal-stack') ||
+                        a.closest('.gspy-document .ql-editor') ||
                         ((a.classList.contains('editor') || a.closest('.cm-editor')) &&
                          focusedCellId === selected));
   if (e.key === 'Enter' && !claimed && selected && isNotebookTab()) {

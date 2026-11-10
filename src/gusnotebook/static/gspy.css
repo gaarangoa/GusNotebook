@@ -1,24 +1,12 @@
-.gspy-cell .cell-body { min-width: 0; }
-.gspy-tools { display: flex; gap: 5px; justify-content: flex-end; margin-bottom: 4px; }
-.gspy-tools button, .gspy-code > summary, .gspy-output-source { font: inherit; color: var(--muted); }
-.gspy-tools button, .gspy-output-source { background: transparent; border: 1px solid var(--border); border-radius: 4px; padding: 2px 6px; cursor: pointer; }
-.gspy-tools { opacity: 0; }
-.gspy-cell:hover .gspy-tools, .gspy-cell:focus-within .gspy-tools, .gspy-cell.is-current .gspy-tools { opacity: 1; }
-.gspy-code { margin: 5px 0; }
-.gspy-code > summary { cursor: pointer; width: fit-content; padding: 2px 0; }
-.gspy-code[open] { border-top: 1px solid var(--border); }
 .gspy-content { display: grid; gap: 12px; padding: 4px 0; }
 .gspy-columns { grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; }
 .gspy-slide { border: 1px solid var(--border); border-radius: 6px; padding: 24px; min-height: 300px; background: var(--panel); }
 .gspy-figure { margin: 0; min-width: 0; overflow: auto; }
 .gspy-figure .outputs { border: 0; }
-.gspy-output-source { margin-top: 4px; }
-.gspy-value { font: inherit; color: var(--accent); background: transparent; border: 0; border-bottom: 1px dotted var(--accent); padding: 0 1px; cursor: pointer; }
-.gspy-value.stale, .gspy-value.missing { color: var(--yellow); border-bottom-color: var(--yellow); }
+.gspy-output-source { font: inherit; color: var(--muted); background: transparent; border: 1px solid var(--border); border-radius: 4px; padding: 2px 6px; cursor: pointer; margin-top: 4px; }
+.gspy-value-embed.stale { color: var(--yellow); border-bottom-color: var(--yellow); }
 .gspy-state, .gspy-empty { color: var(--muted); padding: 4px 0; font-size: var(--small-size); }
 .gspy-state.stale { color: var(--yellow); }
-.gspy-live { border-top: 1px dashed var(--border); margin-top: 8px; }
-.gspy-live[hidden] { display: none; }
 .gspy-dialog { width: min(740px, 94vw); max-height: 88vh; overflow: auto; padding: 20px; }
 .gspy-dialog h2 { margin: 0 0 12px; }
 .gspy-dialog p { color: var(--muted); line-height: 1.5; margin: 8px 0; }
@@ -31,4 +19,44 @@
 .gspy-binding-editor { display: grid; grid-template-columns: 1fr 2fr; gap: 4px 10px; }
 .gspy-source { background: var(--code-bg); color: var(--text); padding: 12px; border: 1px solid var(--border); overflow: auto; max-height: 50vh; }
 #gspy-save-error { color: var(--red); }
-@media (max-width: 720px) { .gspy-columns, .gspy-binding-editor { grid-template-columns: 1fr; } .gspy-tools { opacity: 1; } }
+@media (max-width: 720px) { .gspy-columns, .gspy-binding-editor { grid-template-columns: 1fr; } }
+
+/* One editable document, with Python as an embedded object rather than a cell. */
+#gspy-format-tools { display: contents; }
+#gspy-format-tools[hidden] { display: none; }
+#gspy-format-tools [aria-pressed="true"] { background: var(--hover); border-color: var(--border); }
+#gspy-format-tools select { font: inherit; color: var(--text); background: var(--panel); border: 1px solid var(--border); border-radius: 4px; padding: 3px; }
+.gspy-toolbar > .tb, .gspy-toolbar > .tb-sep { display: none; }
+.gspy-toolbar > #kernel-stop, .gspy-toolbar > #nb-reload, .gspy-toolbar > [onclick="restartKernel()"] { display: inline-flex; }
+#notebook.gspy-document::after { display: none; }
+#notebook.gspy-document { max-width: none; padding: 0; margin: 0; }
+.gspy-editor-shell { position: relative; padding: 24px 24px 0; min-height: calc(100vh - 160px); }
+.gspy-editor-paper { max-width: 920px; min-height: 65vh; margin: 0 auto 28px; background: var(--panel); }
+.gspy-document .ql-container { font: inherit; height: auto; }
+.gspy-document .ql-editor { min-height: 65vh; padding: 24px 30px 80px; color: var(--text); font: inherit; line-height: 1.65; overflow: visible; }
+.gspy-document .ql-editor.ql-blank::before { color: var(--muted); font-style: normal; left: 30px; right: 30px; }
+.gspy-document .ql-editor p { margin: 0 0 .7em; }
+.gspy-document .ql-editor h1 { font-size: 2em; margin: 1em 0 .5em; }
+.gspy-document .ql-editor h2 { font-size: 1.5em; margin: 1em 0 .5em; }
+.gspy-document .ql-editor h3 { font-size: 1.25em; margin: 1em 0 .5em; }
+.gspy-document .ql-editor a { color: var(--accent); }
+.gspy-python { white-space: normal; margin: 12px 0; border: 0; }
+.gspy-python .outputs { margin: 0; border: 0; }
+.gspy-step-label { font: inherit; color: var(--muted); background: transparent; padding: 3px 7px; border: 1px solid var(--border); border-radius: 4px; cursor: pointer; }
+.gspy-python.background { margin: 5px 0; }
+.gspy-step-error { color: var(--red); margin-left: 8px; }
+.gspy-value-embed { color: var(--accent); border-bottom: 1px dotted var(--accent); cursor: pointer; }
+.gspy-inspector { position: sticky; bottom: 24px; margin: 0 -12px; max-height: 46vh; overflow: auto; padding: 10px; background: var(--panel); border: 1px solid var(--border-strong); border-radius: 6px; box-shadow: var(--shadow); z-index: 5; }
+.gspy-inspector[hidden] { display: none; }
+.gspy-inspector-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+.gspy-inspector button, .gspy-inspector select, .gspy-editor-footer button { font: inherit; color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: 4px; padding: 3px 7px; cursor: pointer; }
+.gspy-inspector-bar [data-close-python] { margin-left: auto; }
+.gspy-inspector .cell.gspy-code-inspector { display: block; padding: 0; margin: 0; border: 0; }
+.gspy-code-inspector > .cell-body { width: 100%; padding: 0; }
+.gspy-inspector-state { color: var(--muted); padding: 5px 0; }
+.gspy-execution-log { color: var(--muted); }
+.gspy-execution-log summary { cursor: pointer; }
+.gspy-editor-footer { display: flex; align-items: center; gap: 8px; position: sticky; bottom: 0; padding: 4px 0; background: var(--panel); color: var(--muted); }
+.gspy-editor-footer [data-document-history] { margin-left: auto; }
+.gspy-editor-status.error { color: var(--red); }
+@media (max-width: 720px) { .gspy-editor-shell { padding: 10px 8px 0; } .gspy-document .ql-editor { padding: 16px 12px 60px; } }
