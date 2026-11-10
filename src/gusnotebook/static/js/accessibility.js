@@ -43,6 +43,7 @@ const modalClosers = {
   'dirpick-back': dirPickCancel, 'ask-back': () => askDone(false), 'prov-back': () => provenanceDone(false),
   'skill-back': closeSkill, 'sinstr-back': closeSessionInstr,
   'cell-history-back': closeCellHistory,
+  'document-history-back': closeDocumentHistory,
   'tunnel-back': closeTunnelEditor,
   'git-diff-back': closeGitDiff,
   'terminal-clipboard-back': () => closeTerminalClipboard(false),

@@ -10,6 +10,7 @@ from copy import deepcopy
 import nbformat
 
 from . import bus, cellhistory
+from .document_formats import notebook_format
 from .persistence import ANY_VERSION, ExternalChangeError, atomic_write, disk_version
 
 
@@ -86,7 +87,11 @@ class Registry:
         with self._lock:
             doc = self._docs.get(key)
             if doc is None:
-                doc = Notebook(pathlib.Path(key), publish=self.publish)
+                if notebook_format(key) == "gspy":
+                    from .gspy import GspyNotebook
+                    doc = GspyNotebook(pathlib.Path(key), publish=self.publish)
+                else:
+                    doc = Notebook(pathlib.Path(key), publish=self.publish)
                 doc.load()
                 self._docs[key] = doc
             return doc
@@ -109,6 +114,8 @@ class Registry:
                 with doc._lock:
                     doc.path = pathlib.Path(new)
                     doc._version = disk_version(new)
+                    if hasattr(doc, "_committed_version"):
+                        doc._committed_version = doc._version
                 self._docs[str(new)] = doc
 
     def paths(self):
@@ -250,6 +257,7 @@ class Notebook:
             return {
                 "cells": [self._cell_json(c) for c in nb.cells],
                 "path": str(self.path),
+                "format": notebook_format(self.path),
                 "python": (nb.metadata.get("kernelspec") or {})
                           .get("notebook_python"),
             }
@@ -514,7 +522,7 @@ class Notebook:
                                 snapshot_id=snapshot_id, destination=destination,
                                 copied_at=copied.get("at"))
 
-    def delete_cell(self, cell_id):
+    def delete_cell(self, cell_id, audit_context=None):
         with self._lock:
             i, cell = self.find(cell_id)
             if cell is None:
@@ -527,7 +535,7 @@ class Notebook:
                         cell_id=cell_id, notebook=str(self.path))
             return True
 
-    def move_cell(self, cell_id, index):
+    def move_cell(self, cell_id, index, audit_context=None):
         with self._lock:
             i, cell = self.find(cell_id)
             if cell is None:

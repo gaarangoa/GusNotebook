@@ -14,6 +14,7 @@ import uuid
 
 from .persistence import ExternalChangeError, atomic_write, disk_version
 from .textfile import kind_of
+from .document_formats import notebook_format
 
 MAX_GROUPS = 20
 MAX_GROUP_BYTES = 10 * 1024 * 1024
@@ -122,7 +123,7 @@ class History:
     def _diff_text(path, source):
         if source is None:
             return ""
-        if path.endswith(".ipynb"):
+        if notebook_format(path):
             try:
                 notebook = json.loads(source)
                 parts = []

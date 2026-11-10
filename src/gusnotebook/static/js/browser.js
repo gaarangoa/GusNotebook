@@ -552,12 +552,13 @@ async function createIn(kind, name) {
   return data;
 }
 
-/** A new .ipynb — one click, named for you, opened as a notebook tab. */
-async function newNotebook() {
-  const name = await askName('New notebook', suggestName('Untitled', '.ipynb'),
+/** A new notebook of the chosen format, opened in its own tab. */
+async function newNotebook(format = 'ipynb') {
+  const suffix = '.' + format;
+  const name = await askName(format === 'gspy' ? 'New scientific notebook' : 'New notebook', suggestName('Untitled', suffix),
                              'in ' + (fileState.path || '?'));
   if (name === null || !name.trim()) return;
-  const data = await createIn('file', ensureSuffix(name.trim(), '.ipynb'));
+  const data = await createIn('file', ensureSuffix(name.trim(), suffix));
   if (data) openFile(data.path);
 }
 
@@ -812,6 +813,7 @@ function toggleNewMenu(ev) {
 function newFromMenu(what) {
   closeNewMenu();
   if (what === 'notebook') return newNotebook();
+  if (what === 'gspy') return newNotebook('gspy');
   if (what === 'text') return newFile();
   if (what === 'folder') return newFolder();
   if (what === 'environment') return openEnvironments();

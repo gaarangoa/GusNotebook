@@ -133,6 +133,7 @@
         <button id="theme-toggle" role="menuitem" tabindex="-1" onclick="closeWorkspaceMenu(); AppAppearance.toggle()"><span class="theme-light-icon" data-icon="sun"></span><span class="theme-dark-icon" data-icon="moon"></span><span id="theme-label">Switch theme</span></button>
         <div class="menu-separator" role="separator"></div>
         <button id="history-button" role="menuitem" tabindex="-1" onclick="closeWorkspaceMenu(); openHistory()"><span data-icon="history"></span>Change history</button>
+        <button id="document-history-button" role="menuitem" tabindex="-1" hidden onclick="closeWorkspaceMenu(); openDocumentHistory()"><span data-icon="history"></span>Document history</button>
       </div>
     </header>
 
@@ -143,6 +144,11 @@
         <span class="ni" data-icon="notebook"></span>
         <span class="nl">Notebook</span>
         <span class="nh">.ipynb, with its own kernel</span>
+      </div>
+      <div class="new-item" role="menuitem" tabindex="-1" onclick="newFromMenu('gspy')">
+        <span class="ni" data-icon="notebook"></span>
+        <span class="nl">Scientific notebook</span>
+        <span class="nh">.gspy · saved document history</span>
       </div>
       <div class="new-item" role="menuitem" tabindex="-1" onclick="newFromMenu('text')">
         <span class="ni" data-icon="text"></span>
@@ -452,6 +458,21 @@
 </div>
 
 <!-- ---------- Cell timeline, change history and directory picker ---------- -->
+<div class="modal-back" id="document-history-back" onclick="if (event.target === this) closeDocumentHistory()">
+  <div class="modal history-modal" role="dialog" aria-modal="true" aria-labelledby="document-history-title">
+    <div class="mhead"><span class="grow" id="document-history-title">Document history</span>
+      <button class="tb" onclick="closeDocumentHistory()" aria-label="Close document history"><span data-icon="close"></span></button></div>
+    <div class="mbody">
+      <p id="document-history-summary"></p>
+      <p>Recorded requests and changes, including deleted blocks. Restore brings back the saved content; run it to produce new outputs.</p>
+      <div class="cell-history-tools"><button class="tb" onclick="refreshDocumentHistory()">Refresh</button>
+        <button class="tb" onclick="downloadDocumentHistory()">Export full log (.jsonl)</button></div>
+      <div id="document-history-error" role="alert" hidden></div>
+      <div id="document-history-list"></div>
+      <button class="tb" id="document-history-older" hidden onclick="refreshDocumentHistory(true)">Older events</button>
+    </div>
+  </div>
+</div>
 <div class="modal-back" id="cell-history-back" onclick="if (event.target === this) closeCellHistory()">
   <div class="modal history-modal" role="dialog" aria-modal="true" aria-labelledby="cell-history-title">
     <div class="mhead"><span class="grow" id="cell-history-title">Cell history</span>

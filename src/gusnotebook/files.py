@@ -7,9 +7,7 @@ validates a name the user typed before the caller creates a file or folder.
 
 import os
 from pathlib import Path
-
-# Files we can open in the notebook pane vs. ones we just show.
-NOTEBOOK_SUFFIX = ".ipynb"
+from .document_formats import notebook_format
 
 # Directories that are never interesting to browse into.
 SKIP_DIRS = {".git", "__pycache__", ".ipynb_checkpoints", "node_modules"}
@@ -28,7 +26,7 @@ def normalize(path):
 def _kind(entry_path, is_dir):
     if is_dir:
         return "dir"
-    if entry_path.suffix == NOTEBOOK_SUFFIX:
+    if notebook_format(entry_path):
         return "notebook"
     return "file"
 
@@ -130,7 +128,7 @@ def resolve_notebook(path):
     p = Path(path).expanduser()
     if not p.is_absolute():
         raise ValueError("notebook path must be absolute")
-    if p.suffix != NOTEBOOK_SUFFIX:
+    if not notebook_format(p):
         raise ValueError(f"not a notebook: {p.name}")
     p = normalize(p)
     if p.exists() and not p.is_file():

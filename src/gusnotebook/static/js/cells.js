@@ -396,6 +396,7 @@ function showActive() {
   const t = activeTab();
   const kind = t ? t.kind : 'none';
   const isNb = kind === 'notebook' || kind === 'none';
+  document.getElementById('document-history-button').hidden = t?.format !== 'gspy';
 
   document.getElementById('notebook-pane').style.display = isNb ? '' : 'none';
   document.getElementById('toolbar').style.display = kind === 'notebook' ? '' : 'none';
@@ -450,7 +451,8 @@ async function renameNotebook(t) {
   const oldName = t.name;
   let name = requested.trim();
   if (!name || name === oldName) return;
-  if (!name.endsWith('.ipynb')) name += '.ipynb';
+  const suffix = '.' + (t.format || 'ipynb');
+  if (!name.toLowerCase().endsWith(suffix)) name += suffix;
   if (name === oldName) return;
   if (name.includes('/') || name.includes('\\')) {
     flash('Notebook name must not contain slashes');
@@ -526,7 +528,7 @@ async function openFile(path, options = {}) {
         ? {...c, outputs: old.outputs, _running: true}
         : {...c, _running: Object.prototype.hasOwnProperty.call(running, c.id)};
     });
-    Object.assign(t, {cells: freshCells,
+    Object.assign(t, {cells: freshCells, format: data.format || 'ipynb',
                       cellDrafts: cached && cached.cellDrafts,
                       dirty: !!(cached && cached.cellDrafts && cached.cellDrafts.size),
                       selected: cached && cached.selected,

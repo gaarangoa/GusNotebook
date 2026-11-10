@@ -191,3 +191,93 @@ function downloadCellHistory() {
   link.href = url; link.download = `cell-${cellHistoryTarget.id}-history.json`; link.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
+
+let documentHistoryTarget = null;
+let documentHistoryLoad = 0;
+
+function closeDocumentHistory() {
+  documentHistoryLoad++;
+  documentHistoryTarget = null;
+  document.getElementById('document-history-back').classList.remove('on');
+}
+
+async function openDocumentHistory() {
+  const t = activeTab();
+  if (t?.format !== 'gspy') return;
+  try { await flushNotebook(t); }
+  catch (error) { flash('Save before opening history: ' + errText(error)); return; }
+  documentHistoryTarget = {path: t.path, revision: null, before: null};
+  document.getElementById('document-history-back').classList.add('on');
+  await refreshDocumentHistory();
+}
+
+async function refreshDocumentHistory(older = false) {
+  const target = documentHistoryTarget;
+  if (!target) return;
+  const serial = ++documentHistoryLoad;
+  const errorBox = document.getElementById('document-history-error');
+  const list = document.getElementById('document-history-list');
+  const more = document.getElementById('document-history-older');
+  errorBox.hidden = true;
+  more.disabled = true;
+  if (!older) list.textContent = 'Loading history…';
+  try {
+    const query = new URLSearchParams({notebook: target.path});
+    if (older && target.before) query.set('before', target.before);
+    const data = await api('/api/notebook/history?' + query);
+    if (documentHistoryTarget !== target || serial !== documentHistoryLoad) return;
+    target.revision = data.revision;
+    target.before = data.before;
+    document.getElementById('document-history-summary').textContent = `${target.path} · ${data.revision} recorded events`;
+    const content = [...data.events].reverse().map(event => `
+      <section class="history-group cell-history-event" data-event-kind="${escapeAttr(event.kind)}">
+        <div class="history-heading"><strong>${escapeHtml(event.summary || event.kind)}</strong>
+          <span>${event.at ? escapeHtml(new Date(event.at * 1000).toLocaleString()) : 'Date not recorded'}</span></div>
+        <p>${escapeHtml(event.actor || 'GusNotebook')}${event.cell_id ? ' · Block ' + escapeHtml(event.cell_id) : ''}</p>
+        ${event.prompt ? `<div class="cell-history-text">${escapeHtml(event.prompt)}</div>` : ''}
+        ${event.note ? `<div class="cell-history-text">${escapeHtml(event.note)}</div>` : ''}
+        ${event.source !== undefined ? `<details><summary>Saved source</summary><pre>${escapeHtml(event.source)}</pre></details>` : ''}
+        ${event.restorable ? `<button class="tb" data-restore-event="${escapeAttr(event.id)}">Restore block</button>` : ''}
+      </section>`).join('');
+    if (older) list.insertAdjacentHTML('beforeend', content);
+    else list.innerHTML = content || '<p>No recorded events yet.</p>';
+    for (const button of list.querySelectorAll('[data-restore-event]')) {
+      button.onclick = () => restoreDocumentBlock(target, button);
+    }
+    more.hidden = !data.before;
+  } catch (error) {
+    if (serial !== documentHistoryLoad) return;
+    errorBox.textContent = errText(error);
+    errorBox.hidden = false;
+    if (!older) list.textContent = '';
+  } finally {
+    if (serial === documentHistoryLoad) more.disabled = false;
+  }
+}
+
+async function restoreDocumentBlock(target, button) {
+  if (target !== documentHistoryTarget) return;
+  button.disabled = true;
+  try {
+    const query = new URLSearchParams({notebook: target.path});
+    await api(`/api/notebook/history/${encodeURIComponent(button.dataset.restoreEvent)}/restore?${query}`, {
+      method: 'POST', body: JSON.stringify({expected_revision: target.revision}),
+    });
+    if (active === target.path) await load();
+    if (target === documentHistoryTarget) await refreshDocumentHistory();
+    flash('Block restored. Run it to produce new outputs.');
+  } catch (error) {
+    if (target !== documentHistoryTarget) return;
+    const box = document.getElementById('document-history-error');
+    box.textContent = errText(error); box.hidden = false;
+  } finally { button.disabled = false; }
+}
+
+function downloadDocumentHistory() {
+  if (!documentHistoryTarget) return;
+  const query = new URLSearchParams({notebook: documentHistoryTarget.path, format: 'jsonl'});
+  const link = document.createElement('a');
+  link.href = BASE + '/api/notebook/history?' + query;
+  link.download = documentHistoryTarget.path.split('/').pop().replace(/\.gspy$/i, '.history.jsonl');
+  link.click();
+}

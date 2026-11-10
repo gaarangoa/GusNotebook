@@ -32,4 +32,5 @@ jobs:
       - run: python tests/test_tunnel_manager_ui.py
       - run: python tests/test_git_ui.py
       - run: python tests/test_cell_history_ui.py
+      - run: python tests/test_gspy_ui.py
       - run: python tests/test_environments_ui.py

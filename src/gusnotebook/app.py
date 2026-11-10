@@ -29,6 +29,7 @@ from . import bus
 from . import error_help
 from . import environments
 from . import files
+from .document_formats import notebook_format, same_notebook_format
 from . import llm
 from . import notebook as notebook_mod
 from . import paths
@@ -92,8 +93,9 @@ def _launch_notebook():
     way `jupyter lab` means the directory you launched it from. It's the file
     browser's root, the default session's root, and where a new file goes.
 
-    The launch notebook is `NOTEBOOK=` if given, else the first `.ipynb` already
-    in that directory (opening onto the user's own work beats opening onto a
+    The launch notebook is `NOTEBOOK=` if given, else the first `.ipynb` (or
+    `.gspy` when there are no .ipynb files) already in that directory (opening
+    onto the user's own work beats opening onto a
     blank one), else `notebook.ipynb` there. Nothing is written into the project
     until the tab is actually opened, and a directory with no notebooks gets a
     new one rather than an error — but it goes in the state directory when the
@@ -106,6 +108,8 @@ def _launch_notebook():
         return files.normalize(Path(env)), work
     try:
         existing = sorted(p for p in work.glob("*.ipynb") if p.is_file())
+        if not existing:
+            existing = sorted(p for p in work.iterdir() if p.is_file() and notebook_format(p))
     except OSError:
         existing = []
     if existing:
@@ -515,7 +519,7 @@ def api_files():
 def api_new_file():
     """Create a file or folder in the browsed directory.
 
-    A .ipynb name produces a real nbformat notebook (via the Notebook store, so
+    A .ipynb or .gspy name produces a notebook (via its document store, so
     it's the same document the pane opens), and the response says which kind of
     tab to open.
     """
@@ -531,8 +535,8 @@ def api_new_file():
         if kind == "dir":
             target.mkdir()
             return jsonify({"path": str(target), "kind": "dir"})
-        if target.suffix == files.NOTEBOOK_SUFFIX:
-            notebooks.get(str(files.normalize(target)))     # writes a blank .ipynb
+        if notebook_format(target):
+            notebooks.get(str(files.normalize(target)))
             return jsonify({"path": str(files.normalize(target)),
                             "kind": "notebook"})
         target.touch()
@@ -658,6 +662,8 @@ def api_dirlist():
 
 def relocate_file(source, destination):
     """Move open-document identities together, preserving idle kernels."""
+    if source.is_file():
+        same_notebook_format(source, destination)
     old, new = str(source), str(destination)
     known = set(notebooks.paths() + texts.paths())
     known.update(p for session in store.all() for p in session.tabs)
@@ -719,7 +725,7 @@ def api_rename_file():
         relocate_file(src_path, dst_path)
     except textfile.ExternalChangeError:
         raise
-    except OSError as e:
+    except (OSError, ValueError) as e:
         return jsonify({"error": str(e)}), 400
     return jsonify({"path": str(dst_path)})
 
@@ -751,11 +757,20 @@ def api_copy_file():
     except ValueError:
         pass
     try:
+        def copy_document(source, destination):
+            if notebook_format(source) == "gspy":
+                from .gspy import GspyNotebook
+                doc = notebooks.peek(source) or GspyNotebook(source)
+                doc.duplicate(destination)
+                return str(destination)
+            return shutil.copy2(source, destination)
+
         if src_path.is_dir():
-            shutil.copytree(src_path, target)
+            shutil.copytree(src_path, target, copy_function=copy_document)
         else:
-            shutil.copy2(src_path, target)
-    except OSError as e:
+            same_notebook_format(src_path, target)
+            copy_document(src_path, target)
+    except (OSError, ValueError) as e:
         return jsonify({"error": str(e)}), 400
     return jsonify({"path": str(target), "kind": files.kind_of(target)})
 
@@ -1212,6 +1227,47 @@ def api_pdf():
 
 # --- Notebook document API (all routes take ?notebook=/abs/path) ---
 
+@routes.route("/api/notebook/history")
+def api_document_history():
+    doc = get_nb(doc_key())
+    if notebook_format(doc.path) != "gspy":
+        return jsonify(error="Document history is available for .gspy notebooks"), 400
+    if request.args.get("format") == "jsonl":
+        import io
+        return send_file(io.BytesIO(doc.export_history().encode("utf-8")),
+                         mimetype="application/x-ndjson", as_attachment=True,
+                         download_name=doc.path.stem + ".history.jsonl")
+    try:
+        before = int(request.args["before"]) if "before" in request.args else None
+        limit = int(request.args.get("limit", 50))
+        if (before is not None and before < 1) or not 1 <= limit <= 200:
+            raise ValueError("Invalid history page")
+    except ValueError as exc:
+        return jsonify(error=str(exc)), 400
+    return jsonify(doc.document_history(before, limit))
+
+
+@routes.route("/api/notebook/history/<event_id>/restore", methods=["POST"])
+def api_restore_block(event_id):
+    key = doc_key()
+    doc = get_nb(key)
+    if notebook_format(doc.path) != "gspy":
+        return jsonify(error="Block restoration is available for .gspy notebooks"), 400
+    body = request.get_json(silent=True) or {}
+    with _exec_locks_guard:
+        lock = exec_lock(key)
+        if not lock.acquire(blocking=False):
+            return jsonify(error="Wait for execution to finish before restoring"), 409
+        try:
+            if _running_cell_ids(key):
+                return jsonify(error="Wait for queued execution before restoring"), 409
+            return jsonify(doc.restore_revision(event_id, body.get("expected_revision")))
+        except ValueError as exc:
+            return jsonify(error=str(exc)), 400
+        finally:
+            lock.release()
+
+
 @routes.route("/api/notebook")
 def api_notebook():
     key = doc_key()
@@ -1267,7 +1323,8 @@ def api_update_cell(cell_id):
 def api_cell_history(cell_id):
     doc = get_nb(doc_key())
     if doc.cell_json(cell_id) is None:
-        return jsonify(error="no such cell"), 404
+        if request.method == "POST" or notebook_format(doc.path) != "gspy" or not doc.cell_history(cell_id)["events"]:
+            return jsonify(error="no such cell"), 404
     if request.method == "POST":
         body = request.get_json(silent=True) or {}
         kind = body.get("kind", "note")
@@ -1310,7 +1367,7 @@ def api_undo_cell(cell_id):
 
 @routes.route("/api/cells/<cell_id>", methods=["DELETE"])
 def api_delete_cell(cell_id):
-    if not get_nb(doc_key()).delete_cell(cell_id):
+    if not get_nb(doc_key()).delete_cell(cell_id, audit_context=cell_audit_context(agent=not from_browser())):
         return jsonify({"error": "no such cell"}), 404
     return jsonify({"status": "ok"})
 
@@ -1318,7 +1375,8 @@ def api_delete_cell(cell_id):
 @routes.route("/api/cells/<cell_id>/move", methods=["POST"])
 def api_move_cell(cell_id):
     body = request.get_json(silent=True) or {}
-    if not get_nb(doc_key()).move_cell(cell_id, int(body.get("index", 0))):
+    if not get_nb(doc_key()).move_cell(cell_id, int(body.get("index", 0)),
+                                     audit_context=cell_audit_context(agent=not from_browser())):
         return jsonify({"error": "no such cell"}), 404
     return jsonify({"status": "ok"})
 
@@ -1472,7 +1530,7 @@ def api_undo_history(group_id):
         except OSError as exc:
             return jsonify(error=str(exc)), 500
         for path in changed:
-            bus.publish("notebook_changed" if path.endswith(".ipynb") else "text_external_changed",
+            bus.publish("notebook_changed" if notebook_format(path) else "text_external_changed",
                         notebook=path, path=path, reason="history")
     return jsonify(restored=changed)
 

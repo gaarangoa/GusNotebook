@@ -1,7 +1,15 @@
 # GSPY implementation plan
 
-Status: proposed implementation, based on the repository at `64593f7`.
-This document specifies planned work; `.gspy` support is not implemented yet.
+Status: phase 1 implemented; phases 2–6 remain planned. The original design
+was based on the repository at `64593f7`.
+
+The format/history foundation supports creating `.gspy` files beside `.ipynb`,
+existing ordered execution and CLI operations, document-wide history,
+recoverable deleted blocks, historical output snapshots, and a self-contained
+JSONL log export. File discovery, rename/copy identity, external reloads, and
+session restoration are integrated. The initial interface uses the existing
+notebook renderer. Live value bindings, the content-oriented renderer, richer
+agent capture, conversion/export, and activity tracking are subsequent phases.
 
 ## Product contract
 

@@ -6,6 +6,7 @@ have no size cap; other text files retain a limit for the source editor.
 
 import threading
 from pathlib import Path
+from .document_formats import notebook_format
 
 from .persistence import (ANY_VERSION, ExternalChangeError, atomic_write,
                           disk_version)
@@ -41,7 +42,7 @@ def text_too_large(path, text):
 def kind_of(path):
     p = Path(path)
     suf = p.suffix.lower()
-    if suf == ".ipynb":
+    if notebook_format(p):
         return "notebook"
     if suf == ".pdf":
         return "pdf"

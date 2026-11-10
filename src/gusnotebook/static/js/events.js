@@ -28,6 +28,7 @@ async function load(force = false) {
       : {...c, _running: Object.prototype.hasOwnProperty.call(running, c.id)};
   });
   if (t) {
+    t.format = data.format || 'ipynb';
     t.cells = cells;
     restoreNotebookView(t);
     codeOpen = t.codeOpen || codeOpen;

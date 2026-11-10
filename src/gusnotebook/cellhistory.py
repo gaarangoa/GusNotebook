@@ -53,7 +53,7 @@ def append(cell, kind, *, context=None, **details):
 def summary(cell):
     events = entries(cell)
     counts = {name: sum(e.get("kind") in kinds for e in events) for name, kinds in {
-        "requests": {"request", "legacy_request"}, "edits": {"edit", "external_edit", "undo"},
+        "requests": {"request", "legacy_request"}, "edits": {"edit", "external_edit", "undo", "restore"},
         "copies": {"copy"}, "exports": {"export"}, "notes": {"note", "settings"},
     }.items()}
     return {"count": len(events), **counts,
