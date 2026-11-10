@@ -348,6 +348,20 @@
 
 <button id="panel-backdrop" class="panel-backdrop" hidden aria-label="Close side panel" onclick="closePanelDrawer()"></button>
 
+<div class="modal-back" id="terminal-clipboard-back" onclick="if(event.target===this) closeTerminalClipboard(false)">
+  <div class="modal">
+    <div class="mhead"><span class="grow" id="terminal-clipboard-title">Paste into terminal</span>
+      <button class="tb" onclick="closeTerminalClipboard(false)" aria-label="Close clipboard dialog"><span data-icon="close"></span></button></div>
+    <div class="mbody">
+      <p id="terminal-clipboard-hint"></p>
+      <div class="field"><label for="terminal-clipboard-text">Terminal text</label>
+        <textarea id="terminal-clipboard-text" rows="7" spellcheck="false" aria-describedby="terminal-clipboard-hint"></textarea></div>
+    </div>
+    <div class="mfoot"><button class="btn" onclick="closeTerminalClipboard(false)">Cancel</button>
+      <button class="btn primary" id="terminal-clipboard-ok" onclick="closeTerminalClipboard(true)">Paste</button></div>
+  </div>
+</div>
+
 <!-- ---------- Git diff ---------- -->
 <div class="modal-back" id="git-diff-back" onclick="if(event.target === this) closeGitDiff()">
   <div class="modal git-diff-modal" role="dialog" aria-modal="true" aria-labelledby="git-diff-title">
@@ -729,6 +743,7 @@ results = pd.read_csv(<span class="sample-string">"data.csv"</span>)</pre><p>Rea
 <script src="{{ BASE_URL }}/static/js/actions.js"></script>
 <script src="{{ BASE_URL }}/static/js/events.js"></script>
 <script src="{{ BASE_URL }}/static/js/panels.js"></script>
+<script src="{{ BASE_URL }}/static/js/terminal-clipboard.js"></script>
 <script src="{{ BASE_URL }}/static/js/terminals.js"></script>
 <script src="{{ BASE_URL }}/static/js/history.js"></script>
 <script src="{{ BASE_URL }}/static/js/environments.js"></script>

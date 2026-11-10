@@ -134,6 +134,7 @@ function attachTerm(info) {
 
   const t = {...info, term, fit, host, ws: null};
   terms.push(t);
+  wireTerminalClipboard(t);
   // Shell prompt hooks emit context through OSC, so it follows cd/activation
   // and is also restored when the server replays scrollback after a reload.
   term.parser.registerOscHandler(777, data => {

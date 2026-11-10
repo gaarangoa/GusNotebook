@@ -45,6 +45,7 @@ const modalClosers = {
   'cell-history-back': closeCellHistory,
   'tunnel-back': closeTunnelEditor,
   'git-diff-back': closeGitDiff,
+  'terminal-clipboard-back': () => closeTerminalClipboard(false),
 };
 document.addEventListener('keydown', event => {
   const modal = topModal();
