@@ -91,6 +91,7 @@ async function saveCell(id, t = activeTab()) {
   }).finally(() => { draft.promise = null; });
   await draft.promise;
   if (drafts.has(id)) return saveCell(id, t);
+  if (t.format === 'gspy') await refreshGspy(t.path);
 }
 
 async function flushNotebook(t = activeTab()) {
@@ -278,6 +279,8 @@ function applyNotebookRunSnapshot(notebook, data) {
   const liveCells = notebook === active ? cells : (target && target.cells || []);
   const live = new Map((liveCells || []).filter(c => c._running).map(c => [c.id, c]));
   const nextCells = (data.cells || []).map(c => {
+    const draft = target?.format === 'gspy' ? notebookDrafts(target).get(c.id) : null;
+    if (draft) c.source = draft.source;
     const previous = live.get(c.id);
     return previous && Object.prototype.hasOwnProperty.call(running, c.id)
       ? {...c, outputs: previous.outputs, _running: true}
@@ -319,7 +322,8 @@ function waitForRunDone(runId, notebook, cellId) {
         }
         applyNotebookRunSnapshot(notebook, data);
         finish({type: 'cell_done', notebook, cell_id: cellId,
-                run_id: runId, reconciled: true});
+                run_id: runId, reconciled: true,
+                outputs: data.cells.find(c => c.id === cellId)?.outputs || []});
         return;
       } catch (err) {
         // Keep waiting for SSE. A later reconnect or poll can still recover.
@@ -342,7 +346,8 @@ async function reconcileRunWaiters() {
       if (Object.prototype.hasOwnProperty.call(running, context.cellId)) continue;
       applyNotebookRunSnapshot(context.notebook, data);
       finish({type: 'cell_done', notebook: context.notebook,
-              cell_id: context.cellId, run_id: runId, reconciled: true});
+              cell_id: context.cellId, run_id: runId, reconciled: true,
+              outputs: data.cells.find(c => c.id === context.cellId)?.outputs || []});
     } catch (err) {
       // EventSource reconnects automatically; this is only a best-effort nudge.
     }
@@ -437,7 +442,8 @@ async function runCell(id, advance = false) {
       await advanceFrom(id);
       scheduleFoldPreviewReset(id);
     }
-    await finished;
+    const result = await finished;
+    return result;
   } catch (err) {
     setCellRunning(id, false);
     if (outEl) outEl.innerHTML = `<div class="outputs"><div class="output error">${escapeHtml(err)}</div></div>`;
@@ -457,6 +463,7 @@ function runSelected() {
 }
 
 async function runAll() {
+  if (activeTab()?.format === 'gspy') return gspyRunThrough();
   for (const c of cells) {
     if (c.cell_type === 'code' && c.source.trim()) {
       scrollToCell(c.id);          // follow along as execution advances

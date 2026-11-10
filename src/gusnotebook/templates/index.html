@@ -16,6 +16,7 @@
      with the same {{ BASE_URL }} prefix every fetch() uses, so a reverse-proxy
      deployment builds URLs one way throughout. -->
 <link rel="stylesheet" href="{{ BASE_URL }}/static/app.css">
+<link rel="stylesheet" href="{{ BASE_URL }}/static/gspy.css">
 </head>
 <body>
 
@@ -134,6 +135,7 @@
         <div class="menu-separator" role="separator"></div>
         <button id="history-button" role="menuitem" tabindex="-1" onclick="closeWorkspaceMenu(); openHistory()"><span data-icon="history"></span>Change history</button>
         <button id="document-history-button" role="menuitem" tabindex="-1" hidden onclick="closeWorkspaceMenu(); openDocumentHistory()"><span data-icon="history"></span>Document history</button>
+        <button id="gspy-run-all-button" role="menuitem" tabindex="-1" hidden onclick="closeWorkspaceMenu(); runAll()"><span data-icon="play"></span>Run all blocks</button>
       </div>
     </header>
 
@@ -762,6 +764,7 @@ results = pd.read_csv(<span class="sample-string">"data.csv"</span>)</pre><p>Rea
 <script src="{{ BASE_URL }}/static/js/markup-view.js"></script>
 <script src="{{ BASE_URL }}/static/js/editor.js"></script>
 <script src="{{ BASE_URL }}/static/js/actions.js"></script>
+<script src="{{ BASE_URL }}/static/js/gspy.js"></script>
 <script src="{{ BASE_URL }}/static/js/events.js"></script>
 <script src="{{ BASE_URL }}/static/js/panels.js"></script>
 <script src="{{ BASE_URL }}/static/js/terminal-clipboard.js"></script>

@@ -1,15 +1,23 @@
 # GSPY implementation plan
 
-Status: phase 1 implemented; phases 2–6 remain planned. The original design
+Status: phases 1–3 implemented; phases 4–6 remain planned. The original design
 was based on the repository at `64593f7`.
 
 The format/history foundation supports creating `.gspy` files beside `.ipynb`,
 existing ordered execution and CLI operations, document-wide history,
 recoverable deleted blocks, historical output snapshots, and a self-contained
 JSONL log export. File discovery, rename/copy identity, external reloads, and
-session restoration are integrated. The initial interface uses the existing
-notebook renderer. Live value bindings, the content-oriented renderer, richer
-agent capture, conversion/export, and activity tracking are subsequent phases.
+session restoration are integrated. Ordered runs now capture explicit published
+values and named MIME outputs with immutable producing revisions. The content
+view provides paragraphs, live references, output placements, three layouts,
+code inspection, Run through here, and explicit interpretation review. Failed
+runs retain the last successful view; unsaved completions can be retried without
+executing again. The run journal is also included in the JSONL export.
+
+Richer agent capture, component-aware CLI commands, conversion/export, activity
+tracking, and scale hardening remain subsequent phases. The initial content
+editor uses Markdown paragraphs and explicit value fields rather than a new
+rich-text framework. [Usage and current limits](gspy.md).
 
 ## Product contract
 

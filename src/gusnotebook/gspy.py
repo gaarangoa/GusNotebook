@@ -16,6 +16,7 @@ import nbformat
 from . import cellhistory
 from .notebook import Notebook, NotebookReadError
 from .persistence import ExternalChangeError, atomic_write, disk_version
+from .gspy_content import ContentNotebook, definition, validate_definition
 
 KEY = "gusnotebook"
 SCHEMA_VERSION = 1
@@ -80,6 +81,29 @@ def validate(nb):
     cell_ids = [c.get("id") for c in nb.get("cells", [])]
     if any(not isinstance(cid, str) or not cid for cid in cell_ids) or len(set(cell_ids)) != len(cell_ids):
         raise ValueError("GSPY blocks require unique stable IDs")
+    for cell in nb.get("cells", []):
+        if "gusnotebook_content" in cell.get("metadata", {}):
+            validate_definition(cell["metadata"]["gusnotebook_content"])
+    for event in meta["journal"]:
+        if event["kind"] == "run_started" or (event.get("run_id") and event["kind"] == "run"):
+            if (not isinstance(event.get("run_id"), str) or not event["run_id"]
+                    or not isinstance(event.get("cell_id"), str)
+                    or not isinstance(event.get("kernel_generation"), str)
+                    or not isinstance(event.get("upstream"), dict)
+                    or type(event.get("prerequisites_valid")) is not bool
+                    or event.get("executed_revision") not in meta["revisions"]):
+                raise ValueError("Invalid captured run identity or execution context")
+            revision = meta["revisions"][event["executed_revision"]]
+            if event.get("signature") != digest({"source": revision["source"], "results": definition(revision)["results"]}):
+                raise ValueError("Run does not match its producing revision")
+            if event["kind"] == "run":
+                if event.get("outputs_ref") not in meta["artifacts"]:
+                    raise ValueError("Run references missing outputs")
+                if (event.get("status") not in {"success", "error", "cancelled", "unknown"}
+                        or not isinstance(event.get("values"), dict)
+                        or not isinstance(event.get("capture_errors"), dict)):
+                    raise ValueError("Invalid captured result")
+                encode(event["values"])
     nbformat.validate(nb)
 
 
@@ -188,7 +212,7 @@ def reconcile(previous, current, actor="GusNotebook", context=None):
             append(meta, {"kind": "metadata", "actor": actor, "before": before, "after": after})
 
 
-class GspyNotebook(Notebook):
+class GspyNotebook(ContentNotebook, Notebook):
     def __init__(self, path, publish=None):
         super().__init__(path, publish)
         self._committed = None
@@ -265,6 +289,7 @@ class GspyNotebook(Notebook):
     def _cell_json(self, cell):
         result = super()._cell_json(cell)
         result["history_summary"] = self.cell_history(cell["id"])["summary"]
+        result["content"] = self.content_json(cell)
         return result
 
     def to_json(self):

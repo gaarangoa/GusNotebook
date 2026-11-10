@@ -12,6 +12,7 @@ import queue
 import sys
 import threading
 import time
+import uuid
 from pathlib import Path
 
 from jupyter_client.manager import KernelManager
@@ -56,13 +57,14 @@ class Kernel:
         self._kernel_cell_busy = False
         self.status = "stopped"
         self.execution_count = 0
+        self.generation = None
 
     # --- lifecycle ---
 
     def _set_status(self, status):
         self.status = status
         self._publish("kernel_status", status=status, notebook=self.key,
-                    python=self.python)
+                    python=self.python, generation=self.generation)
 
     def _spec_for(self, km):
         """The native kernelspec with argv[0] pinned to our interpreter."""
@@ -136,6 +138,7 @@ class Kernel:
                 self._set_status("dead")
                 raise
             self._km, self._kc = km, kc
+            self.generation = uuid.uuid4().hex
             self._set_status("idle")
         self._execute_silent(_BOOTSTRAP)
 
@@ -238,7 +241,7 @@ class Kernel:
                 break
         self._drain_shell(self._kc, msg_id)
 
-    def execute(self, code, on_output=None, timeout=None):
+    def execute(self, code, on_output=None, timeout=None, capture=None):
         """Run code to completion. Returns (execution_count, [nbformat outputs]).
 
         on_output(outputs) is called with the full accumulated output list as it
@@ -297,7 +300,15 @@ class Kernel:
                 return None, outputs
 
             self._set_status("busy")
-            msg_id = kc.execute(code, store_history=True)
+            expressions = {}
+            if capture is not None:
+                from .result_capture import BOOTSTRAP
+                names = capture.get("names", [])
+                if names:
+                    self._execute_silent(BOOTSTRAP)
+                    expressions = {name: f"_gusnotebook_capture_result({name!r})" for name in names}
+                capture["generation"] = self.generation
+            msg_id = kc.execute(code, store_history=True, user_expressions=expressions)
 
             last_sent = [0.0]
             pending = [False]
@@ -402,7 +413,10 @@ class Kernel:
                 # stops short of what it actually printed.
                 if pending[0]:
                     notify(force=True)
-                self._drain_shell(kc, msg_id)
+                reply = self._drain_shell(kc, msg_id)
+                if capture is not None:
+                    from .result_capture import collect
+                    capture.update(collect(reply, capture.get("names", [])))
                 with self._run_state_lock:
                     self._interrupt_requested.clear()
                     self._prepared_run = None

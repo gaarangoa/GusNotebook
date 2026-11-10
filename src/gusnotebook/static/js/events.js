@@ -5,12 +5,14 @@
  * where to look when something repaints and you don't know why. */
 
 // ---------- Load + live events ----------
+let notebookLoadRevision = 0;
 /** Reload the active notebook tab's cells from the server. */
 async function load(force = false) {
   if (!isNotebookTab() || !active) return;
   const key = active;
+  const revision = ++notebookLoadRevision;
   const data = await api('/api/notebook' + nbq(force ? {force: '1'} : undefined));
-  if (key !== active) return;          // the user switched tabs mid-request
+  if (key !== active || revision !== notebookLoadRevision) return;
 
   const t = activeTab();
   // A reload during execution reads the last completed outputs from disk. Keep
@@ -217,6 +219,7 @@ es.onmessage = (e) => {
   }
 
   const t = msg.notebook ? tab(msg.notebook) : null;
+  if (gspyExecutionEvent(msg, t)) return;
   if (msg.notebook && typeof workspaceTabEntries === 'function') {
     for (const entry of workspaceTabEntries(msg.notebook)) {
       if (entry.visible || entry.tab.kind !== 'notebook') continue;

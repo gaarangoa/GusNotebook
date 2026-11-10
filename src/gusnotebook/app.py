@@ -1274,6 +1274,10 @@ def api_notebook():
     doc = get_nb(key)
     if request.args.get("force") == "1":
         doc.load()
+    if notebook_format(doc.path) == "gspy":
+        k = kernels.peek(key)
+        if k and k.generation:
+            doc._kernel_generation = k.generation if k.is_alive() else "stopped"
     data = doc.to_json()
     data["kind"] = "notebook"
     data["kernel_status"] = kernels.status(key)
@@ -1281,6 +1285,43 @@ def api_notebook():
     data["running_cells"] = _running_cell_ids(key)
     data["open"] = notebooks.paths()
     return jsonify(data)
+
+
+@routes.route("/api/cells/<cell_id>/content", methods=["PATCH"])
+def api_cell_content(cell_id):
+    doc = get_nb(doc_key())
+    if notebook_format(doc.path) != "gspy":
+        return jsonify(error="Content layouts are available for .gspy notebooks"), 400
+    body = request.get_json(silent=True) or {}
+    try:
+        return jsonify(doc.update_content(cell_id, body.get("content"), body.get("expected_version")))
+    except ValueError as exc:
+        return jsonify(error=str(exc)), 400
+
+
+@routes.route("/api/notebook/runs/<run_id>", methods=["GET", "POST"])
+def api_document_run(run_id):
+    doc = get_nb(doc_key())
+    if notebook_format(doc.path) != "gspy":
+        return jsonify(error="Captured runs are available for .gspy notebooks"), 400
+    try:
+        if request.method == "POST":
+            doc.retry_result(run_id)
+        return jsonify(doc.inspect_run(run_id))
+    except ValueError as exc:
+        return jsonify(error=str(exc)), 400
+
+
+@routes.route("/api/cells/<cell_id>/review", methods=["POST"])
+def api_review_content(cell_id):
+    doc = get_nb(doc_key())
+    if notebook_format(doc.path) != "gspy" or not from_browser():
+        return jsonify(error="Review content in the scientific notebook interface"), 400
+    body = request.get_json(silent=True) or {}
+    try:
+        return jsonify(doc.review_content(cell_id, body.get("expected_version")))
+    except ValueError as exc:
+        return jsonify(error=str(exc)), 400
 
 
 @routes.route("/api/cells", methods=["POST"])
@@ -1340,12 +1381,23 @@ def api_cell_history(cell_id):
                 return jsonify(error="Invalid snapshot ID"), 400
             # A receipt describes a successful clipboard write, not an export.
             existing = doc.cell_history(cell_id)["events"]
+            provenance = {}
+            if body.get("run_id") and notebook_format(doc.path) == "gspy":
+                try:
+                    run = doc.inspect_run(body["run_id"])
+                    if run["cell_id"] != cell_id:
+                        raise ValueError("Producing run belongs to a different block")
+                    provenance = {"producing_run_id": run["run_id"], "outputs_ref": run["outputs_ref"],
+                                  "executed_revision": run["executed_revision"]}
+                except ValueError as exc:
+                    return jsonify(error=str(exc)), 400
             if not any(e.get("kind") == "copy" and e.get("snapshot_id") == snapshot for e in existing):
                 doc.record_history(cell_id, "copy", context=cell_audit_context(), snapshot_id=snapshot,
                                    output_mime=str(body.get("output_mime") or ""),
                                    attachment=str(body.get("attachment") or ""),
                                    note=str(body.get("note") or ""),
                                    source=str(body.get("source") or ""),
+                                   **provenance,
                                    summary="Output copied" if body.get("output_mime") else "Source provenance copied")
                 runtime().artifact_versions.clear()
         else:
@@ -1660,8 +1712,14 @@ def _run_cell(key, cell_id, run_id=None):
             return {"error": "not a code cell"}, 400
 
         source = cell.get("source", "")
+        scientific = notebook_format(nb.path) == "gspy"
+        if scientific:
+            run_id = run_id or uuid.uuid4().hex
         if not source.strip():
-            nb.set_outputs(cell_id, [], None)
+            if scientific:
+                nb.clear_outputs(cell_id)
+            else:
+                nb.set_outputs(cell_id, [], None)
             bus.publish("cell_done", cell_id=cell_id, execution_count=None,
                         outputs=[], notebook=key, run_id=run_id)
             return {"status": "ok", "execution_count": None, "outputs": []}, 200
@@ -1677,6 +1735,17 @@ def _run_cell(key, cell_id, run_id=None):
             with _run_control_lock:
                 cancelled = bool(run_id and _cancelled_runs.pop(run_id, None))
                 k.prepare_execution(run_id)
+
+            record, capture = None, None
+            if scientific:
+                if not cancelled:
+                    k.start()
+                try:
+                    record = nb.begin_run(cell_id, run_id, k.generation or "stopped", k.python, source)
+                except Exception:
+                    k.cancel_prepared_execution(run_id)
+                    raise
+                capture = {"names": record["declarations"]}
 
             bus.publish("cell_running", cell_id=cell_id, notebook=key,
                         run_id=run_id)
@@ -1699,7 +1768,10 @@ def _run_cell(key, cell_id, run_id=None):
                     bus.publish("kernel_status", status=k.status, notebook=key,
                                 python=k.python)
                 else:
-                    count, outputs = k.execute(source, on_output=on_output)
+                    if scientific:
+                        count, outputs = k.execute(source, on_output=on_output, capture=capture)
+                    else:
+                        count, outputs = k.execute(source, on_output=on_output)
             except Exception as e:
                 outputs = [{
                     "output_type": "error",
@@ -1713,7 +1785,20 @@ def _run_cell(key, cell_id, run_id=None):
                     with _run_control_lock:
                         _cancelled_runs.pop(run_id, None)
 
-        nb.set_outputs(cell_id, outputs, count, executed_source=source)
+            if scientific:
+                nb.finish_run(record, outputs, count, capture)
+                # The content client reloads its saved bindings on cell_done.
+                # Remove this run first so that snapshot cannot revive its
+                # spinner. Keep a newer queued run of the same block intact.
+                with _run_control_lock:
+                    running = _running_cells.get(key, {})
+                    if running.get(cell_id) == run_id:
+                        running.pop(cell_id, None)
+                    if not running:
+                        _running_cells.pop(key, None)
+
+        if not scientific:
+            nb.set_outputs(cell_id, outputs, count, executed_source=source)
         bus.publish("cell_done", cell_id=cell_id, execution_count=count,
                     outputs=[dict(o) for o in outputs], notebook=key,
                     kernel_status=k.status, python=k.python, run_id=run_id)
@@ -1722,7 +1807,8 @@ def _run_cell(key, cell_id, run_id=None):
         with _run_control_lock:
             running = _running_cells.get(key)
             if running:
-                running.pop(cell_id, None)
+                if not scientific or running.get(cell_id) == run_id:
+                    running.pop(cell_id, None)
                 if not running:
                     _running_cells.pop(key, None)
 
@@ -1757,7 +1843,9 @@ def _start_cell_run(key, cell_id, run_id, origin=None):
                 "traceback": [],
             }]
             try:
-                get_nb(key).set_outputs(cell_id, outputs, None)
+                doc = get_nb(key)
+                if notebook_format(doc.path) != "gspy":
+                    doc.set_outputs(cell_id, outputs, None)
             except Exception:
                 pass
             k = kernels.peek(key)
@@ -2000,6 +2088,8 @@ def api_kernel_action(action):
                     k.interrupt(run_id=run_id)
         elif action == "shutdown":
             kernels.drop(key)
+            if notebook_format(Path(key)) == "gspy":
+                get_nb(key)._kernel_generation = "stopped"
         else:
             return jsonify({"error": f"unknown action: {action}"}), 400
     except Exception as e:

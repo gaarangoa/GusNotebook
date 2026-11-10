@@ -47,9 +47,10 @@ The browser opens your workspace. The default port is 8888; the example uses
 
 Choose **+ → Scientific notebook** to create a `.gspy` alongside ordinary
 `.ipynb` notebooks. Its **More workspace actions → Document history** retains
-recorded changes, deleted blocks, and output versions; restore a block or export
-the full `.jsonl` log there. This first version uses the notebook interface;
-live narrative values and content layouts are [planned next](docs/gspy-implementation-plan.md).
+recorded changes, deleted blocks, producing runs, and output versions; restore a
+block or export the full `.jsonl` log there. **Content** adds paragraphs, live
+values, and figures in document, two-column, or slide sections. **Code** reveals
+the executable source. [Get started with scientific notebooks](docs/gspy.md).
 
 Normal launches show startup details, login prompts, and warnings/errors only.
 Add `--verbose` to show HTTP requests and detailed tunnel logs when troubleshooting.

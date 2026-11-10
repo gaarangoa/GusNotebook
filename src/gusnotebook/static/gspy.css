@@ -1,0 +1,34 @@
+.gspy-cell .cell-body { min-width: 0; }
+.gspy-tools { display: flex; gap: 5px; justify-content: flex-end; margin-bottom: 4px; }
+.gspy-tools button, .gspy-code > summary, .gspy-output-source { font: inherit; color: var(--muted); }
+.gspy-tools button, .gspy-output-source { background: transparent; border: 1px solid var(--border); border-radius: 4px; padding: 2px 6px; cursor: pointer; }
+.gspy-tools { opacity: 0; }
+.gspy-cell:hover .gspy-tools, .gspy-cell:focus-within .gspy-tools, .gspy-cell.is-current .gspy-tools { opacity: 1; }
+.gspy-code { margin: 5px 0; }
+.gspy-code > summary { cursor: pointer; width: fit-content; padding: 2px 0; }
+.gspy-code[open] { border-top: 1px solid var(--border); }
+.gspy-content { display: grid; gap: 12px; padding: 4px 0; }
+.gspy-columns { grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; }
+.gspy-slide { border: 1px solid var(--border); border-radius: 6px; padding: 24px; min-height: 300px; background: var(--panel); }
+.gspy-figure { margin: 0; min-width: 0; overflow: auto; }
+.gspy-figure .outputs { border: 0; }
+.gspy-output-source { margin-top: 4px; }
+.gspy-value { font: inherit; color: var(--accent); background: transparent; border: 0; border-bottom: 1px dotted var(--accent); padding: 0 1px; cursor: pointer; }
+.gspy-value.stale, .gspy-value.missing { color: var(--yellow); border-bottom-color: var(--yellow); }
+.gspy-state, .gspy-empty { color: var(--muted); padding: 4px 0; font-size: var(--small-size); }
+.gspy-state.stale { color: var(--yellow); }
+.gspy-live { border-top: 1px dashed var(--border); margin-top: 8px; }
+.gspy-live[hidden] { display: none; }
+.gspy-dialog { width: min(740px, 94vw); max-height: 88vh; overflow: auto; padding: 20px; }
+.gspy-dialog h2 { margin: 0 0 12px; }
+.gspy-dialog p { color: var(--muted); line-height: 1.5; margin: 8px 0; }
+.gspy-dialog label { display: flex; flex-direction: column; gap: 4px; margin: 6px 0; min-width: 0; }
+.gspy-dialog input, .gspy-dialog textarea, .gspy-dialog select { font: inherit; color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: 4px; padding: 6px; min-width: 0; }
+.gspy-dialog button { font: inherit; padding: 4px 8px; border: 1px solid var(--border); background: var(--surface); color: var(--text); border-radius: 4px; cursor: pointer; }
+.gspy-dialog button:disabled { opacity: .5; cursor: default; }
+.gspy-dialog-actions { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; margin: 8px 0; }
+.gspy-component-editor, .gspy-binding-editor { border: 1px solid var(--border); border-radius: 4px; padding: 8px; margin: 8px 0; }
+.gspy-binding-editor { display: grid; grid-template-columns: 1fr 2fr; gap: 4px 10px; }
+.gspy-source { background: var(--code-bg); color: var(--text); padding: 12px; border: 1px solid var(--border); overflow: auto; max-height: 50vh; }
+#gspy-save-error { color: var(--red); }
+@media (max-width: 720px) { .gspy-columns, .gspy-binding-editor { grid-template-columns: 1fr; } .gspy-tools { opacity: 1; } }

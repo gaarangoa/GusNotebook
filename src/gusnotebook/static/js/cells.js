@@ -397,6 +397,7 @@ function showActive() {
   const kind = t ? t.kind : 'none';
   const isNb = kind === 'notebook' || kind === 'none';
   document.getElementById('document-history-button').hidden = t?.format !== 'gspy';
+  document.getElementById('gspy-run-all-button').hidden = t?.format !== 'gspy';
 
   document.getElementById('notebook-pane').style.display = isNb ? '' : 'none';
   document.getElementById('toolbar').style.display = kind === 'notebook' ? '' : 'none';
@@ -1454,7 +1455,7 @@ window.addEventListener('message', (event) => {
   if (frame && height) frame.style.height = height + 'px';
 });
 
-function renderOutputs(outputs, cellId) {
+function renderOutputs(outputs, cellId, placementId = cellId) {
   if (!outputs || !outputs.length) return '';
   let html = '<div class="outputs">';
   outputs.forEach((o, outputIndex) => {
@@ -1474,7 +1475,7 @@ function renderOutputs(outputs, cellId) {
       html += `</div>`;
     } else if (t === 'execute_result' || t === 'display_data') {
       const d = o.data || {};
-      const outputId = `htmlout-${cellId || 'cell'}-${outputIndex}`;
+      const outputId = `htmlout-${placementId || 'cell'}-${outputIndex}`;
       if (d['text/html']) {
         html += htmlOutputFrame(richMimeText(d['text/html']), outputId,
                                 d['text/plain'] ? richMimeText(d['text/plain']) : '');
@@ -1819,6 +1820,7 @@ function provenanceHtml(c, visual, details) {
     execution_count: c.execution_count == null ? null : c.execution_count,
     timestamp: new Date().toISOString(),
     code: c.source || '',
+    producing_run_id: c.producing_run_id,
     output_mime: visual ? visual.mime : null,
     output_source: visual ? visual.source : null,
     output_data_url: visual ? visual.dataUrl || null : null,
@@ -1869,10 +1871,16 @@ async function copyRichHtml(html, plain) {
 }
 
 async function copyCellProvenance(id, event) {
-  const c = getCell(id);
+  let c = getCell(id);
   if (!c) return;
   const target = {path: active, id};
   const notebookTab = activeTab();
+  if (notebookTab?.format === 'gspy' && c.content?.run?.run_id) {
+    try {
+      const run = await api(`/api/notebook/runs/${encodeURIComponent(c.content.run.run_id)}?${new URLSearchParams({notebook: target.path})}`);
+      c = {...c, source: run.source, outputs: run.outputs, execution_count: run.execution_count, producing_run_id: run.run_id};
+    } catch (error) { flash('Copy failed: ' + errText(error)); return; }
+  }
   const visual = visualOutput(c);
   const wantsAttachment = !visual || (event && (event.altKey || event.metaKey || event.ctrlKey));
   const defaultPath = active ? active.split('/').slice(0, -1).join('/') + '/' : '';
@@ -1892,6 +1900,7 @@ async function copyCellProvenance(id, event) {
     const updated = await api(cellHistoryUrl(target), {method: 'POST', body: JSON.stringify({
       kind: 'copy', snapshot_id: block.payload.snapshot_id, output_mime: block.payload.output_mime,
       source: block.payload.code, attachment: details.path || '', note: details.comment || '',
+      run_id: block.payload.producing_run_id,
     })});
     updateCellHistorySummary(target.path, id, updated.summary);
     flash(visual ? 'Copied provenance snapshot' : 'Copied source provenance');
@@ -2022,6 +2031,11 @@ function outputSlotHtml(c) {
 }
 
 function cellHtml(c) {
+  return activeTab()?.format === 'gspy' && ['code', 'markdown'].includes(c.cell_type)
+    ? gspyCellHtml(c) : notebookCellHtml(c);
+}
+
+function notebookCellHtml(c) {
   const isMd = c.cell_type === 'markdown';
   const isCode = c.cell_type === 'code';
   const isAi = c.cell_type === 'ai';
