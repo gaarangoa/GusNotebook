@@ -2003,6 +2003,27 @@ button:disabled { opacity: .55; cursor: default; }
 .md-rendered h1 { letter-spacing: -.02em; margin: 10px 0 12px; }
 .md-rendered h2 { margin: 16px 0 10px; }
 .md-rendered p { margin: 8px 0; }
+/* Heading cells already have cell padding and spacing around them. Avoid
+   stacking prose margins on those gaps, including the collapsed summary. */
+.cell:has(> .cell-body > .md-rendered > :is(h1, h2, h3, h4, h5, h6):first-child) {
+  margin-bottom: 4px;
+  --notebook-heading-size: 2em;
+}
+.cell:has(> .cell-body > .md-rendered > h2:first-child) { --notebook-heading-size: 1.5em; }
+.cell:has(> .cell-body > .md-rendered > h3:first-child) { --notebook-heading-size: 1.25em; }
+.cell:has(> .cell-body > .md-rendered > h4:first-child) { --notebook-heading-size: 1em; }
+.cell:has(> .cell-body > .md-rendered > h5:first-child) { --notebook-heading-size: .875em; }
+.cell:has(> .cell-body > .md-rendered > h6:first-child) { --notebook-heading-size: .85em; }
+.cell:has(> .cell-body > .md-rendered > :is(h1, h2, h3, h4, h5, h6):first-child) > .cell-body {
+  padding-bottom: 2px;
+}
+.cell > .cell-body > .md-rendered:has(> :is(h1, h2, h3, h4, h5, h6):first-child) { padding-bottom: 2px; }
+.cell > .cell-body > .md-rendered > :is(h1, h2, h3, h4, h5, h6):first-child { margin-top: 4px; }
+.cell > .cell-body > .md-rendered > :is(h1, h2, h3, h4, h5, h6):last-child { margin-bottom: 0; }
+.cell:has(> .cell-body > .md-rendered) .hd-toggle {
+  top: calc(11px + var(--notebook-heading-size) * .825 - 12px);
+}
+.cell > .cell-body > .heading-summary { margin: 0; padding: 1px 6px; }
 .md-rendered table { font-size: var(--ui-size); }
 .output, .output.stream { font-size: var(--ui-size); line-height: 1.6; }
 .output.stream { background: var(--surface); color: var(--text); border: 1px solid var(--border); }
