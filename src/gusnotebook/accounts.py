@@ -39,6 +39,8 @@ class Accounts:
             if self.closed:
                 raise GitError("GusNotebook is shutting down")
             if self.job and self.job["state"] == "running":
+                if login and self.job["kind"] == "logout":
+                    raise GitError("Sign-out is still running. Try again when it finishes.")
                 if login and self.job["kind"] not in {"login", "setup"}:
                     raise GitError("Account check is still running. Try again when it finishes.")
                 return
@@ -52,6 +54,50 @@ class Accounts:
             self.worker = threading.Thread(target=self._run, args=(job, local, login, provider),
                                            daemon=True, name="gusnb-accounts")
             self.worker.start()
+
+    def logout(self, local):
+        with self.lock:
+            if self.closed:
+                raise GitError("GusNotebook is shutting down")
+            if self.job and self.job["state"] == "running":
+                raise GitError("An account operation is still running. Try again when it finishes.")
+            managers = [self.git] + ([self.tunnels] if local else [])
+            if any((manager.snapshot().get("activity") or {}).get("state") == "running" for manager in managers):
+                raise GitError("An account operation is still running. Try again when it finishes.")
+            job = {"state": "running", "kind": "logout", "phase": "tunnels" if local else "git",
+                   "error": None, "local": local, "cancel": threading.Event()}
+            self.job = job
+            self.worker = threading.Thread(target=self._logout, args=(job, local), daemon=True, name="gusnb-accounts-logout")
+            self.worker.start()
+
+    def _logout(self, job, local):
+        errors = []
+        try:
+            # Disconnect tunnels first so credential forwarding stops before
+            # removing GitHub's stored authorization. Attempt both on failure.
+            managers = ([("tunnels", self.tunnels)] if local else []) + [("git", self.git)]
+            for phase, manager in managers:
+                self._check_cancel(job)
+                state = manager.snapshot()
+                if phase == "tunnels" and state["cli_error"] and not (state["account"] or {}).get("logged_in"):
+                    continue
+                if phase == "git" and not (state["gh_available"] or state["shared"] or state["account"].get("logged_in")):
+                    continue
+                with self.lock:
+                    job["phase"] = phase
+                try:
+                    self._perform(job, manager, manager.logout)
+                except (GitError, TunnelError, OSError) as exc:
+                    errors.append(redact(exc))
+            with self.lock:
+                job.update(state="error" if errors else "done", error="; ".join(errors) or None)
+        except GitError as exc:
+            with self.lock:
+                job.update(state="error", error=redact(exc))
+        finally:
+            if job["cancel"].is_set():
+                with self.lock:
+                    job.update(state="canceled", error=None)
 
     def _check_cancel(self, job):
         if job["cancel"].is_set():

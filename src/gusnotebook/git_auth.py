@@ -61,24 +61,53 @@ class GitAuth:
             return {"account": dict(self.account), "activity": job, "gh_available": bool(gh),
                     "shared": self.remote.active(), "shared_account": self.remote.account if self.remote.active() else None}
 
-    def refresh(self, login=False):
+    def refresh(self, login=False, logout=False):
         with self.lock:
             if self.commands.closed.is_set():
                 raise GitError("GusNotebook is shutting down")
             if self.job and self.job["state"] == "running":
+                if logout or self.job["kind"] == "logout":
+                    raise GitError("An account operation is still running. Try again when it finishes.")
                 return
             gh = executable("gh", "GUSNOTEBOOK_GH", self.tools_dir)
-            if not gh:
+            if not gh and not (logout and self.remote.active()):
                 raise GitError("Install GitHub CLI (gh) to sign in: https://cli.github.com")
-            job = {"state": "running", "kind": "login" if login else "refresh", "output": "", "error": None,
+            job = {"state": "running", "kind": "logout" if logout else "login" if login else "refresh", "output": "", "error": None,
                    "cancel": threading.Event()}
             self.job = job
-            self.worker = threading.Thread(target=self._refresh, args=(gh, job, login), daemon=True, name="gusnb-github-login")
+            self.worker = threading.Thread(target=self._refresh, args=(gh, job, login, logout), daemon=True, name="gusnb-github-login")
             self.worker.start()
 
-    def _refresh(self, gh, job, login):
+    def logout(self):
+        self.refresh(logout=True)
+
+    def _read_account(self, gh, env, job):
+        result = self.commands.run([gh, "auth", "status", "--hostname", "github.com", "--active", "--json", "hosts"],
+                                   env=env, cwd=self.work, cancel=job["cancel"], timeout=20)
+        if result.returncode:
+            raise GitError("Cannot check GitHub sign-in. Update GitHub CLI and check your connection.")
+        entries = json.loads(result.stdout).get("hosts", {}).get("github.com", [])
+        active = next((entry for entry in entries if entry.get("active")), {})
+        with self.lock:
+            self.account = {"login": active.get("login", ""), "logged_in": active.get("state") == "success"}
+        return active
+
+    def _refresh(self, gh, job, login, logout=False):
         try:
             env = {**self.env, "GH_BROWSER": "/usr/bin/true", "GH_PROMPT_DISABLED": "1", "NO_COLOR": "1"}
+            if logout:
+                self.remote.close()
+                variable = next((key for key in ("GH_TOKEN", "GITHUB_TOKEN") if env.get(key)), None)
+                if variable:
+                    raise GitError(f"GitHub uses {variable}. Remove it from the environment and restart GusNotebook to sign out.")
+                active = self._read_account(gh, env, job) if gh else {}
+                if active.get("login"):
+                    result = self.commands.run([gh, "auth", "logout", "--hostname", "github.com", "--user", active["login"]],
+                                               env=env, cwd=self.work, cancel=job["cancel"], timeout=20)
+                    if result.returncode:
+                        raise GitError("GitHub sign-out failed: " + (redact(result.stderr.strip()) or "Try again."))
+                with self.lock:
+                    self.account = {"login": "", "logged_in": False}
             if login:
                 def output(text):
                     with self.lock:
@@ -88,14 +117,9 @@ class GitAuth:
                     cancel=job["cancel"], timeout=600, output=output)
                 if result.returncode:
                     raise GitError("GitHub sign-in did not complete. Check the instructions above and retry.")
-            result = self.commands.run([gh, "auth", "status", "--hostname", "github.com", "--active", "--json", "hosts"],
-                                       env=env, cwd=self.work, cancel=job["cancel"], timeout=20)
-            if result.returncode:
-                raise GitError("Cannot check GitHub sign-in. Update GitHub CLI and check your connection.")
-            entries = json.loads(result.stdout).get("hosts", {}).get("github.com", [])
-            active = next((entry for entry in entries if entry.get("active")), {})
+            if gh:
+                self._read_account(gh, env, job)
             with self.lock:
-                self.account = {"login": active.get("login", ""), "logged_in": active.get("state") == "success"}
                 job["state"] = "done"
                 if login:
                     job["output"] = ""

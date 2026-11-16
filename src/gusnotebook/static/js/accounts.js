@@ -38,12 +38,12 @@ function accountNotice(message) {
   const notice = document.getElementById('account-error');
   notice.textContent = message; notice.hidden = !message;
 }
-async function accountRequest(body, method = 'POST') {
+async function accountRequest(body, method = 'POST', path = '') {
   if (accountRequestPending) return;
   accountRequestPending = true; accountRequestError = '';
-  for (const button of document.querySelectorAll('#git-login, #git-auth-refresh, #account-microsoft')) button.disabled = true;
+  for (const button of document.querySelectorAll('#git-login, #git-auth-refresh, #account-microsoft, #account-logout')) button.disabled = true;
   try {
-    accountState = await api('/api/accounts', {method, ...(body ? {body:JSON.stringify(body)} : {})});
+    accountState = await api('/api/accounts' + path, {method, ...(body ? {body:JSON.stringify(body)} : {})});
   } catch (error) { accountRequestError = errText(error); }
   finally { accountRequestPending = false; renderAccounts(); scheduleAccountPoll(); }
 }
@@ -53,11 +53,12 @@ function accountSignIn(provider = 'github') {
   return accountRequest({login:true, provider, setup:!!missing});
 }
 function cancelAccountLogin() { return accountRequest(null, 'DELETE'); }
+function accountSignOut() { return accountRequest(null, 'POST', '/logout'); }
 
 function renderAccounts() {
   if (!accountState) {
     accountNotice(accountRequestError);
-    for (const button of document.querySelectorAll('#git-login, #git-auth-refresh, #account-microsoft')) button.disabled = accountRequestPending;
+    for (const button of document.querySelectorAll('#git-login, #git-auth-refresh, #account-microsoft, #account-logout')) button.disabled = accountRequestPending;
     return;
   }
   const {git, tunnels, activity, setup} = accountState;
@@ -86,6 +87,18 @@ function renderAccounts() {
     : connected ? 'GitHub connected' : signedIn ? 'Connect GitHub to tunnels' : 'Sign in with GitHub';
   login.disabled ||= !!connected && !needsSetup;
   document.getElementById('git-auth-refresh').disabled = running;
+  const logout = document.getElementById('account-logout');
+  const canSignOut = signedIn || git.account?.login || tunnels?.account?.logged_in;
+  logout.disabled = running;
+  logout.hidden = !canSignOut && !(activity?.kind === 'logout' && activity.state === 'running');
+  logout.textContent = activity?.kind === 'logout' && activity.state === 'running' ? 'Signing out…' : 'Sign out';
+  const logoutHelp = document.getElementById('account-logout-help');
+  logoutHelp.hidden = logout.hidden;
+  logoutHelp.textContent = tunnels
+    ? 'Signs out of GitHub and tunnels on this computer and disconnects tunnels. Saved tunnels are kept.'
+    : git.shared ? 'Signs out of GitHub in this workspace and stops shared GitHub credentials.'
+      : 'Signs out of GitHub on this computer.';
+  if (logout.hidden && document.activeElement === logout) document.getElementById('git-auth-refresh').focus();
   const microsoft = document.getElementById('account-microsoft');
   if (microsoft) {
     const missingTunnel = missing.some(tool => tool.name === 'devtunnel');
@@ -126,12 +139,14 @@ function renderAccounts() {
     } catch (_) {}
   }
   document.getElementById('account-login-help').hidden = !running || !['login', 'setup'].includes(activity?.kind) || activity.phase === 'install' || !tunnels;
-  document.getElementById('account-login-cancel').hidden = activity?.state !== 'running';
+  document.getElementById('account-login-cancel').hidden = activity?.state !== 'running' || activity?.kind === 'logout';
   document.getElementById('account-login-cancel').textContent = activity?.phase === 'install' ? 'Cancel setup' : 'Cancel sign-in';
   document.getElementById('account-activity').textContent = running
-    ? activity?.phase === 'install' ? 'Installing account tools…'
+    ? activity?.kind === 'logout' ? (activity.phase === 'tunnels' ? 'Disconnecting and signing out of tunnels…' : 'Signing out of GitHub…')
+      : activity?.phase === 'install' ? 'Installing account tools…'
       : ['login', 'setup'].includes(activity?.kind) ? (activity.phase === 'tunnels' ? 'Connecting tunnel account…' : 'Connecting GitHub…') : 'Checking accounts…'
-    : activity?.state === 'done' && ['login', 'setup'].includes(activity.kind) ? 'Account connected'
+    : activity?.state === 'done' && activity.kind === 'logout' ? 'Sign-out complete'
+      : activity?.state === 'done' && ['login', 'setup'].includes(activity.kind) ? 'Account connected'
       : activity?.state === 'canceled' ? (activity.phase === 'install' ? 'Setup canceled' : 'Sign-in canceled') : '';
   accountNotice(accountRequestError || activity?.error || '');
 }

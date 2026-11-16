@@ -34,7 +34,8 @@
       <div id="git-account">Checking GitHub account…</div>
       <div id="tunnel-account">Checking tunnel account…</div>
       <p class="accounts-help">Sign in here for Git and remote tunnels. Existing sign-ins are reused.</p>
-      <div class="account-actions"><button class="files-btn" id="git-login" onclick="accountSignIn()">Sign in with GitHub</button><button class="files-btn" id="git-auth-refresh" onclick="refreshAccounts()">Check account</button></div>
+      <div class="account-actions"><button class="files-btn" id="git-login" onclick="accountSignIn()">Sign in with GitHub</button><button class="files-btn" id="git-auth-refresh" onclick="refreshAccounts()">Check account</button><button class="files-btn" id="account-logout" onclick="accountSignOut()" aria-describedby="account-logout-help" hidden>Sign out</button></div>
+      <p class="accounts-help" id="account-logout-help" hidden></p>
       <p id="git-install" hidden>Install <a href="https://cli.github.com" target="_blank" rel="noopener noreferrer">GitHub CLI</a> to sign in for Git.</p>
       <p id="account-tunnel-install" hidden></p>
       <div id="account-tool-progress" role="status" hidden></div>

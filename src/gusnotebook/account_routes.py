@@ -26,3 +26,11 @@ def accounts():
     elif request.method == "DELETE":
         manager.cancel(local=local)
     return jsonify(manager.snapshot(local)), 202 if request.method == "POST" else 200
+
+
+@account_routes.post("/api/accounts/logout")
+def logout():
+    manager = current_app.extensions["gusnotebook"].accounts
+    local = is_local_manager()
+    manager.logout(local)
+    return jsonify(manager.snapshot(local)), 202

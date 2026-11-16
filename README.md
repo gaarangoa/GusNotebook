@@ -126,6 +126,14 @@ for GitHub CLI and Dev Tunnels. Microsoft sign-in for tunnels is also available
 under **Other sign-in options**. Then open **Tunnels**, click **Refresh**, and
 select your tunnel. Use **+** to save a tunnel by its full name.
 
+Use **Accounts → Sign out** to log out of the current GitHub and tunnel accounts
+on this computer. This disconnects local tunnel connections and their Git
+credential sharing, while keeping saved tunnels. Sign-out uses the same GitHub
+CLI and Dev Tunnels sign-ins as the terminal. Other saved GitHub accounts and
+separately configured Git credentials are preserved. In a remote workspace,
+sign-out affects that workspace's GitHub sign-in and shared credentials only;
+manage the tunnel account from the local app.
+
 If either CLI is missing, Accounts offers **Set up GitHub** on macOS and Linux
 (Intel or ARM64). It downloads the official tools into GusNotebook's per-user
 state directory, shows progress, and continues to sign-in. No administrator

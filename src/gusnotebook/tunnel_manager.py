@@ -289,11 +289,56 @@ class TunnelManager:
             if self.activity and self.activity["state"] == "running":
                 self.activity["cancel"].set()
 
+    def logout(self):
+        with self.lock:
+            if self.closed:
+                raise TunnelError("GusNotebook is shutting down")
+            if self.activity and self.activity["state"] == "running":
+                raise TunnelError("An account operation is still running. Try again when it finishes.")
+            job = {"kind": "logout", "state": "running", "output": "", "error": None,
+                   "cancel": threading.Event()}
+            self.activity = job
+            workers = list(self.workers)
+            self._thread(lambda: self._logout(job, workers))
+
+    def _logout(self, job, workers):
+        try:
+            with self.lock:
+                identifiers = list(self.connections)
+            for identifier in identifiers:
+                self.disconnect(identifier)
+            # Wait for canceled connections to finish reading account/discovery
+            # state before clearing it, including connections still starting up.
+            deadline = time.monotonic() + 10
+            for worker in workers:
+                worker.join(timeout=max(0, deadline - time.monotonic()))
+            if any(worker.is_alive() for worker in workers):
+                raise TunnelError("Tunnels are still disconnecting. Try signing out again.")
+            cli = self._cli(job["cancel"])
+            result = self._run([cli.command, "user", "logout"], job["cancel"])
+            if result.returncode:
+                raise TunnelError("Tunnel sign-out failed: " + (result.stderr.strip() or "Try again."))
+            with self.lock:
+                self.account = {"logged_in": False, "provider": "", "username": ""}
+                self.discovered = {}
+                self.checked_at = time.time()
+            if self._account(cli)["logged_in"]:
+                raise TunnelError("Tunnel sign-out did not complete. Try again.")
+            with self.lock:
+                job["state"] = "done"
+        except (TunnelError, OSError, ValueError) as exc:
+            with self.lock:
+                job.update(state="error", error=str(exc))
+        finally:
+            if job["cancel"].is_set():
+                with self.lock:
+                    job.update(state="canceled", output="", error=None)
+
     def connect(self, identifier):
         with self.lock:
             entry = dict(self._get(identifier))
-            if self.activity and self.activity["kind"] == "login" and self.activity["state"] == "running":
-                raise TunnelError("Finish signing in before connecting")
+            if self.activity and self.activity["kind"] in {"login", "logout"} and self.activity["state"] == "running":
+                raise TunnelError("Finish the account operation before connecting")
             previous = self.connections.get(identifier)
             if previous and previous["state"] in {"connecting", "connected"}:
                 return

@@ -63,6 +63,7 @@ def main():
             expect(page.locator('#tunnel-account')).to_have_text('Tunnels · GitHub · researcher')
             expect(page.locator('#account-error')).to_be_hidden()
             expect(page.locator('#account-login-cancel')).to_be_hidden()
+            expect(page.get_by_role('button', name='Sign out', exact=True)).to_be_visible()
             for width in [1440, 768, 390, 320]:
                 page.set_viewport_size({'width': width, 'height': 900})
                 box = popup.bounding_box()
@@ -73,6 +74,25 @@ def main():
             for theme in ['light', 'dark']:
                 page.evaluate('theme => AppAppearance.update({theme})', theme)
                 page.screenshot(path=str(Path(tempfile.gettempdir()) / f'gusnb-accounts-{theme}.png'))
+            (tunnels / 'hold-logout').touch()
+            page.get_by_role('button', name='Sign out', exact=True).click()
+            expect(page.locator('#account-logout')).to_be_disabled()
+            expect(page.locator('#account-activity')).to_contain_text('signing out of tunnels')
+            expect(page.locator('#account-login-cancel')).to_be_hidden()
+            page.reload()
+            accounts.click()
+            expect(page.locator('#account-logout')).to_have_text('Signing out…')
+            (tunnels / 'hold-logout').unlink()
+            expect(page.locator('#git-account')).to_have_text('GitHub · Not signed in')
+            expect(page.locator('#tunnel-account')).to_have_text('Tunnels · Not signed in')
+            expect(page.locator('#account-activity')).to_have_text('Sign-out complete')
+            expect(page.locator('#account-logout')).to_be_hidden()
+            expect(accounts.locator('.account-dot')).to_be_hidden()
+            expect(page.locator('#account-error')).to_be_hidden()
+            assert not (github / 'account.json').exists()
+            page.get_by_role('button', name='Sign in with GitHub', exact=True).click()
+            expect(page.locator('#git-login')).to_have_text('GitHub connected')
+            expect(page.locator('#account-logout')).to_be_visible()
             page.keyboard.press('Escape')
             for panel in ['git', 'tunnels']:
                 page.locator('#sidebar-' + panel).click()
@@ -80,7 +100,7 @@ def main():
             assert not errors, errors
             assert 'gho_TEST_ONLY_NEVER_VALID' not in json.dumps(page.evaluate("api('/api/accounts')"))
             browser.close()
-            print('PASS: one account control, both authorization steps, cancellation, reload, themes and mobile widths')
+            print('PASS: account sign-in, sign-out, cancellation, reload, themes and mobile widths')
 
 
 if __name__ == '__main__':

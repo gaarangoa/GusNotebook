@@ -49,6 +49,14 @@ elif args[:2] == ["user", "login"]:
         (root / "account.json").write_text(json.dumps({"status": "Logged in", "provider": provider,
             "username": os.environ.get("GUSNOTEBOOK_FAKE_TUNNEL_USERNAME", "test-user")}))
     output({"status": "Logged in"})
+elif args[:2] == ["user", "logout"]:
+    if (root / "logout-fail").exists():
+        print("Cannot sign out of tunnels", file=sys.stderr)
+        sys.exit(1)
+    while (root / "hold-logout").exists():
+        time.sleep(.05)
+    (root / "account.json").write_text('{"status":"Logged out"}')
+    output({"status": "Logged out"})
 elif args[0] == "show":
     if (root / "hold-show").exists():
         threading.Event().wait()

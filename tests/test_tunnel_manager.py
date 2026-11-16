@@ -1,6 +1,7 @@
 """Saved tunnel lifecycle, cancellation, and local API boundaries."""
 
 import json
+import subprocess
 from pathlib import Path
 import sys
 import tempfile
@@ -151,6 +152,48 @@ class ManagerTests(unittest.TestCase):
         self.assertEqual(self.cli.json.call_count, 1)
         self.assertEqual(json.loads(self.path.read_text()), [{"tunnel": "research.usw2", "hidden": True}])
         self.assertEqual(self.manager.snapshot()["discovered"], [])
+
+    def test_logout_disconnects_transport_and_credentials_but_keeps_saved_tunnels(self):
+        self.manager.connect(self.entry['id'])
+        wait_for(lambda: self.row()['state'] == 'connected')
+        forward = Mock()
+        self.manager.connections[self.entry['id']]['git_forward'] = forward
+        saved = self.path.read_bytes()
+        self.cli.command = 'devtunnel-test'
+        self.cli.json.return_value = {'status': 'Logged out'}
+        self.manager._run = Mock(return_value=subprocess.CompletedProcess([], 0, '', ''))
+        self.manager.logout()
+        wait_for(lambda: self.manager.activity['state'] != 'running')
+        self.assertEqual(self.manager.activity['state'], 'done', self.manager.activity)
+        self.assertTrue(self.forward.done.is_set())
+        forward.close.assert_called()
+        self.assertEqual(self.path.read_bytes(), saved)
+        state = self.manager.snapshot()
+        self.assertEqual(state['discovered'], [])
+        self.assertEqual(state['saved'][0]['state'], 'unknown')
+        self.assertIsNone(state['saved'][0]['url'])
+        self.assertFalse(state['account']['logged_in'])
+        self.assertEqual(self.manager._run.call_args.args[0], ['devtunnel-test', 'user', 'logout'])
+
+    def test_logout_prevents_new_connections_until_finished(self):
+        entered, release = threading.Event(), threading.Event()
+        self.cli.command = 'devtunnel-test'
+        self.cli.json.return_value = {'status': 'Logged out'}
+        def run(*args):
+            entered.set()
+            release.wait(3)
+            return subprocess.CompletedProcess([], 0, '', '')
+        self.manager._run = run
+        self.manager.logout()
+        self.assertTrue(entered.wait(2))
+        try:
+            with self.assertRaises(TunnelError):
+                self.manager.connect(self.entry['id'])
+            self.manager.refresh('github')
+            self.assertEqual(self.manager.activity['kind'], 'logout')
+        finally:
+            release.set()
+        wait_for(lambda: self.manager.activity['state'] != 'running')
 
     def test_removed_tunnel_stays_hidden_on_refresh_and_restart_and_can_be_added_again(self):
         self.manager.refresh()
