@@ -57,7 +57,7 @@ function applyLayout() {
     document.getElementById(id).hidden = !selected;
     document.getElementById('sidebar-' + name).setAttribute('aria-pressed', String(selected && filesVisible()));
   }
-  document.getElementById('agent-pane').inert = !terminal && panelDrawer !== 'terminal';
+  document.getElementById('agent-pane').inert = !document.getElementById('project-workspace')?.open && !terminal && panelDrawer !== 'terminal';
   document.getElementById('splitter').inert = !terminal;
   document.getElementById('panel-backdrop').hidden = !panelDrawer;
   const terminalOpen = terminal || panelDrawer === 'terminal';

@@ -1,10 +1,9 @@
-"""Authenticated project UI endpoints. These are never exposed to project workers."""
+"""Authenticated project UI endpoints. Shared by the project UI and terminal CLI."""
 
 import json
 from flask import Blueprint, Response, current_app, jsonify, request
 
 from .project_files import ProjectError
-from . import project_chat
 
 project_routes = Blueprint("projects", __name__)
 
@@ -75,6 +74,9 @@ def analysis(project_id, analysis_id):
 
 @project_routes.post("/api/projects/<project_id>/analyses/<analysis_id>/run")
 def run(project_id, analysis_id):
+    from .app import execution_blocked, from_browser
+    if execution_blocked() and not from_browser():
+        return jsonify(error="Execution is disabled for agents in this session"), 403
     data = body()
     return jsonify(manager().run(project_id, analysis_id, data.get("replay"), data.get("package") is True)), 202
 
@@ -124,11 +126,8 @@ def history(project_id):
         return response
 
 
-@project_routes.post("/api/projects/<project_id>/chat")
-def chat(project_id):
+@project_routes.post("/api/projects/<project_id>/notes")
+def note(project_id):
     data = body()
-    application = current_app._get_current_object()
-    def generate(messages, context):
-        with application.app_context():
-            return project_chat.propose(messages, context)
-    return jsonify(manager().chat(project_id, data.get("prompt"), data.get("analysis_id", "analysis"), data.get("source_ids", []), generate)), 202
+    return jsonify(manager().record_agent_event(project_id, "assistant_message", data.get("text"),
+                   terminal=request.headers.get("X-Terminal-Id", "cli")))

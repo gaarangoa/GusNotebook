@@ -24,7 +24,9 @@ function openTerminalClipboard(t, mode, text = '') {
   const input = document.getElementById('terminal-clipboard-text');
   input.value = text;
   input.readOnly = mode === 'copy';
-  document.getElementById('terminal-clipboard-back').classList.add('on');
+  const back = document.getElementById('terminal-clipboard-back');
+  (document.querySelector('dialog[open]') || document.body).appendChild(back);
+  back.classList.add('on');
   input.focus();
   if (mode === 'copy') input.select();
 }
@@ -36,7 +38,9 @@ function closeTerminalClipboard(accept = false) {
   const input = document.getElementById('terminal-clipboard-text');
   const text = input.value;
   input.value = '';
-  document.getElementById('terminal-clipboard-back').classList.remove('on');
+  const back = document.getElementById('terminal-clipboard-back');
+  back.classList.remove('on');
+  document.body.appendChild(back);
   // Let modal focus management remove inert before restoring terminal focus.
   queueMicrotask(() => {
     if (accept && dialog.mode === 'paste') pasteTerminalText(dialog.terminal, text);
@@ -61,7 +65,7 @@ async function copyTerminalSelection(t) {
   input.value = text;
   input.readOnly = true;
   input.style.cssText = 'position:fixed;left:0;top:0;width:1px;height:1px;opacity:0';
-  document.body.appendChild(input);
+  (document.querySelector('dialog[open]') || document.body).appendChild(input);
   let copied = false;
   try {
     input.focus({preventScroll: true});

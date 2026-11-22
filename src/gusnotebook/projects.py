@@ -1,13 +1,12 @@
 """Report-first project broker: approvals, immutable runs, review and audit.
 
-Only this process writes the authority directory. Project files are portable
-projections, not authorization. Workers receive neither directory nor API tokens.
+The registry and run snapshots preserve provenance separately from editable
+project files. uv workers run with host permissions, without app token variables.
 """
 
 import base64
 from copy import deepcopy
 import csv
-import html
 from datetime import datetime, timezone
 import io
 import json
@@ -18,7 +17,7 @@ import threading
 import uuid
 
 from .project_files import ProjectError, digest, encoded, identifier, read_file, write_file
-from .project_runner import ContainerRunner, WORKER
+from .project_runner import UvRunner, WORKER
 from . import project_templates as templates
 
 
@@ -94,7 +93,7 @@ class ProjectManager:
     def __init__(self, directory, runner=None):
         self.directory = Path(directory).resolve()
         self.directory.mkdir(parents=True, exist_ok=True, mode=0o700)
-        self.runner = runner or ContainerRunner()
+        self.runner = runner or UvRunner()
         self.guard = threading.RLock()
         self.jobs = {}
         self.registry = self.directory / "registry.json"
@@ -232,10 +231,10 @@ class ProjectManager:
             write_file(root / "reports/views/renderer.js", templates.renderer())
             write_file(root / "README.md", "# " + name + "\n\nOpen this project in GusNotebook → + → Analysis project.\n"
                        "Use Prepare environment, approve data, then run and review an analysis.\n"
-                       "Restricted runs use a locked uv environment inside Docker. Runtime details are in environment/runtime.json.\n"
-                       "For a regular local notebook kernel (host permissions):\n\n"
+                       "Runs use environment/.venv, managed by uv. Runtime details are in environment/runtime.json.\n"
+                       "To use the same environment outside GusNotebook:\n\n"
                        "```sh\nUV_PROJECT_ENVIRONMENT=environment/.venv uv sync --locked\n```\n"
-                       "Select environment/.venv/bin/python as the notebook kernel. This is a separate host environment.\n")
+                       "Select environment/.venv/bin/python as the notebook kernel. Python and terminal agents have host filesystem permissions; uv isolates dependencies only.\n")
             self._event(project, "project_created", name=name)
             return self.view(project["id"])
 
@@ -314,7 +313,7 @@ class ProjectManager:
                     raise ProjectError("pyproject.toml changed outside the broker; restore it before preparing this environment")
                 old = project["environment"]
                 lock = read_file(self._authority(project) / "uv.lock") if old else None
-                environment, lock = self.runner.prepare(self._authority(project) / "build", project["specification"], lock, job["_cancel"])
+                environment, lock = self.runner.prepare(root, project["specification"], lock, job["_cancel"])
                 environment.update(lock_sha256=digest(lock), specification_sha256=digest(project["specification"].encode()), prepared_at=now())
                 with self.guard:
                     write_file(self._authority(project) / "uv.lock", lock)
@@ -339,7 +338,7 @@ class ProjectManager:
             code = templates.PCA_CODE if code is None else code
             if not isinstance(code, str) or len(code.encode()) > 100000:
                 raise ProjectError("Python source must be under 100 KB")
-            compile(code, "analysis.py", "exec")  # syntax check only; never exec on host
+            compile(code, "analysis.py", "exec")  # syntax check only; execution happens in the project uv interpreter
             old = project["analyses"].get(analysis_id, {})
             analysis = {"id": analysis_id, "parameters": parameters, "source_ids": source_ids,
                         "accepted_run": old.get("accepted_run"), "candidate_run": old.get("candidate_run")}
@@ -356,67 +355,15 @@ class ProjectManager:
                         parameters=parameters, source_ids=source_ids)
             return self.view(project_id)
 
-    def chat(self, project_id, prompt, analysis_id, source_ids, propose):
-        if not isinstance(prompt, str) or not prompt.strip() or len(prompt) > 20000:
-            raise ProjectError("Enter a request under 20,000 characters")
-        identifier(analysis_id)
+    def record_agent_event(self, project_id, kind, text, **context):
+        if kind not in {"user_message", "assistant_message", "agent_opened"}:
+            raise ProjectError("Unknown agent event")
+        if not isinstance(text, str) or len(text) > 100000:
+            raise ProjectError("Agent message must be text under 100 KB")
         with self.guard:
             project = self._get(project_id)
-            self._idle(project)
-            if not isinstance(source_ids, list) or not all(isinstance(s, str) for s in source_ids) or not set(source_ids) <= {s["id"] for s in project["sources"]}:
-                raise ProjectError("Select approved data sources")
-            metadata = [{k: v for k, v in s.items() if k in {"id", "schema", "suffix"}}
-                        for s in project["sources"] if s["id"] in source_ids]
-            previous = project["analyses"].get(analysis_id)
-            context = {"analysis_id": analysis_id, "sources": metadata,
-                       "parameters": previous["parameters"] if previous else {},
-                       "code": read_file(self._root(project) / f"code/src/project_analysis/{analysis_id}.py").decode() if previous else None}
-            report_revision = digest(read_file(self._root(project) / "reports/deck.html"))
-            self._event(project, "user_message", text=prompt, analysis_id=analysis_id)
-            messages = [{"role": "user" if e["kind"] == "user_message" else "assistant", "content": e["text"]}
-                        for e in project["events"] if e["kind"] in {"user_message", "assistant_message"}][-12:]
-            from .project_chat import SYSTEM
-            self._event(project, "model_context", context=context, messages=messages, instructions=SYSTEM,
-                        instruction_sha256=digest(SYSTEM.encode()),
-                        disclosure="Column metadata, current analysis source and recent project messages; no input rows or result values")
-            def action(job):
-                proposal = propose(messages, context)
-                if job["_cancel"].is_set():
-                    return
-                with self.guard:
-                    self._event(project, "assistant_message", text=proposal["message"], analysis_id=analysis_id,
-                                model=proposal.get("model"), usage=proposal.get("usage"))
-                if proposal.get("action") == "report":
-                    slides = proposal.get("slides")
-                    if not isinstance(slides, list) or not 1 <= len(slides) <= 20:
-                        raise ProjectError("A report proposal requires 1 to 20 sections")
-                    parts = []
-                    for slide in slides:
-                        if not isinstance(slide, dict) or not isinstance(slide.get("title"), str) or not isinstance(slide.get("paragraphs"), list) or not all(isinstance(s, str) for s in slide["paragraphs"]):
-                            raise ProjectError("Report sections require a title and text paragraphs")
-                        parts.append('<section class="report-narrative"><h2>' + html.escape(slide["title"]) + '</h2>' +
-                                     ''.join('<p>' + html.escape(s) + '</p>' for s in slide['paragraphs']) + '</section>')
-                    with self.guard:
-                        old = self.report(project_id)
-                        if old["revision"] != report_revision:
-                            raise ProjectError("Report changed while the agent was writing. Your edits were preserved; ask again to append sections")
-                        if old["html"].count("<!-- gusnb:sections -->") != 1:
-                            raise ProjectError("Restore the report's gusnb:sections marker before adding text")
-                        self.report(project_id, old["html"].replace("<!-- gusnb:sections -->", ''.join(parts) + '\n<!-- gusnb:sections -->'), report_revision)
-                if proposal.get("action") == "analysis":
-                    chosen = proposal.get("source_ids", [])
-                    if not isinstance(chosen, list) or not all(isinstance(s, str) for s in chosen) or not set(chosen) <= set(source_ids):
-                        raise ProjectError("The model requested a source outside this request's selection")
-                    revision = digest(context["code"].encode()) if context["code"] is not None else "new"
-                    self.save_analysis(project_id, analysis_id, proposal["parameters"], chosen, proposal["code"],
-                                       _active_job=True, expected_revision=revision)
-                    if project["environment"]:
-                        self._execute(project, analysis_id, job, None, False)
-                    else:
-                        with self.guard:
-                            self._event(project, "analysis_ready", analysis_id=analysis_id,
-                                        text="Analysis saved. Prepare the environment, then run it.")
-            return self._launch(project, "chat", action)
+            self._event(project, kind, text=text, **context)
+        return {"status": "recorded"}
 
     def _render(self, result, analysis_id, run_id):
         return ('<style>' + templates.STYLE + '</style>' + templates.result_html(result, analysis_id, run_id) +
@@ -434,7 +381,7 @@ class ProjectManager:
             if analysis_id not in project["analyses"]:
                 raise ProjectError("Save an analysis first")
             if not project["environment"]:
-                raise ProjectError("Prepare the isolated environment first")
+                raise ProjectError("Prepare the uv environment first")
             def action(job):
                 self._execute(project, analysis_id, job, replay, package)
             return self._launch(project, "package" if package else "replay" if replay else "run", action)
@@ -478,7 +425,7 @@ class ProjectManager:
             for source in selected:
                 if digest(read_file(source["snapshot"], 256 * 1024 * 1024)) != source["sha256"]:
                     raise ProjectError("Approved input snapshot changed")
-                source["path"] = "/inputs/" + source["id"] + source["suffix"]
+                source["path"] = source["snapshot"]
                 inputs.append({k: v for k, v in source.items() if k != "snapshot"})
             request = {"analysis_id": analysis_id, "parameters": parameters, "sources": inputs, "build": package}
             write_file(directory / "request.json", encoded(request))
@@ -491,7 +438,7 @@ class ProjectManager:
             write_file(directory / "receipt.json", encoded(record))
             self._event(project, "run_started", **record)
         try:
-            output = self.runner.execute(environment["image"], directory, selected, job["_cancel"])
+            output = self.runner.execute(environment, directory, selected, job["_cancel"])
             if job["_cancel"].is_set():
                 raise ProjectError("Operation cancelled")
             result = validate_result(output["result"])
@@ -524,7 +471,7 @@ class ProjectManager:
                 # Run the installed wheel in a fresh worker, with no source on sys.path.
                 request.update(build=False, wheel=wheel, check_generality=True)
                 write_file(directory / "request.json", encoded(request))
-                verified = self.runner.execute(environment["image"], directory, selected, job["_cancel"])
+                verified = self.runner.execute(environment, directory, selected, job["_cancel"])
                 comparison = compare_results(result, validate_result(verified["result"]), **project["tolerances"])
                 if not comparison["passed"] or not verified.get("generality", {}).get("passed"):
                     raise ProjectError("Packaged analysis did not reproduce its source result")

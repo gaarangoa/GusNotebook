@@ -1560,6 +1560,10 @@ def api_set_prompt():
                "session": session.id if session else "default", "request_id": uuid.uuid4().hex,
                "preferences": getattr(running, "audit_preferences", agent_preferences(session)),
                "preferences_source": "Terminal launch" if running else "Settings when request was received"}
+    if running and getattr(running, "project", None):
+        if body.get("prompt"):
+            runtime().projects.record_agent_event(running.project, "user_message", body["prompt"], **context)
+        return jsonify({"status": "ok"})
     if session and body.get("prompt"):
         runtime().history.begin(session.id, request.headers.get("X-Terminal-Id", "cli"),
                                 body["prompt"], session.tabs)
@@ -2177,19 +2181,32 @@ def api_new_terminal():
     # its native deny rules, which are fixed when the process starts.
     cur = request_session()
     cwd = body.get("cwd") or (cur.root if cur else None) or str(Path(doc_key()).parent)
+    project_id = body.get("project")
+    instructions = cur.instructions if cur else None
+    python = kernel_python(doc_key())
     try:
+        if project_id:
+            from .project_agent import INSTRUCTIONS
+            project = runtime().projects.view(project_id)
+            cwd = project["path"]
+            instructions = (instructions or "") + "\n" + INSTRUCTIONS.replace("`gusnb", "`" + terminals.nb_command())
+            environment = project.get("environment") or {}
+            python = environment.get("python") if environment.get("runner") == "uv" else None
         s = terms.create(str(files.normalize(cwd)),
                          command=terminals.command_for(
                              body.get("kind"),
-                             cur.instructions if cur else None,
+                             instructions,
                              restrictions_for(cur)),
-                         label=body.get("label"),
-                         python=kernel_python(doc_key()),
-                         workspace=cur.id if cur else None)
+                         label=body.get("label") or (project["name"] if project_id else None),
+                         python=python,
+                         workspace=cur.id if cur else None, project=project_id)
     except (ValueError, OSError) as e:
         return jsonify({"error": str(e)}), 400
     store.add_terminal(s.id, cur.id if cur else None)
     s.audit_preferences = agent_preferences(cur)
+    if project_id:
+        runtime().projects.record_agent_event(project_id, "agent_opened", "Opened " + s.kind + " terminal",
+                                             terminal=s.id, actor=s.kind, instructions=instructions)
     return jsonify(s.to_json())
 
 

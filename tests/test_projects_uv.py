@@ -1,4 +1,4 @@
-"""Opt-in real isolation, replay and package tests: GUSNOTEBOOK_TEST_DOCKER=1."""
+"""Real uv preparation, replay and package tests: GUSNOTEBOOK_TEST_UV=1."""
 
 import json
 import os
@@ -10,14 +10,14 @@ import unittest
 from gusnotebook.projects import ProjectManager
 
 
-@unittest.skipUnless(os.environ.get("GUSNOTEBOOK_TEST_DOCKER") == "1", "requires local Docker")
-class ContainerProjectTests(unittest.TestCase):
+@unittest.skipUnless(os.environ.get("GUSNOTEBOOK_TEST_UV") == "1", "downloads a uv project environment")
+class UvProjectTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.temporary = tempfile.TemporaryDirectory()
         cls.root = Path(cls.temporary.name).resolve()
         cls.manager = ProjectManager(cls.root / "state")
-        cls.pid = cls.manager.create("container_test", str(cls.root))["id"]
+        cls.pid = cls.manager.create("uv_test", str(cls.root))["id"]
         source = cls.root / "measurements.csv"
         source.write_text("x,y,z\n1,8,3\n2,4,9\n3,7,5\n4,3,1\n5,2,8\n6,6,4\n")
         cls.manager.sources(cls.pid, [{"id": "measurements", "path": str(source)}])
@@ -55,38 +55,26 @@ class ContainerProjectTests(unittest.TestCase):
         self.assertTrue(packaged["runs"][-1]["package"]["generality"]["passed"])
         self.assertIn("scikit-learn", [p["name"] for p in packaged["runs"][-1]["installed"]["packages"]])
 
-    def test_worker_has_no_host_credentials_network_or_broker_writes(self):
-        secret = self.root / "never-approved.csv"
-        secret.write_text("private\n12345\n")
-        code = '''import os, socket
+    def test_worker_uses_project_python_and_does_not_inherit_app_tokens(self):
+        code = '''import os, sys
 from pathlib import Path
 def analyze(data, parameters):
-    blocked = {}
-    for name, path in parameters['paths'].items():
-        try: Path(path).read_bytes(); blocked[name] = False
-        except OSError: blocked[name] = True
-    try:
-        socket.create_connection(('1.1.1.1', 443), timeout=1); blocked['network'] = False
-    except OSError: blocked['network'] = True
-    try:
-        Path('/analysis/request.json').write_text('tampered'); blocked['readonly'] = False
-    except OSError: blocked['readonly'] = True
-    blocked['credential'] = 'GUSNOTEBOOK_TEST_SECRET' not in os.environ
-    blocked['selected_data'] = len(data['measurements']) == 6
-    return {'title':'Isolation checks','metrics':blocked}
+    return {'metrics': {'app_token_absent': 'NB_TOKEN' not in os.environ,
+                        'secret_absent': 'GUSNOTEBOOK_TEST_SECRET' not in os.environ,
+                        'project_python': str(Path(sys.prefix)),
+                        'selected_data': len(data['measurements'])}}
 '''
-        os.environ["GUSNOTEBOOK_TEST_SECRET"] = "must-not-enter-worker"
-        try:
-            self.manager.save_analysis(self.pid, "isolation", {"paths": {
-                "host": str(secret), "registry": str(self.root / "state/registry.json"),
-                "socket": "/var/run/docker.sock", "sibling": "/inputs/never-approved.csv"}}, ["measurements"], code)
-            self.manager.run(self.pid, "isolation")
+        from unittest.mock import patch
+        with patch.dict(os.environ, {"NB_TOKEN": "must-not-enter-worker", "GUSNOTEBOOK_TEST_SECRET": "secret"}):
+            self.manager.save_analysis(self.pid, "runtime", {}, ["measurements"], code)
+            self.manager.run(self.pid, "runtime")
             project = self.wait()
             self.assertEqual(project["job"]["status"], "completed", project["job"])
-            result = json.loads(self.manager.artifact(self.pid, project["runs"][-1]["id"], "result.json"))
-            self.assertTrue(all(result["metrics"].values()), result)
-        finally:
-            os.environ.pop("GUSNOTEBOOK_TEST_SECRET", None)
+            result = json.loads(self.manager.artifact(self.pid, project["runs"][-1]["id"], "result.json"))["metrics"]
+            self.assertTrue(result["app_token_absent"])
+            self.assertTrue(result["secret_absent"])
+            self.assertEqual(result["project_python"], project["environment"]["path"])
+            self.assertEqual(result["selected_data"], 6)
 
     def test_cancel_terminates_only_the_worker_and_keeps_project(self):
         self.manager.save_analysis(self.pid, "cancelled", {}, ["measurements"],
@@ -96,7 +84,7 @@ def analyze(data, parameters):
         self.manager.cancel(self.pid)
         project = self.wait()
         self.assertEqual(project["job"]["status"], "cancelled", project["job"])
-        self.assertTrue((self.root / "container_test/reports/deck.html").exists())
+        self.assertTrue((self.root / "uv_test/reports/deck.html").exists())
 
 
 if __name__ == "__main__":

@@ -1043,6 +1043,7 @@ function flash(text) {
     el.className = 'flash';
     document.body.appendChild(el);
   }
+  (document.querySelector('dialog[open]') || document.body).appendChild(el);
   el.textContent = text;
   el.classList.add('on');
   clearTimeout(flashTimer);

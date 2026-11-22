@@ -16,7 +16,7 @@
   <div id="project-body" hidden>
     <aside class="project-sidebar">
       <details open><summary>Approved data</summary>
-        <p>Only these file snapshots are available to project Python. Paths refer to the computer running this workspace.</p>
+        <p>Runs load these approved snapshots. uv isolates packages; Python and agents retain host filesystem permissions.</p>
         <div id="project-sources"></div>
         <form id="project-source-form">
           <label>Source ID <input id="project-source-id" placeholder="measurements" required></label>
@@ -31,36 +31,11 @@
         </details>
       </details>
       <details><summary>Environment</summary>
-        <p id="project-env-info">Prepare a locked uv environment in Docker. Dependency preparation has network access; analysis execution does not.</p>
+        <p id="project-env-info">Create environment/.venv with uv and lock package versions.</p>
         <button id="project-prepare" type="button" data-project-idle>Prepare environment</button>
       </details>
-      <section class="project-chat">
-        <h3>Project chat</h3>
-        <button id="project-chat-settings" type="button">Configure model</button>
-        <p>Uses the gateway in Settings. Sends messages, selected source columns and current code; input rows stay in the runner. Messages you type may contain data.</p>
-        <div id="project-messages" role="log" aria-label="Project conversation"></div>
-        <form id="project-chat-form">
-          <textarea id="project-prompt" aria-label="Ask about this report" placeholder="Explain the cohort and add a PCA of these features…" required></textarea>
-          <button type="submit" data-project-idle>Send</button>
-        </form>
-      </section>
-    </aside>
-    <main class="project-report">
-      <div class="project-toolbar">
-        <strong>Report</strong><span id="project-preview-label">Accepted results</span>
-        <button id="project-report-show" type="button">Show report</button>
-        <button id="project-edit-report" type="button">Edit HTML</button>
-        <button id="project-open-html" type="button">Open in editor</button>
-      </div>
-      <iframe id="project-preview" title="Scientific report" sandbox="allow-scripts" referrerpolicy="no-referrer"></iframe>
-      <section id="project-html-editor" hidden>
-        <p>Generated sections have gusnb markers. Keep them to update results without replacing your surrounding text.</p>
-        <textarea id="project-html" aria-label="Report HTML" spellcheck="false"></textarea>
-        <button id="project-save-report" type="button">Save HTML</button>
-        <button id="project-discard-report" type="button">Close source</button>
-      </section>
-    </main>
-    <aside class="project-inspector">
+
+    <section class="project-inspector">
       <h3>Analysis</h3>
       <label>Report section <select id="project-analysis-picker"><option value="">New analysis</option></select></label>
       <form id="project-analysis-form">
@@ -93,6 +68,25 @@
       <h3>History</h3>
       <a id="project-history-download">Download full JSONL log</a>
       <div id="project-history"></div>
+    </section>
+    </aside>
+    <main class="project-report">
+      <div class="project-toolbar">
+        <strong>Report</strong><span id="project-preview-label">Accepted results</span>
+        <button id="project-report-show" type="button">Show report</button>
+        <button id="project-edit-report" type="button">Edit HTML</button>
+        <button id="project-open-html" type="button">Open in editor</button>
+      </div>
+      <iframe id="project-preview" title="Scientific report" sandbox="allow-scripts" referrerpolicy="no-referrer"></iframe>
+      <section id="project-html-editor" hidden>
+        <p>Generated sections have gusnb markers. Keep them to update results without replacing your surrounding text.</p>
+        <textarea id="project-html" aria-label="Report HTML" spellcheck="false"></textarea>
+        <button id="project-save-report" type="button">Save HTML</button>
+        <button id="project-discard-report" type="button">Close source</button>
+      </section>
+    </main>
+    <aside id="project-agent-dock" aria-label="Project terminal agent">
+      <p id="project-agent-hint">Choose Claude or Codex and click Agent to start in this project. Existing terminal logins are used.</p>
     </aside>
   </div>
   <footer class="project-toolbar"><span id="project-status" role="status"></span><button id="project-cancel" type="button" hidden>Cancel operation</button></footer>

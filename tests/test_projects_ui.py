@@ -1,6 +1,6 @@
-"""Real browser report → isolated PCA → review → notebook, on a disposable server.
+"""Real browser report → uv PCA → review → notebook, on a disposable server.
 
-Run directly with Docker running. No model credentials or live model calls.
+Run directly with uv installed. No model credentials or live model calls.
 """
 
 import json
@@ -71,13 +71,31 @@ def main():
         page.evaluate('AppAppearance.toggle()')
         page.evaluate('ProjectWorkspace.open()')
         expect(page.locator('#project-body')).to_be_visible()
-        page.locator('#project-chat-settings').click()
-        expect(page.locator('#settings-projects')).to_be_visible()
-        expect(page.get_by_label('Gateway base URL', exact=True)).to_be_visible()
-        expect(page.get_by_label('Model deployment', exact=True)).to_be_visible()
-        page.get_by_role('button', name='Close settings', exact=True).click()
+        # Reuse the actual terminal pane/PTY, with the project uv environment.
+        page.locator('#project-agent-dock').get_by_role('button', name='New terminal in the directory shown in Files', exact=True).click()
+        page.wait_for_function("activeTerm && findTerm(activeTerm)?.project && findTerm(activeTerm)?.ws?.readyState === WebSocket.OPEN")
+        expect(page.locator('#project-agent-dock .term-host.on')).to_be_visible()
+        page.evaluate("findTerm(activeTerm).ws.send('gusnb project note terminal-audit-test\\r')")
+        expect(page.locator('#project-history')).to_contain_text('terminal-audit-test', timeout=15000)
+        terminal_id = page.evaluate('activeTerm')
+        page.locator('#project-close').click()
+        page.wait_for_function("document.querySelector('#split #agent-pane') || !document.querySelector('#project-agent-dock #agent-pane')")
         page.evaluate('ProjectWorkspace.open()')
         expect(page.locator('#project-body')).to_be_visible()
+        assert page.evaluate('activeTerm') == terminal_id
+        expect(page.locator('#project-agent-dock .term-host.on')).to_be_visible()
+        # Polling preserves expanded history and a new-analysis draft selection.
+        page.locator('#project-history details').first.locator('summary').click()
+        page.wait_for_timeout(2800)
+        expect(page.locator('#project-history details').first).to_have_attribute('open', '')
+        page.locator('#project-analysis-picker').select_option('')
+        page.wait_for_timeout(2800)
+        expect(page.locator('#project-analysis-picker')).to_have_value('')
+        page.locator('#project-analysis-picker').select_option('analysis')
+        # Clipboard fallback stays interactive inside the native project dialog.
+        page.evaluate("openTerminalClipboard(findTerm(activeTerm), 'paste')")
+        expect(page.get_by_label('Terminal text', exact=True)).to_be_visible()
+        page.evaluate('closeTerminalClipboard(false)')
         page.locator('#project-notebook').click()
         page.wait_for_function("active.endsWith('/notebooks/analysis.ipynb')")
         notebook = json.loads((work / 'browser_study/notebooks/analysis.ipynb').read_text())

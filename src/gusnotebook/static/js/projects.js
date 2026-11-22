@@ -2,6 +2,7 @@
 const ProjectWorkspace = (() => {
   const $ = id => document.getElementById('project-' + id);
   let project = null, poll = null, reportRevision = null, generation = 0, selectedRun = '', dirty = false;
+  let terminalHome = null;
   const endpoint = suffix => `/api/projects/${project.id}${suffix}`;
   const post = (path, data = {}) => api(path, {method: 'POST', body: JSON.stringify(data)});
   const sourceIds = () => $('analysis-sources').value.split(',').map(s => s.trim()).filter(Boolean);
@@ -63,7 +64,7 @@ const ProjectWorkspace = (() => {
     $('picker').value = project.id;
     const current = $('analysis-picker').value;
     $('analysis-picker').replaceChildren(new Option('New analysis', ''), ...Object.keys(project.analyses).map(id => new Option(id, id)));
-    $('analysis-picker').value = current in project.analyses ? current : Object.keys(project.analyses)[0] || '';
+    $('analysis-picker').value = current in project.analyses ? current : '';
     if (!dirty) fillAnalysis(); else renderRuns();
     $('sources').replaceChildren(...project.sources.map(source => {
       const row = document.createElement('div'), name = document.createElement('strong'), info = document.createElement('p'), remove = document.createElement('button');
@@ -72,14 +73,11 @@ const ProjectWorkspace = (() => {
       remove.onclick = () => act(async () => { await api(endpoint('/sources/' + source.id), {method:'DELETE'}); await refresh(); });
       row.append(name, info, remove); return row;
     }));
-    $('env-info').textContent = project.environment ? `Locked runtime ready · ${project.environment.image.slice(0, 22)}. Package versions are recorded in each receipt.` : 'Prepare a locked uv environment in Docker. Dependency preparation has network access; analysis execution does not.';
-    const messages = project.events.filter(e => ['user_message', 'assistant_message', 'analysis_ready'].includes(e.kind));
-    $('messages').replaceChildren(...messages.map(event => {
-      const item = document.createElement('article'); item.dataset.role = event.kind === 'user_message' ? 'user' : 'assistant';
-      item.textContent = event.text; return item;
-    }));
+    $('env-info').textContent = project.environment?.runner === 'uv' ? `uv environment ready · ${project.environment.path}. Package versions are recorded in each receipt.` : 'Create environment/.venv with uv and lock package versions.';
+    const expanded = new Set([...$('history').querySelectorAll('details[open]')].map(el => el.dataset.event));
     $('history').replaceChildren(...project.events.slice().reverse().map(event => {
       const item = document.createElement('details'), title = document.createElement('summary'), content = document.createElement('pre');
+      item.dataset.event = event.event_id; item.open = expanded.has(event.event_id);
       title.textContent = `${event.time.slice(11,19)} · ${event.kind.replaceAll('_', ' ')}`;
       content.textContent = JSON.stringify(event, null, 2); item.append(title, content); return item;
     }));
@@ -89,16 +87,15 @@ const ProjectWorkspace = (() => {
     $('cancel').hidden = !running;
     if (project.job) status(`${project.job.kind}: ${project.job.status}${project.job.error ? ' · ' + project.job.error : ''}`, project.job.status === 'failed');
     clearTimeout(poll);
-    if (running && $('workspace').open) poll = setTimeout(() => act(refresh), 1500);
+    if ($('workspace').open) poll = setTimeout(() => act(refresh), running ? 1500 : 2500);
   }
   async function refresh() {
     const id = project.id, serial = generation;
     const latest = await api(endpoint(''));
     if (generation !== serial || project?.id !== id) return;
-    const finishedChat = project.job?.kind === 'chat' && project.job.status === 'running' && latest.job?.status === 'completed';
     const changedReport = latest.report_revision !== reportRevision && $('preview-label').textContent === 'Accepted results';
     project = latest; render();
-    if ((finishedChat || changedReport) && $('html-editor').hidden) await showReport();
+    if (changedReport && $('html-editor').hidden) await showReport();
   }
   async function select(id) {
     const serial = ++generation; clearTimeout(poll); dirty = false; selectedRun = '';
@@ -106,23 +103,48 @@ const ProjectWorkspace = (() => {
     const latest = await api('/api/projects/' + id);
     if (generation !== serial) return;
     project = latest; render(); await showReport();
+    focusProjectTerminal();
+    $('agent-hint').textContent = `Project: ${project.name}. Choose Claude or Codex, then Agent. New terminals use this project and its uv environment.`;
+  }
+  function focusProjectTerminal() {
+    const terminal = terms.find(t => t.id === activeTerm && t.project === project?.id) || terms.find(t => t.project === project?.id && t.alive);
+    if (terminal) focusTerm(terminal.id);
+    else { activeTerm = null; for (const t of terms) t.host.classList.remove('on'); renderTermTabs(); }
   }
   async function list() {
     const data = await api('/api/projects');
     $('picker').replaceChildren(new Option('New project', ''), ...data.projects.map(p => new Option(p.name, p.id)));
   }
   async function open() {
-    if (!$('workspace').open) $('workspace').showModal();
+    if (!$('workspace').open) {
+      restoreTerminal();
+      const pane = document.getElementById('agent-pane');
+      terminalHome = document.createComment('agent-pane home');
+      pane.before(terminalHome);
+      $('agent-dock').append(pane);
+      $('workspace').showModal();
+      pane.inert = false;
+      requestAnimationFrame(fitTerm);
+    }
     $('location').value ||= fileState.path || '';
     await list();
     if (project) { await refresh(); $('picker').value = project.id; }
     else await select($('picker').options[1]?.value || '');
+    if (project) focusProjectTerminal();
     const runtime = await api('/api/projects/runner'); $('runtime').textContent = runtime.message;
   }
-  function close() { $('workspace').close(); clearTimeout(poll); }
+  function close() { $('workspace').close(); restoreTerminal(); }
   $('close').onclick = close;
-  $('chat-settings').onclick = () => act(async () => { close(); await openSettings(); settingsSection('projects'); });
-  $('workspace').addEventListener('close', () => clearTimeout(poll));
+  function restoreTerminal() {
+    clearTimeout(poll);
+    if (terminalHome) terminalHome.replaceWith(document.getElementById('agent-pane'));
+    terminalHome = null;
+    if (!activeTerm && terms.length) focusTerm(terms[0].id);
+    else renderTermTabs();
+    applyLayout();
+    requestAnimationFrame(fitTerm);
+  }
+  $('workspace').addEventListener('close', () => { if (!$('workspace').open) restoreTerminal(); });
   $('picker').onchange = () => act(() => select($('picker').value));
   $('new').onclick = () => act(() => select(''));
   $('create').onsubmit = e => { e.preventDefault(); act(async () => {
@@ -163,11 +185,6 @@ const ProjectWorkspace = (() => {
   $('package').onclick = () => act(() => run({package:true}));
   $('replay').onclick = () => act(() => { if (!selectedRun) throw Error('Select a run.'); return run({replay:selectedRun}); });
   $('cancel').onclick = () => act(async () => { await post(endpoint('/cancel')); status('Cancelling…'); });
-  $('chat-form').onsubmit = e => { e.preventDefault(); act(async () => {
-    const text = $('prompt').value;
-    await post(endpoint('/chat'), {prompt:text, analysis_id:analysisId(), source_ids:sourceIds()});
-    $('prompt').value = ''; dirty = false; selectedRun = ''; await refresh();
-  }); };
   $('run-picker').onchange = inspectRun;
   $('candidate').onclick = () => act(async () => {
     if (!selectedRun) throw Error('Select a completed run.');
@@ -197,5 +214,5 @@ const ProjectWorkspace = (() => {
     if (!run) return;
     $('analysis-picker').value = run.analysis_id; selectedRun = run.id; fillAnalysis(); $('receipt').parentElement.open = true;
   });
-  return {open: () => act(open)};
+  return {open: () => act(open), terminalProject: () => $('workspace').open ? project : null};
 })();

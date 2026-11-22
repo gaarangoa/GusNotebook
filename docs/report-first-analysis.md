@@ -3,8 +3,8 @@
 Status: first working implementation on the development branch; the sections
 below describe the broader architecture, including work not yet implemented.
 See [the current workflow and limits](analysis-projects.md) for shipped behavior
-on this branch: new project setup, protected file approvals, locked container
-execution, bounded project chat, shared HTML/notebook results, review/replay,
+on this branch: new project setup, approved file snapshots, project-local uv
+execution, existing Claude/Codex terminal chat, shared HTML/notebook results, review/replay,
 audit export, and wheel/API generation with reproduction checks.
 Branch: `feature/report-first-analysis`, based on `899b79c` from `main`.
 
@@ -66,7 +66,7 @@ happens to be in a notebook's current kernel.
 | HTML editing | `static/markup-tools.js`, `static/markup-runtime.js`, and `preview.py`; selected regions exposed through `/api/here` | Stable report-element identities, project result bindings, targeted updates and comparison |
 | D3 | `plotting.py` guidance and bundled D3 in notebook output frames | One renderer module and input contract shared by notebook and report |
 | Provenance | `cellhistory.py` and `provenanceHtml()` carry copied source, output and run receipts into HTML | Bindings created from the HTML first, with input and environment lineage |
-| Execution | `kernel.py`, `gspy.py`, and `gspy_content.py` record producing revisions and ordered runs | Clean project runs with declared inputs, dependency fingerprints and isolated execution |
+| Execution | `kernel.py`, `gspy.py`, and `gspy_content.py` record producing revisions and ordered runs | Clean project runs with declared inputs, dependency fingerprints and uv execution |
 | Environments | `environments.py` creates uv venvs and lists installed packages | Project `pyproject.toml`, `uv.lock`, Python/runtime records and exact restoration |
 | Agents | Terminal agents, selected-target context and recorded requests | Project chat with structured tool calls and durable visible interaction history |
 | Access rules | Agent instructions and provider-specific terminal deny rules | Enforced per-project data access for all tools, subprocesses, kernels and previews |
@@ -132,7 +132,7 @@ The project manifest records portable IDs and digests. Exporting a reproducible
 bundle includes an explicit choice of data and audit artifacts. A bundle missing
 its required data reports that limitation rather than claiming a successful replay.
 
-## Approved data means an enforced scope
+## Approved data and execution permissions
 
 An initial user-supplied source list can look like this:
 
@@ -151,54 +151,37 @@ identify that host before registering a source.
 
 A trusted application service resolves and snapshots exactly those files. It
 records the original locator, content digest, size, format, schema and approval
-revision. The project sees logical input IDs and read-only snapshots under
+revision. The project sees logical input IDs and versioned snapshots under
 `data/inputs`. Selecting a file does not authorize its parent directory. A changed
 source creates a new input revision; it does not replace an accepted snapshot.
 
-Authoritative grants live in application-controlled storage outside the agent's
-writable workspace. Editing `gusproject.json`, an HTML attribute, or a JSON source
-list inside the workspace cannot grant access. Adding or widening an input scope
-requires an explicit user action. Requests to open other files are denied and
-recorded. Symlink escapes, path traversal, source replacement during registration,
-and project-to-project access are part of the acceptance tests.
+The broker stores approvals, run snapshots and history outside the editable project.
+Changing `gusproject.json` does not change that registry. Registering new sources
+requires an explicit user action. Symlink and source-replacement checks protect
+registration; these do not prevent a host process from accessing other files.
 
-All project agent tools and Python execution use the same enforced boundary:
+The selected implementation uses **uv and the existing terminal agent**. Each
+project has `environment/.venv` and `uv.lock`; fresh Python subprocesses load
+approved snapshots. Runs have bounded output, cancellation and timeouts. Before
+execution, uv reconciles installed packages with the lock. Notebook kernels and
+project terminals can use this same interpreter.
 
-- Mount only selected input snapshots, code/runtime snapshots, and designated
-  work/output locations. Do not mount the host home directory, broad data roots,
-  SSH sockets, application credentials, or the container-management socket.
-- Give analysis workers no general network access. Obtain locked dependencies in
-  a separate preparation stage without project data, then execute with the
-  prepared runtime. Build hooks and package promotion use isolated workers too.
-- Keep policy, accepted baselines and authoritative audit/run records outside
-  worker write access. The trusted service validates and commits proposed outputs.
-- Route agent tools through a project-scoped broker. An unrestricted host shell
-  or the app's global API token would bypass file mounts and is not an acceptable
-  fallback for a restricted project.
-- Serve HTML from a separate preview origin with an explicit artifact allowlist
-  and network policy. Project HTML cannot read unrelated files through preview
-  URLs or use arbitrary network fetches to supply undeclared scientific data.
+uv isolates packages, not filesystem or network access. Terminal agents and Python
+run with host permissions. Instructions require approved inputs, but are not an
+access-control boundary. The earlier Docker-only runner and separate gateway-chat
+proposal have been superseded; Docker is not required. A future enforced-data-only
+mode would need a separately designed OS security boundary, including agent tools
+and credentials, and must be described separately from this uv workflow.
 
-A first deployment can use hardened Linux containers, locally through a supported
-container runtime or on the remote GusNotebook host. Filesystem mounts, network
-configuration and process privileges must be configured together; a container
-name alone does not establish this boundary. Scope is ordinary application-level
-isolation, not protection against a compromised host administrator or kernel.
-[Docker container execution](https://docs.docker.com/engine/containers/run/) and
-[Docker security model](https://docs.docker.com/engine/security/).
+The same Claude/Codex terminal UI and login are reused. `gusnb project` exposes
+context, revision-checked analysis/report edits, execution, replay, results and
+response notes. Source approval and acceptance remain user review actions. Prompt
+hooks and broker operations record requests and changes; assistant explanations
+are persisted with `gusnb project note`. Direct host edits and full terminal output
+are not automatically a complete project transcript.
 
-A uv venv isolates Python packages, not filesystem access. Agent prompts and
-terminal command deny lists cannot by themselves enforce approved-file-only
-access. If the required isolation backend is unavailable, restricted execution
-must remain unavailable, with a clear setup message. Do not silently fall back
-to existing host terminals or host kernels.
-
-Project chat keeps model credentials in the controller; the model's tool calls
-are mediated by the broker. Existing terminal-agent adapters can join this mode
-only after their tools, subprocesses and network routes meet the same contract.
-Provider login and available APIs need an adapter compatibility check; terminal
-login must not be assumed to provide a general chat API. Record which approved
-data was included in model context as well as which data Python processed.
+The HTML preview remains an opaque sandbox with a restrictive network policy.
+Validated results flow through the shared renderer into HTML and notebooks.
 
 ## Analysis and report contracts
 
@@ -356,7 +339,7 @@ are a distinct future feature, not an implication of the word “audit.”
 | Stage | Deliverable | Gate before moving on |
 | --- | --- | --- |
 | 1. Project foundation | `projects.py`/`project_routes.py`, versioned manifests, non-destructive scaffolding, source registration and uv lock/runtime preparation | Required folders exist; existing files are never overwritten; exact input revisions and dependencies are recorded and portable |
-| 2. Enforced runner | `project_access.py`/`project_runner.py`, project-scoped tools, isolated fresh kernels, staged artifact commits and run records | Approved inputs work; unrelated files, credentials, host API and network access are denied; missing isolation fails closed; interruption preserves prior results |
+| 2. uv runner | Project-local locked environment, fresh subprocesses, run records and cancellation | Approved snapshots are loaded, versions recorded, replay checked, and interruption preserves prior results; host permissions are explicit |
 | 3. One HTML-to-analysis workflow | Project chat, scoped agent tools, one notebook, shared D3 renderer and targeted HTML bindings | Request a PCA from a selected HTML region using one approved dataset; inspect and rerun the producing notebook; no hand copying or unlinked hard-coded metrics |
 | 4. Review and replay | Dependency invalidation, baseline retention, numerical/method/report comparisons and recovery | Change a source value or parameter; explain what changed; retain original on failure or rejection; accept a verified candidate without overwriting unrelated HTML |
 | 5. Package/API promotion | Build from the same analysis code, estimator checks where applicable, independent-data tests and optional HTTP adapter | Installed package reproduces the baseline; general input contract works on independent data; API and notebook call the same implementation |
@@ -379,7 +362,7 @@ reproducible” claim is made before those gates pass.
   framework or conversion to Quill is required for reports.
 - Use explicit dataset and output declarations before attempting automatic
   inference of arbitrary Python file dependencies.
-- Begin with local files on the workspace host and one isolated execution backend.
+- Begin with local files on the workspace host and the uv execution backend.
   Live databases, remote object stores and zero-copy large inputs require their
   own versioning and access adapters later.
 - Add structured project chat and a scoped tool interface. Validate provider

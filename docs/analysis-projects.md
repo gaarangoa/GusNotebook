@@ -1,178 +1,140 @@
 # Analysis projects
 
-This experimental workflow is on `feature/report-first-analysis`. It starts
-with an HTML report and keeps its results connected to approved data, Python,
-notebooks, a locked environment and review history. Ordinary notebooks, `.gspy`
-documents and the HTML editor remain available.
+On `feature/report-first-analysis`, **+ → Analysis project** starts an HTML
+report backed by Python analyses, approved input snapshots, notebooks and a
+reviewable history. It uses the existing **Claude/Codex terminal agent** and
+**uv**. Ordinary notebooks, `.gspy` documents and the HTML editor remain available.
 
 ## Start a project
 
-1. Start Docker **on the computer running GusNotebook**. Use Docker Desktop on
-   macOS or Docker Engine on Linux. The runner uses a local Docker daemon; a
-   remote Docker context is not supported. A tunnel does not move execution
-   onto your laptop.
-2. Choose **+ → Analysis project**, enter a project name and an existing parent
-   directory, and click **Create project**. This creates a new directory; it
-   does not overwrite or adopt an existing one.
-3. Under **Approved data**, give a CSV or Parquet file an ID and approve its
-   absolute path. Paths are on the workspace host. Alternatively, paste or load
-   a JSON source list, review it, and choose **Approve listed files**:
+1. Install uv on the computer running GusNotebook. Through a tunnel, execution
+   still happens on that remote computer.
+2. Choose **+ → Analysis project**, enter a name and existing parent directory,
+   then **Create project**. This creates a new folder.
+3. Under **Approved data**, register CSV or Parquet files with an ID and an
+   absolute path on the workspace host. You can also load a JSON source list:
 
    ```json
    {"sources":[{"id":"measurements","path":"/data/measurements.csv"}]}
    ```
 
-   Approval snapshots that exact file, records its SHA-256 and column metadata,
-   and does not grant access to its containing directory. Symlinks are rejected;
-   supply the real path. Reapproving changed data creates a new revision.
-4. Open **Environment → Prepare environment**. The first preparation downloads
-   the Python/uv image and scientific packages. Subsequent runs reuse its
-   immutable image and `uv.lock`. Preparation needs internet access; analysis
-   execution has no network access.
-5. Use **Project chat** to draft report sections or request an analysis. It uses
-   the existing gateway configured in **Settings**, not a terminal agent login.
-   The gateway receives your messages, selected source IDs/column metadata and
-   the current analysis code. Input rows and computed results are not included
-   automatically. Information you put in messages or code is sent to the model.
+   Review the list before approving. Each file is copied and hashed. Symlinks
+   are rejected; use the real path. Changed files need a new approval.
+4. Choose **Environment → Prepare environment**. uv creates
+   `environment/.venv`, installs the scientific dependencies and saves `uv.lock`.
+   Python 3.12 and packages are downloaded when needed. Docker is not required.
+5. In the terminal pane, choose **Claude** or **Codex**, then **Agent**. It uses
+   the same CLI, login and terminal UI as the rest of GusNotebook, with the
+   project as its working directory and the prepared environment activated.
+   **Terminal** opens a shell in the same environment. Closing the project view
+   keeps terminal sessions running; reopen it to resume.
 
-The first chat adapter supports bounded turns: it can discuss a request, append
-report sections, or write and run one analysis. Follow up to revise it. It does
-not have shell, file browsing, approval or acceptance tools.
+Ask the agent to draft the report and analyze your approved inputs. It receives
+project instructions and uses `gusnb project` commands to save code, run Python,
+inspect results and update HTML. There is no separate model gateway to configure.
+If you prepare the environment after opening a terminal, open a new terminal to
+activate it there; project runs already use the prepared interpreter.
 
-## Try PCA without a model connection
-
-Choose **Use PCA starter** in the Analysis panel and set parameters such as:
-
-```json
-{"source":"measurements","columns":["feature_a","feature_b","feature_c"],"standardize":true}
-```
-
-Save the analysis, then click **Run**. The starter validates numeric features,
-excludes non-finite/missing rows, reports the exclusion count and uses an actual
-scikit-learn `Pipeline` with `StandardScaler` and two-component `PCA`. Constant
-features are rejected. The current limit is 3–50,000 complete observations.
-
-Other analyses implement `analyze(data, parameters)`, where `data` is a mapping
-of approved source IDs to pandas DataFrames. Return JSON-compatible `title`,
-`summary`, scalar `metrics`, an optional scatter `chart`, and/or a `table`.
-The source is in `code/src/project_analysis/<section_id>.py`. Add another report
-section by selecting **New analysis** and giving it a different ID.
+uv isolates dependencies, **not filesystem or network access**. Terminal agents
+and analysis code run with the host user's permissions. Approved inputs govern
+the broker's data loading and provenance; agent instructions require those inputs
+but cannot enforce approved-file-only access. Use trusted code and your provider's
+permissions. Model data handling follows your terminal provider's configuration.
 
 ## Review and reproduce
 
-**Preview result** shows a candidate. **Accept into report** updates only that
-analysis's marked section and retains surrounding prose. A changed report must
-be reloaded before acceptance. Failed runs leave accepted results intact.
+Analyses define `analyze(data, parameters)`, where `data` maps approved source IDs
+to pandas DataFrames. Return JSON-compatible `title`, `summary`, scalar `metrics`,
+an optional scatter `chart`, and/or a `table`. The bundled PCA starter uses a real
+scikit-learn `Pipeline`, validates numeric columns and reports excluded rows.
 
-Each report result has an **Analysis** link. Click it to inspect its run receipt,
-comparison and producing code/notebook downloads. **Open notebook** opens the
-current editable notebook; the producing notebook download is the saved
-snapshot from the selected run. **Replay saved run** uses the saved source,
-parameters, image and exact approved input revisions in a fresh worker. Revoked
-or replaced approvals must be explicitly restored before replaying that input.
+To try it without an agent, choose **Use PCA starter**, enter parameters such as:
 
-New runs compare nested JSON values, array lengths and text with the accepted
-run. Numeric tolerances are fixed at `rtol=1e-7`, `atol=1e-10`, recorded before
-execution and unavailable to the model. Lineage changes are shown separately.
-This is numerical/result comparison, not screenshot or scientific validation.
-Recorded hashes and versions support reproducibility; they do not guarantee
-bitwise equality across machines or make an analysis scientifically sound.
+```json
+{"source":"measurements","columns":["feature_a","feature_b"],"standardize":true}
+```
 
-Use **Edit HTML** for source edits or **Open in editor** for GusNotebook's
-existing visual HTML tools. Preserve `gusnb` section markers for targeted result
-updates. Modifying a generated result marks its content as manually changed.
-Source, input or parameter changes mark the accepted analysis as stale.
+Save and **Run**, then **Preview result**. **Accept into report** updates only
+that analysis's marked section, preserving surrounding prose. Failed runs keep
+accepted results intact. Clicking **Analysis** in a report result opens its
+receipt, producing source and notebook. **Open notebook** opens the current
+editable notebook; select `environment/.venv/bin/python` as its kernel.
 
-## Files and execution boundaries
+**Replay saved run** uses saved code, parameters, lock and approved input
+revisions. uv reconciles the environment with the lock before execution.
+Replaced/revoked inputs cannot be replayed until their exact revision is approved
+again. Older Docker-based receipts remain readable but cannot be replayed by uv;
+prepare a uv environment and create a new baseline.
+
+Results are compared with the accepted run using `rtol=1e-7`, `atol=1e-10`, plus
+structural/text comparisons. Lineage changes are shown separately. These checks
+support reproducibility; they do not establish scientific validity or guarantee
+bitwise equality across machines. **Edit HTML** and **Open in editor** retain the
+existing editing workflow. Preserve `gusnb` markers for targeted result updates.
+
+## Terminal commands and history
+
+Project terminals receive `NB_PROJECT` automatically. Useful commands:
+
+```bash
+gusnb project context
+gusnb project prepare
+gusnb project save pca analysis.json  # code, parameters, source_ids, revision
+gusnb project run pca
+gusnb project status
+gusnb project result RUN_ID
+gusnb project report
+gusnb project report --file updated.html --revision SAVED_REVISION
+gusnb project note "Explained missing-value exclusions and limitations."
+gusnb project run pca --replay RUN_ID
+gusnb project run pca --package
+```
+
+Use `-` for stdin with `save`, `note` or `report --file`. Save JSON needs the
+existing `code_revision`, or `"new"` for a new analysis. Optimistic revisions
+prevent overwriting edits made while the agent works. Source approvals and result
+acceptance are UI actions, not agent CLI commands.
+
+Prompt hooks record user requests when enabled by the provider. The agent is
+instructed to save its responses/decisions using `note`; complete terminal output
+is not automatically transcribed. Broker operations record code/report revisions,
+inputs, versions, runs, errors, comparisons and acceptance. Direct filesystem edits
+bypass those revision events, so use the project commands for auditable changes.
+
+History persists in app state and `audit/events.jsonl`; large revisions are stored
+by hash in `audit/artifacts/`. **Download full JSONL log** exports the events.
+Back up app state and the project together. These are review records, not a
+signed or tamper-proof compliance system.
+
+## Files and packages
 
 ```text
-gusproject.json               # portable project description; not an access grant
-pyproject.toml, uv.lock       # package definition and locked dependencies
-code/src/project_analysis/   # reusable analysis modules and local HTTP adapter
-data/inputs/<id>/<hash>.*    # approved input revisions
-data/derived/<run>/          # derived JSON results
-results/runs/<run>/          # result, receipt, producing notebook, optional wheel
-results/comparisons/         # candidate-versus-baseline comparisons
-environment/runtime.json   # immutable Docker image and lock identifiers
-notebooks/                  # current notebook for each analysis
-reports/deck.html           # report with accepted results
-reports/views/              # shared D3 view used in notebooks and reports
-audit/events.jsonl          # portable history projection
-audit/artifacts/            # content-addressed large revisions referenced by events
+pyproject.toml, uv.lock      # project dependencies and lock
+code/src/project_analysis/  # reusable modules and HTTP adapter
+data/inputs/<id>/<hash>.*   # approved file snapshots
+data/derived/<run>/         # computed JSON
+results/runs/<run>/         # result, receipt, producing notebook, optional wheel
+results/comparisons/        # candidate-versus-baseline comparison
+environment/.venv/          # uv-managed Python and packages
+environment/runtime.json   # interpreter and lock metadata
+notebooks/                 # editable analysis notebooks
+reports/deck.html          # HTML report with accepted results
+audit/                     # events and saved revisions
 ```
 
-The authoritative registry, input snapshots, run snapshots and history are in
-GusNotebook's state directory, outside the project. Editing a project manifest
-cannot widen access. Back up both the project and GusNotebook state; copying the
-project alone does not import its approvals into another app installation.
+**Build package + API** builds a wheel, installs it in a fresh package environment
+sharing the locked dependencies, compares its result with the source analysis,
+and checks an independent same-schema synthetic fixture. The included local API
+uses `python -m project_analysis.api analysis --port 8080`; POST `/analyze` with
+`{"data":{"source_id":[{"column":1}]},"parameters":{...}}`. This does not deploy
+or publish a service.
 
-The Python worker mounts only its selected input files and source snapshot,
-read-only. It has no host home, Docker socket, application token or general
-network access. Writable scratch space, CPU, memory, process count, output size
-and runtime are bounded. No Docker means no restricted execution; there is no
-host-kernel fallback. The project chat controller receives no general terminal
-tools. Existing notebook kernels, Claude/Codex terminals and the ordinary HTML
-editor retain their existing permissions; they are not this sandbox.
+The preview uses sandboxed HTML and bundled D3, with no external asset fetching.
+Source files are limited to 256 MB, results to 8 MB/50,000 rows, worker output to
+10 MB and execution to three minutes. Cancelling a run stops its process group;
+notebook kernels and agent terminals keep running. uv does not impose memory or
+CPU limits. Generated data, reports, environments and logs are gitignored.
 
-The project preview renders in an opaque sandbox with a restrictive network
-policy. Worker output is validated JSON, rendered by bundled D3; workers cannot
-write arbitrary report scripts. External images, CDNs and arbitrary asset
-fetching are intentionally unavailable in this preview.
-
-The uv environment lives **inside the Linux runtime** at
-`/opt/project/environment/.venv`, so a Linux environment is not mistaken for a
-macOS interpreter. For an optional regular host notebook environment:
-
-```bash
-cd /path/to/project
-UV_PROJECT_ENVIRONMENT=environment/.venv uv sync --locked
-```
-
-Select `environment/.venv/bin/python` in the notebook. That kernel has ordinary
-host permissions. Its executions do not replace the restricted run receipts.
-
-Raw/derived data, results, notebooks, the rendered report, environment and audit
-are ignored by the generated `.gitignore` to avoid accidental data publication.
-Export or commit sensitive project artifacts deliberately. Source registration
-currently allows files up to 256 MB; results up to 8 MB and 50,000 table/chart
-rows. Analysis execution is limited to three minutes, 2 CPUs and 2 GB RAM.
-
-## Package and API
-
-**Build package + API** builds a wheel from the selected reusable module in the
-container, installs it into a fresh package environment sharing the immutable
-locked dependency layer, and reruns it against the same inputs. The result must
-match the source analysis. An independent, seeded synthetic dataset with the
-same column schema checks basic portability; incompatible schema assumptions
-fail the check. This check does not establish general scientific validity.
-
-The verified wheel is written under `results/runs/<run>/`. Install it into an
-environment with its declared dependencies. The included loopback HTTP adapter
-uses the same `analyze` function:
-
-```bash
-python -m project_analysis.api analysis --port 8080
-```
-
-POST `/analyze` with `{"data":{"source_id":[{"column":1}]},"parameters":{...}}`.
-It accepts records, never arbitrary server file paths. Public deployment,
-authentication and production API operations are separate work; this action
-does not publish a service.
-
-## History and current limits
-
-The project panel shows recent events and offers **Download full JSONL log**.
-Messages, model-context disclosures, code/report revisions, approvals, failures,
-run timestamps, comparisons and acceptance decisions persist across restarts.
-Large revisions are stored by hash in `audit/artifacts/`; retain that folder
-alongside the log for complete reconstruction. This is a reviewable application
-record, not a signed or tamper-proof compliance system. It records visible
-interactions, not hidden model reasoning or background activity in unrelated
-terminals.
-
-This first release creates new projects with a fixed scientific dependency set
-and a shared scatter/table/metric renderer. Existing-project import, configurable
-dependency updates, automatic multi-step analysis graphs, arbitrary custom D3
-modules, arbitrary HTML-region selection in chat, image comparison, full project
-export/import, dedicated slide navigation, and sandboxed terminal-agent adapters
-remain in the [architecture plan](report-first-analysis.md).
+This first release has a fixed scientific dependency set and shared
+scatter/table/metric renderer. Existing-project import, dependency editing,
+arbitrary D3 modules and full project export remain future work.

@@ -356,6 +356,10 @@ if command -v curl >/dev/null 2>&1; then
     -H "X-Terminal-Id: $NB_TERMINAL" --data-binary @- \
     "$NB_URL/api/prompt" >/dev/null 2>&1
 fi
+if [ -n "$NB_PROJECT" ]; then
+  {nb} project context 2>/dev/null
+  exit 0
+fi
 cell=$({nb} here 2>/dev/null) || exit 0
 [ -n "$cell" ] || exit 0
 printf '%s\\n%s\\n' \
@@ -537,7 +541,7 @@ class Session:
     """One PTY and the clients watching it."""
 
     def __init__(self, sid, cwd, command=None, label=None, python=None,
-                 workspace=None):
+                 workspace=None, project=None):
         self.id = sid
         self._publish = bus.publisher()
         self.cwd = str(cwd)
@@ -552,6 +556,7 @@ class Session:
         self.label = label or os.path.basename(self.cwd.rstrip("/")) or "/"
         self.python = python  # the notebook's selected interpreter, for venv activation
         self.workspace = workspace
+        self.project = project
         self.pid = None
         self.fd = None
         self.alive = False
@@ -582,6 +587,8 @@ class Session:
         # child process and into `env` output.
         extra_env = {"NB_URL": app_url(), "NB_TOKEN": app_token(),
                      "NB_TERMINAL": self.id}
+        if self.project:
+            extra_env["NB_PROJECT"] = self.project
         if self.workspace:
             extra_env["NB_SESSION"] = self.workspace
         is_shell = self.kind == "shell"
@@ -852,6 +859,7 @@ class Session:
             # session reattached after a reload still shows what it is.
             "kind": self.kind,
             "workspace": self.workspace,
+            "project": self.project,
             "alive": self.alive,
             "note": self.exit_note,
         }
@@ -864,7 +872,7 @@ class SessionPool:
         self._lock = threading.RLock()
 
     def create(self, cwd, command=None, label=None, python=None,
-               workspace=None):
+               workspace=None, project=None):
         cwd = str(cwd)
         if not os.path.isdir(cwd):
             raise ValueError(f"no such directory: {cwd}")
@@ -872,7 +880,7 @@ class SessionPool:
             sid = f"t{self._next}"
             self._next += 1
             s = Session(sid, cwd, command=command, label=label, python=python,
-                        workspace=workspace)
+                        workspace=workspace, project=project)
             self._sessions[sid] = s
         return s.start()
 

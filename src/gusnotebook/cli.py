@@ -407,6 +407,50 @@ def cmd_tunnel(args):
             print(result["error"])
 
 
+def cmd_project(args):
+    project = args.project_id or os.environ.get("NB_PROJECT")
+    if args.action == "list":
+        result = call("/api/projects")
+    else:
+        if not project:
+            sys.exit("Open a project terminal or pass --project-id from `gusnb project list`.")
+        base = "/api/projects/" + urllib.parse.quote(project, safe="")
+        if args.action in {"context", "status"}:
+            result = call(base)
+            if args.action == "context":
+                # Bound automatic prompt context while retaining the editable source.
+                result.pop("events", None)
+                result["runs"] = result.get("runs", [])[-3:]
+                result["workflow"] = "Use gusnb project save/run/report/note to preserve provenance. User reviews and accepts results."
+            else:
+                result = {key: result.get(key) for key in ("id", "name", "job", "environment", "analyses")}
+        elif args.action == "prepare":
+            result = call(base + "/prepare", "POST", {})
+        elif args.action == "save":
+            raw = sys.stdin.read() if args.file == "-" else pathlib.Path(args.file).read_text()
+            body = json.loads(raw)
+            if not isinstance(body, dict) or "revision" not in body:
+                sys.exit('Analysis JSON requires revision: use code_revision from context, or "new".')
+            result = call(base + "/analyses/" + urllib.parse.quote(args.analysis, safe=""), "POST", body)
+        elif args.action == "run":
+            result = call(base + "/analyses/" + urllib.parse.quote(args.analysis, safe="") + "/run", "POST",
+                          {"replay": args.replay, "package": args.package})
+        elif args.action == "result":
+            result = call(base + "/runs/" + urllib.parse.quote(args.run_id, safe="") + "/result.json")
+        elif args.action == "report":
+            if args.file:
+                if not args.revision:
+                    sys.exit("Read the report first and pass its --revision before saving.")
+                html = sys.stdin.read() if args.file == "-" else pathlib.Path(args.file).read_text()
+                result = call(base + "/report", "POST", {"html": html, "revision": args.revision})
+            else:
+                result = call(base + "/report")
+        elif args.action == "note":
+            text = sys.stdin.read() if args.text == "-" else args.text
+            result = call(base + "/notes", "POST", {"text": text})
+    print(json.dumps(result, indent=2, ensure_ascii=False))
+
+
 def main():
     p = argparse.ArgumentParser(
         prog="gusnb",
@@ -478,6 +522,32 @@ def main():
     t = sub.add_parser("tunnel", help="check or renew this server's hosted tunnel without restarting the workspace")
     t.add_argument("action", nargs="?", choices=["status", "renew"], default="status")
     t.set_defaults(fn=cmd_tunnel)
+
+    project = sub.add_parser("project", help="drive the active report-first project from its terminal")
+    project.add_argument("--project-id", help="override NB_PROJECT (normally supplied by the project terminal)")
+    commands = project.add_subparsers(dest="action", required=True)
+    for name in ("list", "context", "status", "prepare"):
+        commands.add_parser(name).set_defaults(fn=cmd_project)
+    save = commands.add_parser("save", help="save auditable analysis JSON from a file or stdin")
+    save.add_argument("analysis")
+    save.add_argument("file", help='JSON file, or "-" for stdin')
+    save.set_defaults(fn=cmd_project)
+    run = commands.add_parser("run", help="run, replay or package a saved analysis in uv")
+    run.add_argument("analysis")
+    mode = run.add_mutually_exclusive_group()
+    mode.add_argument("--replay", metavar="RUN_ID")
+    mode.add_argument("--package", action="store_true")
+    run.set_defaults(fn=cmd_project)
+    result = commands.add_parser("result", help="read the saved JSON output of a run")
+    result.add_argument("run_id")
+    result.set_defaults(fn=cmd_project)
+    report = commands.add_parser("report", help="read or save HTML with an optimistic revision check")
+    report.add_argument("--file", help='HTML file, or "-" for stdin')
+    report.add_argument("--revision")
+    report.set_defaults(fn=cmd_project)
+    note = commands.add_parser("note", help="save the agent response/decisions in project history")
+    note.add_argument("text", help='message, or "-" for stdin')
+    note.set_defaults(fn=cmd_project)
 
     args = p.parse_args()
     if args.notebook:

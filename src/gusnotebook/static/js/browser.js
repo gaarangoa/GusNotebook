@@ -188,7 +188,7 @@ function showFileCtx(x, y, items, label = 'File actions') {
     menu.appendChild(item);
   });
   // Keep menu inside the viewport.
-  document.body.appendChild(menu);
+  (document.querySelector('dialog[open]') || document.body).appendChild(menu);
   const mw = menu.offsetWidth, mh = menu.offsetHeight;
   menu.style.left = Math.min(x, window.innerWidth  - mw - 8) + 'px';
   menu.style.top  = Math.min(y, window.innerHeight - mh - 8) + 'px';

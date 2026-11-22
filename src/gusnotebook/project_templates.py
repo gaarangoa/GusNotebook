@@ -157,7 +157,7 @@ def notebook(analysis_id, parameters, sources, code, result=None, run_id=None, r
         loads.append(f"    {source['id']!r}: pd.{method}(root / {path!r}),")
     nb.cells = [nbformat.v4.new_markdown_cell(
         f"# {analysis_id}\nRun: `{run_id or 'not yet executed'}`. The linked report uses this analysis.\n"
-        "Project runs use the isolated runner. Running this notebook in a regular kernel uses that kernel's permissions."),
+        "Select environment/.venv/bin/python to use the project's uv environment. Notebook execution is separate from recorded project runs."),
         nbformat.v4.new_code_cell("from pathlib import Path\nimport sys\nimport pandas as pd\n"
             "root = Path.cwd()\nif root.name == 'notebooks': root = root.parent\n"
             "sys.path.insert(0, str(root / 'code/src'))\n"

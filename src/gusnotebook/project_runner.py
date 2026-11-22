@@ -1,23 +1,21 @@
-"""Linux-container runner. No host execution fallback and no credentials in workers."""
+"""Project-local uv environments and bounded, cancellable Python subprocesses.
 
-import base64
+Virtual environments isolate dependencies, not filesystem or network access.
+Only trusted analysis code should be run with this host user's permissions.
+"""
+
 import json
 import os
 from pathlib import Path
-import shutil
+import signal
 import subprocess
+import tempfile
 import threading
 import time
-import uuid
 
-from .project_files import ProjectError, encoded, read_file, write_file
+from .environments import uv_binary
+from .project_files import ProjectError, digest, read_file, write_file
 
-BASE_IMAGE = "ghcr.io/astral-sh/uv:python3.12-bookworm-slim"
-PYTHON = "/opt/project/environment/.venv/bin/python"
-
-# This bootstrap, the Dockerfile and dependency declarations are broker-owned.
-# stdout is the only output channel. /tmp is size-limited; there are no writable
-# host mounts. A worker cannot write a receipt, approval, policy or report.
 WORKER = r'''
 import base64, contextlib, importlib, importlib.metadata, io, json, os, platform, subprocess, sys
 from pathlib import Path
@@ -31,28 +29,31 @@ class Tail(io.StringIO):
             self.seek(0); self.truncate(); super().write(value)
         return len(text)
 
-request = json.loads(Path('/analysis/request.json').read_text())
+snapshot = Path(sys.argv[1]).resolve()
+work = Path(sys.argv[2]).resolve()
+uv = os.environ['GUS_PROJECT_UV']
+request = json.loads((snapshot / 'request.json').read_text())
 if request.get('wheel') and not os.environ.get('GUS_WHEEL_READY'):
-    wheel = Path('/tmp') / request['wheel']['name']
+    wheel = work / request['wheel']['name']
     wheel.write_bytes(base64.b64decode(request['wheel']['data']))
-    subprocess.run(['uv', 'venv', '--python', sys.executable, '/tmp/package-env'], check=True)
-    # The clean package environment reuses only the immutable dependency layer,
+    subprocess.run([uv, 'venv', '--python', sys.executable, str(work / 'package-env')], check=True)
+    # The clean package environment reuses the locked dependency environment,
     # never the analysis source tree. A venv's system-site-packages points to
     # base Python, not to the locked venv that created it.
     version = 'python' + str(sys.version_info.major) + '.' + str(sys.version_info.minor)
-    site = Path('/tmp/package-env/lib') / version / 'site-packages'
+    site = work / 'package-env/lib' / version / 'site-packages'
     (site / 'locked_dependencies.pth').write_text(str(Path(sys.prefix) / 'lib' / version / 'site-packages') + '\n')
-    subprocess.run(['uv', 'pip', 'install', '--offline', '--no-deps', '--python', '/tmp/package-env/bin/python', str(wheel)], check=True)
-    os.execve('/tmp/package-env/bin/python', ['/tmp/package-env/bin/python', '/analysis/worker.py'],
+    subprocess.run([uv, 'pip', 'install', '--offline', '--no-deps', '--python', str(work / 'package-env/bin/python'), str(wheel)], check=True)
+    os.execve(str(work / 'package-env/bin/python'), [str(work / 'package-env/bin/python'), str(snapshot / 'worker.py'), str(snapshot), str(work)],
               {**os.environ, 'GUS_WHEEL_READY': '1'})
 environment = {'python': sys.version, 'platform': platform.platform(),
-               'machine': platform.machine(), 'uv': subprocess.check_output(['uv', '--version'], text=True).strip(),
+               'machine': platform.machine(), 'uv': subprocess.check_output([uv, '--version'], text=True).strip(),
                'packages': sorted([{'name': d.metadata['Name'], 'version': d.version}
                                    for d in importlib.metadata.distributions()], key=lambda d: d['name'])}
 log = Tail()
 with contextlib.redirect_stdout(log), contextlib.redirect_stderr(log):
     if not request.get('wheel'):
-        sys.path.insert(0, '/analysis/code/src')
+        sys.path.insert(0, str(snapshot / 'code/src'))
     data = {s['id']: (pd.read_csv(s['path']) if s['suffix'] == '.csv' else pd.read_parquet(s['path']))
             for s in request['sources']}
     analyze = importlib.import_module('project_analysis.' + request['analysis_id']).analyze
@@ -74,54 +75,53 @@ with contextlib.redirect_stdout(log), contextlib.redirect_stderr(log):
     wheel_result = None
     if request.get('build'):
         import shutil
-        shutil.copytree('/analysis/code', '/tmp/build/code')
-        shutil.copy('/analysis/pyproject.toml', '/tmp/build/pyproject.toml')
-        built = subprocess.run(['uv', 'build', '--wheel', '--python', sys.executable, '--no-build-isolation', '--offline', '--out-dir', '/tmp/dist'],
-                               cwd='/tmp/build', capture_output=True, text=True, env={**os.environ, 'UV_NO_BUILD': '0'})
+        shutil.copytree(snapshot / 'code', work / 'build/code')
+        shutil.copy(snapshot / 'pyproject.toml', work / 'build/pyproject.toml')
+        built = subprocess.run([uv, 'build', '--wheel', '--python', sys.executable, '--no-build-isolation', '--offline', '--out-dir', str(work / 'dist')],
+                               cwd=str(work / 'build'), capture_output=True, text=True, env={**os.environ, 'UV_NO_BUILD': '0'})
         log.write(built.stdout + built.stderr)
         if built.returncode:
             raise RuntimeError(built.stdout + built.stderr)
-        wheel = next(Path('/tmp/dist').glob('*.whl'))
+        wheel = next(Path(str(work / 'dist')).glob('*.whl'))
         wheel_result = {'name': wheel.name, 'data': base64.b64encode(wheel.read_bytes()).decode()}
 print('GUS_RESULT:' + json.dumps({'result': result, 'environment': environment,
       'log': log.getvalue(), 'wheel': wheel_result, 'generality': generality}, allow_nan=False))
 '''
 
-
-class ContainerRunner:
+class UvRunner:
     def __init__(self):
-        self.docker = shutil.which("docker")
+        self.uv = uv_binary()
         self.processes = set()
-        self.containers = set()
         self.guard = threading.Lock()
         self.closed = False
 
     def status(self):
-        if not self.docker:
-            return {"available": False, "message": "Install and start Docker on the workspace host to run restricted analyses."}
+        if not self.uv:
+            return {"available": False, "message": "Install uv on the workspace host to prepare project environments."}
         try:
-            self._local_engine()
-            version = self.command([self.docker, "version", "--format", "{{.Server.Version}}"], timeout=8)
-            return {"available": True, "message": "Docker " + version.strip()}
-        except ProjectError as exc:
-            if "local Docker" in str(exc):
-                return {"available": False, "message": str(exc)}
-            return {"available": False, "message": "Start Docker on the workspace host. Restricted runs never fall back to a host kernel."}
-        except OSError:
-            return {"available": False, "message": "Start Docker on the workspace host. Restricted runs never fall back to a host kernel."}
+            return {"available": True, "message": self.command([self.uv, "--version"], timeout=8).strip()}
+        except (ProjectError, OSError) as exc:
+            return {"available": False, "message": str(exc)}
 
-    def _local_engine(self):
-        endpoint = os.environ.get("DOCKER_HOST") if not os.environ.get("DOCKER_CONTEXT") else None
-        endpoint = endpoint or self.command([self.docker or "docker", "context", "inspect", "--format",
-                                            "{{.Endpoints.docker.Host}}"], timeout=8).strip()
-        if not endpoint.startswith("unix://"):
-            raise ProjectError("Select a local Docker context on the workspace host; remote Docker bind mounts cannot verify approved file identity")
+    @staticmethod
+    def _stop(process):
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
 
-    def command(self, args, timeout=180, cancel=None, limit=10 * 1024 * 1024):
-        if self.closed:
-            raise ProjectError("Project runner is shutting down")
-        process = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    def command(self, args, timeout=180, cancel=None, limit=10 * 1024 * 1024, cwd=None, env=None):
+        # Do not pass app/agent credentials to analysis children. Host filesystem
+        # access remains possible; this is deliberately not a security sandbox.
+        child_env = {key: value for key, value in os.environ.items()
+                     if key in {"PATH", "HOME", "USER", "LANG", "LC_ALL", "TMPDIR",
+                                "SSL_CERT_FILE", "SSL_CERT_DIR", "UV_CACHE_DIR"}}
+        child_env.update(env or {})
         with self.guard:
+            if self.closed:
+                raise ProjectError("Project runner is shutting down")
+            process = subprocess.Popen(args, cwd=cwd, env=child_env, start_new_session=True,
+                                       stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
             self.processes.add(process)
         chunks, count, overflow = [], [0], threading.Event()
 
@@ -135,28 +135,26 @@ class ContainerRunner:
                     chunks.append(data)
                 else:
                     overflow.set()
-                    process.kill()
+                    self._stop(process)
                     break
 
         reader = threading.Thread(target=drain, daemon=True)
         reader.start()
         deadline = time.monotonic() + timeout
         try:
-            while process.poll() is None:
+            while process.poll() is None or reader.is_alive():
+                if overflow.is_set():
+                    raise ProjectError("Worker output exceeded 10 MB; reduce result size")
                 if self.closed or (cancel and cancel.is_set()) or time.monotonic() > deadline:
-                    process.kill()
                     raise ProjectError("Operation cancelled" if self.closed or (cancel and cancel.is_set()) else "Operation timed out")
                 time.sleep(.05)
-            reader.join(timeout=3)
             output = b"".join(chunks).decode(errors="replace")
-            if overflow.is_set():
-                raise ProjectError("Worker output exceeded 10 MB; reduce result size")
             if process.returncode:
-                raise ProjectError(output[-12000:] or "Container command failed")
+                raise ProjectError(output[-12000:] or "Project command failed")
             return output
         finally:
-            if process.poll() is None:
-                process.kill()
+            # The process group also includes Python/uv children created by a run.
+            self._stop(process)
             process.wait()
             reader.join(timeout=3)
             process.stdout.close()
@@ -164,71 +162,49 @@ class ContainerRunner:
                 self.processes.discard(process)
 
     def prepare(self, directory, specification, lock=None, cancel=None):
-        if not self.status()["available"]:
-            raise ProjectError(self.status()["message"])
+        status = self.status()
+        if not status["available"]:
+            raise ProjectError(status["message"])
         directory = Path(directory)
         directory.mkdir(parents=True, exist_ok=True)
         write_file(directory / "pyproject.toml", specification)
         if lock:
             write_file(directory / "uv.lock", lock)
-        dockerfile = (f"FROM {BASE_IMAGE}\nWORKDIR /opt/project\n"
-                      "ENV UV_PROJECT_ENVIRONMENT=/opt/project/environment/.venv UV_NO_BUILD=1 UV_LINK_MODE=copy\n"
-                      "COPY pyproject.toml ./\n" + ("COPY uv.lock ./\n" if lock else "RUN uv lock\n") +
-                      "RUN uv sync --locked --no-install-project\n")
-        write_file(directory / "Dockerfile", dockerfile)
-        image_file = directory / "image-id"
-        self.command([self.docker, "build", "--iidfile", str(image_file), str(directory)], timeout=900, cancel=cancel)
-        image = read_file(image_file).decode().strip()
-        if not image.startswith("sha256:"):
-            raise ProjectError("Docker did not return an immutable image ID")
-        lock = self.command([self.docker, "run", "--rm", "--network=none", image,
-                             "cat", "/opt/project/uv.lock"], cancel=cancel).encode()
-        return {"image": image, "base": BASE_IMAGE}, lock
+        venv = directory / "environment/.venv"
+        env = {"UV_PROJECT_ENVIRONMENT": str(venv), "UV_NO_BUILD": "1"}
+        if not lock:
+            self.command([self.uv, "lock", "--python", "3.12"], cwd=directory, env=env, timeout=900, cancel=cancel)
+        self.command([self.uv, "sync", "--locked", "--no-install-project", "--python", "3.12"],
+                     cwd=directory, env=env, timeout=900, cancel=cancel)
+        python = str(venv / "bin/python")
+        version = self.command([python, "--version"]).strip()
+        return {"runner": "uv", "path": str(venv), "python": python, "python_version": version,
+                "uv": status["message"]}, read_file(directory / "uv.lock")
 
-    def execute(self, image, snapshot, sources, cancel=None):
-        self._local_engine()
-        name = "gusnb-analysis-" + uuid.uuid4().hex
-        args = [self.docker or "docker", "run", "--rm", "--name", name,
-                "--network=none", "--read-only", "--cap-drop=ALL", "--security-opt=no-new-privileges",
-                "--pids-limit=128", "--memory=2g", "--cpus=2", "--ulimit", "nofile=256:256",
-                "--user", f"{os.getuid() or 65534}:{os.getgid() or 65534}",
-                "--tmpfs", "/tmp:rw,nosuid,nodev,size=128m,mode=1777", "--workdir", "/tmp",
-                "--env", "HOME=/tmp", "--env", "PYTHONDONTWRITEBYTECODE=1",
-                "--env", "OPENBLAS_NUM_THREADS=1", "--env", "OMP_NUM_THREADS=1"]
-        for proxy in ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY", "FTP_PROXY"):
-            args += ["--env", proxy + "=", "--env", proxy.lower() + "="]
-        mounts = [(Path(snapshot), "/analysis")] + [(Path(s["snapshot"]), s["path"]) for s in sources]
-        for source, target in mounts:
-            if "," in str(source):
-                raise ProjectError("Docker bind paths cannot contain commas")
-            args += ["--mount", f"type=bind,source={source},target={target},readonly"]
-        args += [image, PYTHON, "/analysis/worker.py"]
-        with self.guard:
-            self.containers.add(name)
-        try:
-            output = self.command(args, timeout=180, cancel=cancel)
-            marker = "GUS_RESULT:"
-            lines = [line[len(marker):] for line in output.splitlines() if line.startswith(marker)]
-            if len(lines) != 1:
-                raise ProjectError("Worker did not produce one complete result")
-            return json.loads(lines[0])
-        finally:
-            # Also cleans up a worker when its CLI was killed for timeout/cancel.
-            subprocess.run([self.docker or "docker", "rm", "-f", name], stdout=subprocess.DEVNULL,
-                           stderr=subprocess.DEVNULL, timeout=15)
-            with self.guard:
-                self.containers.discard(name)
+    def execute(self, environment, snapshot, sources, cancel=None):
+        if environment.get("runner") != "uv":
+            raise ProjectError("Prepare the uv environment before running this project. Older container runs cannot be replayed with uv.")
+        root = Path(environment["path"]).parent.parent
+        if digest(read_file(root / "uv.lock")) != environment["lock_sha256"]:
+            raise ProjectError("Prepared lockfile changed; restore it before replaying")
+        # Reconcile additions/removals made from the terminal with the saved lock.
+        self.command([self.uv, "sync", "--locked", "--no-install-project", "--python", environment["python"]],
+                     cwd=root, env={"UV_PROJECT_ENVIRONMENT": environment["path"], "UV_NO_BUILD": "1"},
+                     timeout=900, cancel=cancel)
+        if self.command([environment["python"], "--version"]).strip() != environment["python_version"]:
+            raise ProjectError("Python version changed; prepare the environment again")
+        with tempfile.TemporaryDirectory(prefix="gusnb-analysis-") as temporary:
+            output = self.command([environment["python"], str(Path(snapshot) / "worker.py"), str(snapshot), temporary],
+                cwd=temporary, cancel=cancel, env={"GUS_PROJECT_UV": self.uv, "PYTHONDONTWRITEBYTECODE": "1",
+                "VIRTUAL_ENV": environment["path"], "OPENBLAS_NUM_THREADS": "1", "OMP_NUM_THREADS": "1"})
+        marker = "GUS_RESULT:"
+        lines = [line[len(marker):] for line in output.splitlines() if line.startswith(marker)]
+        if len(lines) != 1:
+            raise ProjectError("Worker did not produce one complete result")
+        return json.loads(lines[0])
 
     def close(self):
-        self.closed = True
         with self.guard:
-            processes, containers = list(self.processes), list(self.containers)
-        for process in processes:
-            if process.poll() is None:
-                process.kill()
-        for name in containers:
-            try:
-                subprocess.run([self.docker, "rm", "-f", name], stdout=subprocess.DEVNULL,
-                               stderr=subprocess.DEVNULL, timeout=5)
-            except (OSError, subprocess.TimeoutExpired):
-                pass
+            self.closed = True
+            for process in self.processes:
+                self._stop(process)

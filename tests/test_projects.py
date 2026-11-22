@@ -15,7 +15,7 @@ from gusnotebook.project_templates import PCA_CODE
 
 class FixtureRunner:
     def prepare(self, directory, specification, lock, cancel):
-        return {"image": "sha256:fixture"}, b"fixture-lock"
+        return {"runner": "uv", "path": str(directory / "environment/.venv"), "python": str(directory / "environment/.venv/bin/python")}, b"fixture-lock"
 
     def execute(self, image, snapshot, sources, cancel):
         request = json.loads(read_file(Path(snapshot) / "request.json"))
@@ -159,50 +159,23 @@ class ProjectTests(unittest.TestCase):
         self.manager.report(self.pid, report["html"].replace('"value": 1', '"value": 99'), report["revision"])
         self.assertTrue(self.manager.view(self.pid)["analyses"]["analysis"]["report_modified"])
 
-    def test_chat_discloses_schema_but_no_rows_and_cannot_expand_scope(self):
-        seen = []
-        def model(messages, context):
-            seen.append(context)
-            return {"message": "Proposed analysis", "action": "analysis", "source_ids": ["secret"], "parameters": {}, "code": PCA_CODE}
-        self.manager.chat(self.pid, "Do PCA", "analysis", ["data"], model)
-        p = self.finish()
-        self.assertEqual(p["job"]["status"], "failed")
-        self.assertNotIn(str(self.source), json.dumps(seen))
-        self.assertEqual(seen[0]["sources"][0]["schema"][0]["name"], "a")
-        self.assertNotIn("analyses", seen[0])
-        self.assertIn("user_message", [e["kind"] for e in p["events"]])
-        self.assertIn("assistant_message", [e["kind"] for e in p["events"]])
-
-    def test_chat_saves_and_runs_proposal_without_granting_model_acceptance(self):
-        self.prepare()
-        self.manager.chat(self.pid, "Analyze", "analysis", ["data"], lambda *_: {
-            "action": "analysis", "message": "I propose a PCA", "parameters": {}, "source_ids": ["data"], "code": PCA_CODE})
-        p = self.finish()
-        self.assertEqual(p["job"]["status"], "completed")
-        self.assertIsNone(p["analyses"]["analysis"]["accepted_run"])
-        self.assertTrue(p["analyses"]["analysis"]["candidate_run"])
-
-    def test_agent_report_prose_is_escaped_and_audited(self):
-        self.manager.chat(self.pid, "Draft a deck", "analysis", [], lambda *_: {
-            "action": "report", "message": "Drafted two sections", "slides": [
-                {"title": "Introduction", "paragraphs": ["<script>not executable</script>"]},
-                {"title": "Methods", "paragraphs": ["Analysis pending review."]}]})
-        p = self.finish()
-        self.assertEqual(p["job"]["status"], "completed", p["job"])
-        report = self.manager.report(self.pid)["html"]
-        self.assertIn("&lt;script&gt;not executable&lt;/script&gt;", report)
-        self.assertIn("<h2>Methods</h2>", report)
-        self.assertIn("report_edited", [e["kind"] for e in p["events"]])
-
-    def test_model_does_not_overwrite_concurrent_human_code_edit(self):
+    def test_terminal_messages_are_durable_and_source_conflicts_preserved(self):
+        self.manager.record_agent_event(self.pid, "user_message", "Analyze approved data", terminal="t1", actor="Codex")
+        self.manager.record_agent_event(self.pid, "assistant_message", "Checked exclusions", terminal="t1")
         self.manager.save_analysis(self.pid, "analysis", {}, ["data"])
+        old = self.manager.view(self.pid)["analyses"]["analysis"]["code_revision"]
         path = self.root / "research/code/src/project_analysis/analysis.py"
-        def propose(*_):
-            path.write_text("# human edit\n" + PCA_CODE)
-            return {"action": "analysis", "message": "Update", "parameters": {}, "source_ids": ["data"], "code": PCA_CODE}
-        self.manager.chat(self.pid, "Update", "analysis", ["data"], propose)
-        self.assertEqual(self.finish()["job"]["status"], "failed")
+        path.write_text("# human edit\n" + PCA_CODE)
+        with self.assertRaises(ProjectError):
+            self.manager.save_analysis(self.pid, "analysis", {}, ["data"], PCA_CODE, expected_revision=old)
         self.assertTrue(path.read_text().startswith("# human edit"))
+        reloaded = ProjectManager(self.root / "state", FixtureRunner())
+        try:
+            events = reloaded.view(self.pid)["events"]
+            self.assertIn("Analyze approved data", [e.get("text") for e in events])
+            self.assertIn("Checked exclusions", [e.get("text") for e in events])
+        finally:
+            reloaded.close()
 
     def test_corrupt_registry_fails_closed_without_overwriting_it(self):
         self.manager.registry.write_text("broken data")
@@ -214,20 +187,13 @@ class ProjectTests(unittest.TestCase):
         self.assertEqual(self.manager.registry.read_text(), "broken data")
         other.close()
 
-    def test_missing_docker_has_no_host_execution_fallback(self):
-        from gusnotebook.project_runner import ContainerRunner
-        runner = ContainerRunner()
-        runner.docker = None
+    def test_missing_uv_does_not_fall_back_to_app_python(self):
+        from gusnotebook.project_runner import UvRunner
+        runner = UvRunner()
+        runner.uv = None
         self.assertFalse(runner.status()["available"])
         with self.assertRaises(ProjectError):
             runner.prepare(self.root / "build", "irrelevant", None)
-        runner.close()
-
-    def test_remote_docker_cannot_mount_unverified_remote_paths(self):
-        from gusnotebook.project_runner import ContainerRunner
-        runner = ContainerRunner()
-        with patch.dict(os.environ, {"DOCKER_HOST": "tcp://other-host:2375", "DOCKER_CONTEXT": ""}), self.assertRaises(ProjectError):
-            runner.execute("sha256:fixture", self.root, [])
         runner.close()
 
     def test_result_validation_and_fixed_tolerance(self):
@@ -265,6 +231,47 @@ class ProjectRouteTests(unittest.TestCase):
                 invalid = client.post(f"/nested/api/projects/{pid}/sources", json={"sources": [1]}, headers=auth)
                 self.assertEqual(invalid.status_code, 400)
                 self.assertEqual(client.get(f"/nested/api/projects/{pid}/history", headers=auth).status_code, 200)
+            finally:
+                close_app(app)
+
+
+    def test_project_terminals_receive_context_environment_and_prompt_audit(self):
+        from types import SimpleNamespace
+        from gusnotebook import terminals
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            app = create_app({"STATE_DIR": str(root / "state"), "WORK_DIR": str(root),
+                              "START_WATCHERS": False, "AUTH_TOKEN": "test"})
+            try:
+                runtime = app.extensions["gusnotebook"]
+                runtime.projects.runner = FixtureRunner()
+                client = app.test_client()
+                client.environ_base["HTTP_AUTHORIZATION"] = "Bearer test"
+                made = client.post("/api/projects", json={"name": "trial", "location": str(root)}).json
+                pid = made["id"]
+                runtime.projects.prepare(pid)
+                runtime.projects.jobs[pid]["_thread"].join(5)
+                environment = runtime.projects.view(pid)["environment"]
+                for kind in ("claude", "codex"):
+                    session = SimpleNamespace(id="test-agent", kind=kind, project=pid,
+                                              to_json=lambda: {"id": "test-agent", "project": pid})
+                    with patch.object(runtime.terms, "create", return_value=session) as create, patch.object(terminals, "command_for", return_value=[kind]) as command:
+                        response = client.post("/api/terminals", json={"kind": kind, "project": pid, "cwd": str(root)})
+                    self.assertEqual(response.status_code, 200, response.json)
+                    self.assertEqual(create.call_args.args[0], made["path"])
+                    self.assertEqual(create.call_args.kwargs["python"], environment["python"])
+                    self.assertIn("project context", command.call_args.args[1])
+                    self.assertIn("uv", command.call_args.args[1])
+                    with patch.object(runtime.terms, "get", return_value=session):
+                        response = client.post("/api/prompt", json={"prompt": "Analyze this cohort"}, headers={"X-Terminal-Id": "test-agent"})
+                    self.assertEqual(response.status_code, 200, response.json)
+                event = runtime.projects.view(pid)["events"][-1]
+                self.assertEqual(event["kind"], "user_message")
+                self.assertEqual(event["actor"], "Codex")
+                response = client.post(f"/api/projects/{pid}/notes", json={"text": "Explained exclusions"}, headers={"X-Terminal-Id": "test-agent"})
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(runtime.projects.view(pid)["events"][-1]["terminal"], "test-agent")
+                self.assertEqual(client.post("/api/terminals", json={"kind": "shell", "project": "missing"}).status_code, 400)
             finally:
                 close_app(app)
 
