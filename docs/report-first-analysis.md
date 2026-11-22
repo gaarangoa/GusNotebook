@@ -4,7 +4,7 @@ Status: first working implementation on the development branch; the sections
 below describe the broader architecture, including work not yet implemented.
 See [the current workflow and limits](analysis-projects.md) for shipped behavior
 on this branch: normal workspace tabs, approved file snapshots, project-local uv
-execution, existing Claude/Codex terminal chat on the left, linked Jupyter notebooks, review/replay,
+execution, existing Claude/Codex terminal chat on the right, linked Jupyter notebooks, review/replay,
 audit export, and wheel/API generation with reproduction checks.
 Branch: `feature/report-first-analysis`, based on `899b79c` from `main`.
 

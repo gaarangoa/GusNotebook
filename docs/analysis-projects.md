@@ -1,7 +1,7 @@
 # Linked reports and notebooks
 
 On `feature/report-first-analysis`, work in the normal GusNotebook workspace:
-**Claude/Codex terminal chat on the left, HTML editor and notebook tabs on the
+**HTML editor and notebook tabs in the center, Claude/Codex terminal chat on the
 right**. Ask the agent to create a report or slide deck and the analysis behind
 it. The agent manages the files and uv environment through the existing terminal.
 

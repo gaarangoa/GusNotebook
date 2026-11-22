@@ -42,7 +42,8 @@ def main():
         page.wait_for_function("active?.endsWith('/browser_study/reports/deck.html')", timeout=15000)
         expect(page.locator('#html-preview-frame')).to_be_visible()
         expect(page.locator('#project-links')).to_be_visible()
-        assert page.locator('#agent-pane').bounding_box()['x'] < page.locator('.left').bounding_box()['x']
+        document = page.locator('.left').bounding_box()
+        assert page.locator('#agent-pane').bounding_box()['x'] >= document['x'] + document['width']
         assert page.evaluate('activeTerm') == terminal_id
         expect(page.locator('#project-create-back')).not_to_be_visible()
 
