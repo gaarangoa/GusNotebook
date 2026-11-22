@@ -17,6 +17,7 @@
      deployment builds URLs one way throughout. -->
 <link rel="stylesheet" href="{{ BASE_URL }}/static/app.css">
 <link rel="stylesheet" href="{{ BASE_URL }}/static/gspy.css">
+<link rel="stylesheet" href="{{ BASE_URL }}/static/projects.css">
 <link rel="stylesheet" href="{{ BASE_URL }}/static/vendor/quill.css">
 </head>
 <body>
@@ -144,6 +145,11 @@
     <!-- The + tab's menu. Fixed-position, so the tab strip's horizontal scroll
          can't clip it; coordinates come from the + tab's rect in openNewMenu(). -->
     <div class="new-menu" id="new-menu" role="menu" aria-label="Create">
+      <div class="new-item" role="menuitem" tabindex="-1" onclick="newFromMenu('project')">
+        <span class="ni" data-icon="folder"></span>
+        <span class="nl">Analysis project</span>
+        <span class="nh">HTML report · data · Python · history</span>
+      </div>
       <div class="new-item" role="menuitem" tabindex="-1" onclick="newFromMenu('notebook')">
         <span class="ni" data-icon="notebook"></span>
         <span class="nl">Notebook</span>
@@ -615,6 +621,7 @@
       <button id="settings-appearance-tab" role="tab" aria-controls="settings-appearance" aria-selected="true" onclick="settingsSection('appearance')"><span data-icon="sun"></span>Appearance</button>
       <button id="settings-notebook-tab" role="tab" aria-controls="settings-notebook" aria-selected="false" tabindex="-1" onclick="settingsSection('notebook')"><span data-icon="notebook"></span>Notebook</button>
       <button id="settings-agents-tab" role="tab" aria-controls="settings-agents" aria-selected="false" tabindex="-1" onclick="settingsSection('agents')"><span data-icon="agent"></span>Agents</button>
+      <button id="settings-projects-tab" role="tab" aria-controls="settings-projects" aria-selected="false" tabindex="-1" onclick="settingsSection('projects')">Project chat</button>
     </div>
     <div class="mbody">
       <div id="settings-error" class="environment-error" role="alert" hidden></div>
@@ -644,12 +651,16 @@ results = pd.read_csv(<span class="sample-string">"data.csv"</span>)</pre><p>Rea
         <details class="settings-details"><summary>How instructions are applied</summary><p>New agent terminals receive these instructions at launch. Existing terminals keep their original instructions. GusNotebook passes the instructions directly to the agent; it does not create CLAUDE.md or AGENTS.md in your project.</p></details>
         <details class="settings-details"><summary>Claude permissions and advanced rules</summary><p class="settings-intro">Choose actions to restrict in new Claude terminals. Nothing is blocked by default.</p><div class="rlist" id="set-restrict"></div><div class="field"><label for="set-restrict-extra">Additional deny rules</label><textarea id="set-restrict-extra" spellcheck="false" rows="3" placeholder="One rule per line, for example Read(**/secrets/**)"></textarea></div><p>Claude Code enforces these rules. Workspace rules are added to them. Rules match command patterns; they are not a sandbox.</p></details>
       </section>
-      <div class="llm-hidden" hidden>
-        <select id="set-model" onchange="pickModel(this.value)"></select><input id="set-model-custom" type="text">
-        <textarea id="set-instructions"></textarea><input id="set-max-tokens" type="number">
-        <input id="set-gw-url" type="text"><input id="set-gw-key" type="password" autocomplete="off">
-        <select id="set-gw-store"><option value="session">Session</option><option value="disk">Disk</option></select><div id="set-gateway"></div>
-      </div>
+      <section id="settings-projects" role="tabpanel" aria-labelledby="settings-projects-tab" hidden>
+        <h2>Project chat gateway</h2><p class="settings-intro">Project chat uses the configured Azure-compatible gateway. Terminal agent sign-ins are separate.</p>
+        <div class="field"><label for="set-model">Model deployment</label><select id="set-model" onchange="pickModel(this.value)"></select></div>
+        <div class="field"><label for="set-model-custom">Custom deployment name</label><input id="set-model-custom" type="text" placeholder="Optional override"></div>
+        <div class="field"><label for="set-gw-url">Gateway base URL</label><input id="set-gw-url" type="url" placeholder="https://your-gateway.example"><div class="fhelp">GusNotebook appends /azure-openai. Leave blank to use AI_GATEWAY_URL.</div></div>
+        <div class="field"><label for="set-gw-key">API key</label><input id="set-gw-key" type="password" autocomplete="off"></div>
+        <div class="field"><label for="set-gw-store">Keep the key</label><select id="set-gw-store"><option value="session">For this server session</option><option value="disk">Save in local settings</option></select></div>
+        <div id="set-gateway" class="fhelp"></div>
+        <div hidden><textarea id="set-instructions"></textarea><input id="set-max-tokens" type="number"></div>
+      </section>
     </div>
     <div class="mfoot"><span class="grow"></span><button class="btn" onclick="closeSettings()">Cancel</button><button class="btn primary" id="settings-save" onclick="saveSettings()">Save settings</button></div>
   </div>
@@ -754,6 +765,7 @@ results = pd.read_csv(<span class="sample-string">"data.csv"</span>)</pre><p>Rea
   </div>
 </div>
 
+{% include 'projects.html' %}
 <script src="{{ BASE_URL }}/static/vendor/vendor.js"></script>
 <script src="{{ BASE_URL }}/static/vendor/gspy-quill.js"></script>
 <script src="{{ BASE_URL }}/static/vendor/d3-source.js"></script>
@@ -791,6 +803,7 @@ results = pd.read_csv(<span class="sample-string">"data.csv"</span>)</pre><p>Rea
 <script src="{{ BASE_URL }}/static/js/tunnels.js"></script>
 <script src="{{ BASE_URL }}/static/js/git.js"></script>
 <script src="{{ BASE_URL }}/static/js/accounts.js"></script>
+<script src="{{ BASE_URL }}/static/js/projects.js"></script>
 <script src="{{ BASE_URL }}/static/js/accessibility.js"></script>
 
 </body>

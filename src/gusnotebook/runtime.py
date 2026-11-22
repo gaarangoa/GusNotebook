@@ -11,6 +11,7 @@ from .tunnel_manager import TunnelManager
 from .git_manager import GitManager
 from .accounts import Accounts
 from .tool_installer import ToolInstaller
+from .projects import ProjectManager
 
 
 class Runtime:
@@ -35,6 +36,7 @@ class Runtime:
         self.settings_memory = {}
         self.history = History(paths.state("history"))
         self.environments = EnvironmentManager(paths.state("environments.json"))
+        self.projects = ProjectManager(paths.state("projects"))
         self.tools = ToolInstaller(paths.state("tools"))
         self.git = GitManager(paths.work_dir(), tools_dir=self.tools.directory)
         self.tunnels = TunnelManager(paths.state("tunnels.json"), git_auth=self.git.auth)
@@ -79,6 +81,7 @@ class Runtime:
         self.tunnels.close()
         self.git.close()
         self.environments.close()
+        self.projects.close()
         if self.watcher:
             self.watcher.join(timeout=2)
         # Interrupt first: shutdown takes the execution lock and must not wait

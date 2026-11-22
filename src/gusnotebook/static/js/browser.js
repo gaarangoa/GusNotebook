@@ -812,6 +812,7 @@ function toggleNewMenu(ev) {
 /** One entry from the + menu. Everything lands in the browsed directory. */
 function newFromMenu(what) {
   closeNewMenu();
+  if (what === 'project') return ProjectWorkspace.open();
   if (what === 'notebook') return newNotebook();
   if (what === 'gspy') return newNotebook('gspy');
   if (what === 'text') return newFile();

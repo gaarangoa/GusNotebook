@@ -153,7 +153,7 @@ for (const [id, which] of [['file-splitter', 'files'], ['splitter', 'terminal']]
   });
 }
 document.addEventListener('keydown', event => {
-  if (event.key === 'Escape' && panelDrawer && !document.querySelector('.modal-back.on')) {
+  if (event.key === 'Escape' && panelDrawer && !document.querySelector('.modal-back.on, dialog[open]')) {
     const name = panelDrawer;
     closePanelDrawer();
     document.getElementById(name === 'files' ? 'sidebar-' + layoutPrefs.sidebarSection : 'toggle-terminal').focus();

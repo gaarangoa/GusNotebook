@@ -2435,6 +2435,8 @@ def create_app(config=None):
     application.register_blueprint(git_routes)
     from .account_routes import account_routes
     application.register_blueprint(account_routes)
+    from .project_routes import project_routes
+    application.register_blueprint(project_routes)
 
     @application.errorhandler(notebook_mod.NotebookReadError)
     def notebook_error(exc):

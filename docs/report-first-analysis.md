@@ -1,6 +1,11 @@
 # Report-first scientific projects
 
-Status: proposed architecture and staged implementation, not a shipped feature.
+Status: first working implementation on the development branch; the sections
+below describe the broader architecture, including work not yet implemented.
+See [the current workflow and limits](analysis-projects.md) for shipped behavior
+on this branch: new project setup, protected file approvals, locked container
+execution, bounded project chat, shared HTML/notebook results, review/replay,
+audit export, and wheel/API generation with reproduction checks.
 Branch: `feature/report-first-analysis`, based on `899b79c` from `main`.
 
 Start with a question and an HTML report or slide deck. The agent creates the

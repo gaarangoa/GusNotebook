@@ -52,6 +52,11 @@ full recorded history, including deleted steps and output versions, and export
 the audit log as `.jsonl`. Ordinary `.ipynb` notebooks remain available.
 [Get started with scientific notebooks](docs/gspy.md).
 
+On the `feature/report-first-analysis` branch, **+ → Analysis project** starts an
+HTML report backed by approved CSV/Parquet data, isolated Python analyses, linked
+notebooks, result comparisons and a durable interaction log. Docker must run on
+the workspace host. [Analysis project setup and workflow](docs/analysis-projects.md).
+
 Normal launches show startup details, login prompts, and warnings/errors only.
 Add `--verbose` to show HTTP requests and detailed tunnel logs when troubleshooting.
 Notebook cell outputs and agent history are unaffected.
