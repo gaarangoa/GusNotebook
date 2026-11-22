@@ -3,6 +3,11 @@
 Status: phases 1–3 implemented; phases 4–6 remain planned. The original design
 was based on the repository at `64593f7`.
 
+The proposed [report-first project architecture](report-first-analysis.md) extends
+this work to HTML-led analysis, approved data, locked environments and reusable
+packages. That project layer is planned separately; it does not change the
+implementation status below.
+
 The format/history foundation supports creating `.gspy` files beside `.ipynb`,
 existing ordered execution and CLI operations, document-wide history,
 recoverable deleted blocks, historical output snapshots, and a self-contained
