@@ -1,8 +1,4 @@
-"""Report-first project broker: approvals, immutable runs, review and audit.
-
-The registry and run snapshots preserve provenance separately from editable
-project files. uv workers run with host permissions, without app token variables.
-"""
+"""Linked project setup and uv environments, plus legacy run compatibility."""
 
 import base64
 from copy import deepcopy
@@ -19,6 +15,7 @@ import uuid
 from .project_files import ProjectError, digest, encoded, identifier, read_file, write_file
 from .project_runner import UvRunner, WORKER
 from . import project_templates as templates
+from .project_layout import LAYOUT, GITIGNORE, paths as layout_paths
 
 
 def now():
@@ -123,6 +120,9 @@ class ProjectManager:
     def _root(self, project):
         return Path(project["path"])
 
+    def _path(self, project, key, *parts):
+        return self._root(project) / layout_paths(project)[key] / Path(*parts)
+
     def _authority(self, project):
         return self.directory / project["id"]
 
@@ -145,8 +145,8 @@ class ProjectManager:
         try:
             if not self._root(project).is_dir():
                 raise FileNotFoundError("Project folder is missing; authoritative history was retained")
-            write_file(self._root(project) / "gusproject.json", encoded(projection))
-            write_file(self._root(project) / "audit/events.jsonl",
+            write_file(self._path(project, "manifest"), encoded(projection))
+            write_file(self._path(project, "audit", "events.jsonl"),
                        b"".join(json.dumps(e, allow_nan=False).encode() + b"\n" for e in project["events"]))
         except OSError as exc:
             project["projection_warning"] = str(exc)
@@ -155,11 +155,14 @@ class ProjectManager:
         # Large HTML/source revisions are content-addressed; never duplicate a
         # bundled renderer or an entire result in every registry/event entry.
         for key in ("before", "after", "report_before", "report_after"):
+            if project.get("versioning") == "git":
+                payload.pop(key, None)
+                continue
             if isinstance(payload.get(key), str) and len(payload[key]) > 16000:
                 raw = payload[key].encode()
                 sha = digest(raw)
                 write_file(self._authority(project) / "artifacts" / sha, raw)
-                write_file(self._root(project) / "audit/artifacts" / sha, raw)
+                write_file(self._path(project, "audit", "artifacts", sha), raw)
                 payload[key] = {"artifact_sha256": sha, "bytes": len(raw)}
         event = {**payload, "event_id": "event_" + uuid.uuid4().hex, "time": now(), "kind": kind}
         project["events"].append(event)
@@ -180,11 +183,12 @@ class ProjectManager:
             job = self.jobs.get(project_id)
             project["job"] = {k: v for k, v in job.items() if not k.startswith("_")} if job else None
             project["events"] = project["events"][-200:]
-            report = read_file(Path(project["path"]) / "reports/deck.html").decode()
+            report = read_file(self._path(project, "reports", "deck.html"), limit=None).decode()
             project["report_revision"] = digest(report.encode())
-            project["report"] = str(self._root(project) / "reports/deck.html")
-            project["notebook"] = str(self._root(project) / "notebooks/analysis.ipynb")
-            project["notebooks"] = {key: str(self._root(project) / f"notebooks/{key}.ipynb") for key in project["analyses"]}
+            project["report"] = str(self._path(project, "reports", "deck.html"))
+            project["notebook"] = str(self._path(project, "notebooks", "analysis.ipynb"))
+            project["layout_paths"] = layout_paths(project)
+            project["notebooks"] = {key: str(self._path(project, "notebooks", f"{key}.ipynb")) for key in project["analyses"]}
             for key, analysis in project["analyses"].items():
                 code = read_file(Path(project["path"]) / f"code/src/project_analysis/{key}.py", 100000).decode()
                 analysis["code"] = code
@@ -204,6 +208,25 @@ class ProjectManager:
                     analysis["report_modified"] = expected not in report
             return project
 
+    def use_git(self, project_id):
+        """Migrate scaffold exclusions without deleting existing files or runs."""
+        with self.guard:
+            project = self._get(project_id)
+            if project.get("versioning") == "git":
+                return self.view(project_id)
+            path = self._root(project) / ".gitignore"
+            old = read_file(path).decode() if path.exists() else ""
+            lines = [line for line in old.splitlines() if line not in {"notebooks/", "reports/deck.html"}]
+            for line in (GITIGNORE if project.get("layout") == LAYOUT else "data/\nresults/\nenvironment/\naudit/\ngusproject.json\n").splitlines():
+                if line and line not in lines:
+                    lines.append(line)
+            if "\n".join(lines) + "\n" != old:
+                write_file(path, "\n".join(lines) + "\n")
+            if project.get("versioning") != "git":
+                project["versioning"] = "git"
+                self._save(project)
+            return self.view(project_id)
+
     def create(self, name, location):
         if self.registry_error:
             raise ProjectError(self.registry_error)
@@ -219,29 +242,27 @@ class ProjectManager:
                 raise ProjectError("Project folder already exists; choose a new name")
             root.mkdir(mode=0o700)
             project = {"version": 1, "id": "project_" + uuid.uuid4().hex, "name": name, "path": str(root),
+                       "versioning": "git", "layout": LAYOUT,
                        "created_at": now(), "sources": [], "analyses": {}, "runs": [], "events": [],
                        "environment": None, "tolerances": {"rtol": 1e-7, "atol": 1e-10}}
             self.projects[project["id"]] = project
-            for folder in ("code/src/project_analysis", "data/inputs", "data/derived", "results/runs",
-                           "results/comparisons", "environment", "notebooks", "reports/views", "reports/assets", "tests", "audit"):
+            for folder in ("code/src/project_analysis", "code/notebooks", "code/tests", "data/inputs",
+                           "data/environment", "results/reports", "results/outputs"):
                 (root / folder).mkdir(parents=True, exist_ok=True)
-            specification = templates.pyproject(name)
-            write_file(root / "pyproject.toml", specification)
+            specification = templates.pyproject(name, source_directory="src")
+            write_file(root / "code/pyproject.toml", specification)
             project["specification"] = specification
-            write_file(root / ".python-version", "3.12\n")
-            write_file(root / ".gitignore", "environment/\ndata/\nresults/\naudit/\nnotebooks/\nreports/deck.html\n.gusnb-*\n__pycache__/\n*.egg-info/\n")
+            write_file(root / "code/.python-version", "3.12\n")
+            write_file(root / ".gitignore", GITIGNORE)
             write_file(root / "code/src/project_analysis/__init__.py", '"""Reusable analyses with explicit DataFrame inputs."""\n')
-            write_file(root / "reports/deck.html", templates.deck(name))
-            write_file(root / "notebooks/analysis.ipynb", templates.empty_notebook(name, project["id"]))
-            write_file(root / "reports/views/result.html", self._render({}, "analysis", "unexecuted").replace("{}", "GUS_RESULT_JSON", 1))
-            write_file(root / "reports/views/renderer.js", templates.renderer())
-            write_file(root / "README.md", "# " + name + "\n\nOpen this project in GusNotebook → + → Analysis project.\n"
-                       "Use the existing terminal agent to prepare uv, register your approved data, and update the report.\n"
-                       "The report and Jupyter notebook open as normal workspace tabs. Review results and history from their project toolbar.\n"
-                       "Runs use environment/.venv, managed by uv. Runtime details are in environment/runtime.json.\n"
-                       "To use the same environment outside GusNotebook:\n\n"
-                       "```sh\nUV_PROJECT_ENVIRONMENT=environment/.venv uv sync --locked\n```\n"
-                       "Select environment/.venv/bin/python as the notebook kernel. Python and terminal agents have host filesystem permissions; uv isolates dependencies only.\n")
+            write_file(root / "results/reports/deck.html", templates.deck(name))
+            write_file(root / "code/notebooks/analysis.ipynb", templates.empty_notebook(name, project["id"],
+                       report="../../results/reports/deck.html"))
+            write_file(root / "code/README.md", "# " + name + "\n\n"
+                       "Write Python and D3 in notebooks/analysis.ipynb and embed executed outputs into ../results/reports/deck.html.\n"
+                       "Use Git for code and notebook history. Tests, data, environments and reports are ignored.\n"
+                       "From this code directory, prepare the same uv environment:\n\n"
+                       "```sh\nUV_PROJECT_ENVIRONMENT=../data/environment/.venv uv sync --locked --no-install-project\n```\n")
             self._event(project, "project_created", name=name)
             return self.view(project["id"])
 
@@ -316,20 +337,26 @@ class ProjectManager:
             project = self._get(project_id)
             def action(job):
                 root = self._root(project)
-                if read_file(root / "pyproject.toml").decode() != project["specification"]:
+                specification = read_file(self._path(project, "dependencies", "pyproject.toml")).decode()
+                if project.get("layout") == LAYOUT:
+                    project["specification"] = specification
+                elif specification != project["specification"]:
                     raise ProjectError("pyproject.toml changed outside the broker; restore it before preparing this environment")
                 old = project["environment"]
                 lock = read_file(self._authority(project) / "uv.lock") if old else None
+                if project.get("layout") == LAYOUT:
+                    tracked_lock = self._path(project, "dependencies", "uv.lock")
+                    lock = read_file(tracked_lock) if tracked_lock.exists() else None
                 environment, lock = self.runner.prepare(root, project["specification"], lock, job["_cancel"])
                 environment.update(lock_sha256=digest(lock), specification_sha256=digest(project["specification"].encode()), prepared_at=now())
                 with self.guard:
                     write_file(self._authority(project) / "uv.lock", lock)
-                    write_file(root / "uv.lock", lock)
-                    write_file(root / "environment/runtime.json", encoded(environment))
+                    write_file(self._path(project, "dependencies", "uv.lock"), lock)
+                    write_file(self._path(project, "environment", "runtime.json"), encoded(environment))
                     project["environment"] = environment
                     # Store the interpreter in standard notebook metadata without
                     # restarting any existing kernel or replacing user cells.
-                    for notebook in (root / "notebooks").glob("*.ipynb"):
+                    for notebook in self._path(project, "notebooks").glob("*.ipynb"):
                         document = json.loads(read_file(notebook))
                         document.setdefault("metadata", {}).setdefault("kernelspec", {}).update(
                             name="python3", display_name="Project · uv", language="python",
@@ -363,10 +390,15 @@ class ProjectManager:
             if expected_revision is not None and expected_revision != (digest(previous.encode()) if previous is not None else "new"):
                 raise ProjectError("Analysis source changed elsewhere; reload before saving")
             write_file(path, code)
+            # Compatibility for old structured analyses; ordinary projects do
+            # not scaffold a separate renderer or per-run notebooks.
+            view = self._path(project, "reports", "views/result.html")
+            if not view.exists():
+                write_file(view, self._render({}, analysis_id, "unexecuted").replace("{}", "GUS_RESULT_JSON", 1))
             project["analyses"][analysis_id] = analysis
             selected = [s for s in project["sources"] if s["id"] in source_ids]
-            write_file(self._root(project) / f"notebooks/{analysis_id}.ipynb",
-                       templates.notebook(analysis_id, parameters, selected, code, python=(project.get("environment") or {}).get("python")))
+            write_file(self._path(project, "notebooks", f"{analysis_id}.ipynb"),
+                       templates.notebook(analysis_id, parameters, selected, code, python=(project.get("environment") or {}).get("python"), layout=layout_paths(project)))
             self._event(project, "analysis_edited", analysis_id=analysis_id, before=previous, after=code,
                         parameters=parameters, source_ids=source_ids)
             return self.view(project_id)
@@ -408,9 +440,9 @@ class ProjectManager:
     def _execute(self, project, analysis_id, job, replay, package):
         with self.guard:
             analysis = project["analyses"][analysis_id]
-            if read_file(self._root(project) / "pyproject.toml").decode() != project["specification"]:
+            if read_file(self._path(project, "dependencies", "pyproject.toml")).decode() != project["specification"]:
                 raise ProjectError("Project dependency declaration changed outside the broker")
-            if digest(read_file(self._root(project) / "uv.lock")) != project["environment"]["lock_sha256"]:
+            if digest(read_file(self._path(project, "dependencies", "uv.lock"))) != project["environment"]["lock_sha256"]:
                 raise ProjectError("Project lockfile changed; restore the prepared lockfile before running")
             baseline_id = replay or analysis.get("accepted_run")
             baseline = deepcopy(self._run_record(project, baseline_id)) if baseline_id else None
@@ -437,7 +469,7 @@ class ProjectManager:
             directory = self._authority(project) / "runs" / run_id
             write_file(directory / "code/src/project_analysis/__init__.py", "")
             write_file(directory / f"code/src/project_analysis/{analysis_id}.py", code)
-            write_file(directory / "pyproject.toml", project["specification"])
+            write_file(directory / "pyproject.toml", project["specification"].replace('where = ["src"]', 'where = ["code/src"]'))
             write_file(directory / "worker.py", WORKER)
             inputs = []
             for source in selected:
@@ -465,14 +497,15 @@ class ProjectManager:
                               installed=output["environment"], log=output.get("log", "")[-32768:])
                 write_file(directory / "result.json", encoded(result))
                 rendered = self._render(result, analysis_id, run_id)
-                nb = templates.notebook(analysis_id, parameters, selected, code, result, run_id, rendered, python=environment.get("python"))
+                nb = templates.notebook(analysis_id, parameters, selected, code, result, run_id, rendered,
+                                        python=environment.get("python"), layout=layout_paths(project))
                 write_file(directory / "notebook.ipynb", nb)
                 write_file(directory / "view.html", rendered)
                 record["notebook_sha256"] = digest(nb.encode())
                 write_file(self._root(project) / f"results/runs/{run_id}/result.json", encoded(result))
                 write_file(self._root(project) / f"results/runs/{run_id}/notebook.ipynb", nb)
-                write_file(self._root(project) / f"data/derived/{run_id}/result.json", encoded(result))
-                write_file(self._root(project) / f"notebooks/{analysis_id}.ipynb", nb)
+                write_file(self._path(project, "outputs", run_id, "result.json"), encoded(result))
+                write_file(self._path(project, "notebooks", f"{analysis_id}.ipynb"), nb)
                 if baseline:
                     before = json.loads(read_file(self._authority(project) / f"runs/{baseline_id}/result.json"))
                     comparison = compare_results(before, result, **project["tolerances"])
@@ -519,8 +552,8 @@ class ProjectManager:
             record = self._run_record(project, run_id)
             if record["status"] != "completed":
                 raise ProjectError("Only a completed run can be accepted")
-            path = self._root(project) / "reports/deck.html"
-            old = read_file(path).decode()
+            path = self._path(project, "reports", "deck.html")
+            old = read_file(path, limit=None).decode()
             if digest(old.encode()) != expected_revision:
                 raise ProjectError("The report changed. Reload and review before accepting")
             key = record["analysis_id"]
@@ -546,11 +579,11 @@ class ProjectManager:
     def report(self, project_id, text=None, expected_revision=None):
         with self.guard:
             project = self._get(project_id)
-            path = self._root(project) / "reports/deck.html"
-            old = read_file(path).decode()
+            path = self._path(project, "reports", "deck.html")
+            old = read_file(path, limit=None).decode()
             if text is not None:
-                if not isinstance(text, str) or len(text.encode()) > 4 * 1024 * 1024:
-                    raise ProjectError("Report must be HTML under 4 MB")
+                if not isinstance(text, str):
+                    raise ProjectError("Report must be HTML text")
                 if expected_revision != digest(old.encode()):
                     raise ProjectError("Report changed elsewhere; reload before saving")
                 write_file(path, text)

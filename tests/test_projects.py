@@ -15,7 +15,7 @@ from gusnotebook.project_templates import PCA_CODE
 
 class FixtureRunner:
     def prepare(self, directory, specification, lock, cancel):
-        return {"runner": "uv", "path": str(directory / "environment/.venv"), "python": str(directory / "environment/.venv/bin/python")}, b"fixture-lock"
+        return {"runner": "uv", "path": str(directory / "data/environment/.venv"), "python": str(directory / "data/environment/.venv/bin/python")}, b"fixture-lock"
 
     def execute(self, image, snapshot, sources, cancel):
         request = json.loads(read_file(Path(snapshot) / "request.json"))
@@ -57,20 +57,47 @@ class ProjectTests(unittest.TestCase):
         return self.finish()
 
     def test_scaffold_cannot_replace_existing_folder_or_state(self):
-        self.assertTrue((self.root / "research/reports/deck.html").exists())
+        self.assertTrue((self.root / "research/results/reports/deck.html").exists())
+        root = self.root / "research"
+        self.assertEqual({p.name for p in root.iterdir() if p.is_dir()}, {"code", "data", "results"})
+        for path in ("code/notebooks/analysis.ipynb", "code/pyproject.toml", "code/.python-version"):
+            self.assertTrue((root / path).is_file(), path)
+        for path in ("code/tests", "data/environment", "results/outputs"):
+            self.assertTrue((root / path).is_dir(), path)
         for name, parent in (("research", self.root), ("state", self.root), ("nested", self.root / "state"), ("../escape", self.root)):
             with self.assertRaises(ProjectError):
                 self.manager.create(name, str(parent))
         ignored = (self.root / "research/.gitignore").read_text()
-        self.assertIn("data/", ignored)
-        self.assertIn("audit/", ignored)
+        self.assertIn("/*", ignored)
+        self.assertIn("!/code/", ignored)
+        self.assertIn("/code/tests/", ignored)
+
+    def test_large_html_report_round_trip_and_conflict_check(self):
+        app = create_app({"STATE_DIR": str(self.root / "large-state"), "WORK_DIR": str(self.root),
+                          "START_WATCHERS": False, "AUTH_TOKEN": "test"})
+        try:
+            client = app.test_client()
+            client.environ_base["HTTP_AUTHORIZATION"] = "Bearer test"
+            made = client.post('/api/projects', json={"name": "large_report", "location": str(self.root)}).json
+            endpoint = '/api/projects/' + made['id']
+            old = client.get(endpoint + '/report').json
+            html = '<!doctype html><p>' + 'x' * (9 * 1024 * 1024) + '</p>'
+            saved = client.post(endpoint + '/report', json={"html": html, "revision": old['revision']})
+            self.assertEqual(saved.status_code, 200, saved.json if saved.status_code != 200 else None)
+            self.assertEqual(client.get(endpoint + '/report').json['html'], html)
+            self.assertEqual(client.get(endpoint).json['report_revision'], saved.json['revision'])
+            stale = client.post(endpoint + '/report', json={"html": 'old edit', "revision": old['revision']})
+            self.assertEqual(stale.status_code, 400)
+            self.assertFalse((Path(made['path']) / 'data/.gusnotebook/audit/artifacts').exists())
+        finally:
+            close_app(app)
 
     def test_snapshots_are_exact_and_manifest_cannot_widen_grants(self):
         source = self.manager.projects[self.pid]["sources"][0]
         snapshot = read_file(source["snapshot"])
         self.source.write_text("changed")
         self.assertEqual(read_file(source["snapshot"]), snapshot)
-        manifest = self.root / "research/gusproject.json"
+        manifest = self.root / "research/data/.gusnotebook/project.json"
         manifest.write_text('{"sources":[{"id":"secret","path":"/etc/passwd"}]}')
         with self.assertRaises(ProjectError):
             self.manager.save_analysis(self.pid, "analysis", {}, ["secret"])

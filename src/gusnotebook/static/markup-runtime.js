@@ -547,6 +547,16 @@
     });
   }
 
+  document.addEventListener('click', function (event) {
+    var button = event.target.closest && event.target.closest('[data-gusnb-notebook-link]');
+    var figure = button && button.closest('[data-gusnb-provenance="1"]');
+    if (!figure) return;
+    event.preventDefault(); event.stopPropagation();
+    sendToParent({channel: config.channel, nonce: config.nonce, kind: 'notebook-source',
+      notebook: figure.getAttribute('data-gusnb-notebook'),
+      cell: figure.getAttribute('data-gusnb-cell-id'), snapshot: figure.getAttribute('data-gusnb-snapshot')});
+  }, true);
+
   function ensureEditorVizStyle() {
     if (document.querySelector('style[' + runtimeAttr + '="viz-style"]')) return;
     var style = document.createElement('style');

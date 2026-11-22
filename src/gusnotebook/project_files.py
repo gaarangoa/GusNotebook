@@ -52,13 +52,14 @@ def read_file(path, limit=8 * 1024 * 1024):
         fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=parent)
         with os.fdopen(fd, "rb") as stream:
             before = os.fstat(stream.fileno())
-            if not stat.S_ISREG(before.st_mode) or before.st_size > limit:
+            if not stat.S_ISREG(before.st_mode) or (limit is not None and before.st_size > limit):
                 raise ProjectError("Expected a regular file within the size limit")
-            data = stream.read(limit + 1)
+            data = stream.read() if limit is None else stream.read(limit + 1)
             after = os.fstat(stream.fileno())
             current = os.stat(name, dir_fd=parent, follow_symlinks=False)
             signature = lambda s: (s.st_dev, s.st_ino, s.st_size, s.st_mtime_ns, s.st_ctime_ns)
-            if len(data) > limit or signature(before) != signature(after) or signature(after) != signature(current):
+            if ((limit is not None and len(data) > limit) or
+                    signature(before) != signature(after) or signature(after) != signature(current)):
                 raise ProjectError("File changed while reading; try again")
             return data
 

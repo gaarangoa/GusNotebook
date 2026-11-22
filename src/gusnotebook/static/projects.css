@@ -4,10 +4,3 @@
 #project-links .files-btn{min-height:22px;padding:2px 6px}
 #project-job{color:var(--muted);margin-left:auto}#project-job.failed{color:var(--red)}
 #project-create p{color:var(--muted);line-height:1.6;margin-bottom:12px}#project-create-error{color:var(--red)!important}
-.project-history-modal{width:min(740px,94vw)}.project-history-modal .mbody{overflow:auto;min-height:0}
-.project-history-modal details{margin:10px 0}.project-history-modal summary{cursor:pointer;color:var(--muted)}
-.project-history-modal pre{white-space:pre-wrap;overflow-wrap:anywhere;font:inherit;max-height:260px;overflow:auto;margin:8px 0}
-.project-history-modal p{line-height:1.5;margin:6px 0}.project-review{padding:12px 0;border-bottom:1px solid var(--border)}
-.project-review button,.project-run button{margin:5px 5px 5px 0}.project-run{padding:7px 0;border-bottom:1px solid var(--border)}
-#project-history article{padding:10px 0;border-bottom:1px solid var(--border)}#project-history article>strong{display:block;margin-bottom:5px}
-#project-history article>p{white-space:pre-wrap;overflow-wrap:anywhere}#project-history-download{display:inline-block;margin:12px 0}

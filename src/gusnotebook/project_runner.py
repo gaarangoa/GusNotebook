@@ -167,24 +167,26 @@ class UvRunner:
             raise ProjectError(status["message"])
         directory = Path(directory)
         directory.mkdir(parents=True, exist_ok=True)
-        write_file(directory / "pyproject.toml", specification)
+        compact = (directory / "code/pyproject.toml").is_file()
+        definitions = directory / "code" if compact else directory
+        write_file(definitions / "pyproject.toml", specification)
         if lock:
-            write_file(directory / "uv.lock", lock)
-        venv = directory / "environment/.venv"
+            write_file(definitions / "uv.lock", lock)
+        venv = directory / ("data/environment/.venv" if compact else "environment/.venv")
         env = {"UV_PROJECT_ENVIRONMENT": str(venv), "UV_NO_BUILD": "1"}
         if not lock:
-            self.command([self.uv, "lock", "--python", "3.12"], cwd=directory, env=env, timeout=900, cancel=cancel)
+            self.command([self.uv, "lock", "--python", "3.12"], cwd=definitions, env=env, timeout=900, cancel=cancel)
         self.command([self.uv, "sync", "--locked", "--no-install-project", "--python", "3.12"],
-                     cwd=directory, env=env, timeout=900, cancel=cancel)
+                     cwd=definitions, env=env, timeout=900, cancel=cancel)
         python = str(venv / "bin/python")
         version = self.command([python, "--version"]).strip()
         return {"runner": "uv", "path": str(venv), "python": python, "python_version": version,
-                "uv": status["message"]}, read_file(directory / "uv.lock")
+                "definitions": str(definitions), "uv": status["message"]}, read_file(definitions / "uv.lock")
 
     def execute(self, environment, snapshot, sources, cancel=None):
         if environment.get("runner") != "uv":
             raise ProjectError("Prepare the uv environment before running this project. Older container runs cannot be replayed with uv.")
-        root = Path(environment["path"]).parent.parent
+        root = Path(environment.get("definitions") or Path(environment["path"]).parent.parent)
         if digest(read_file(root / "uv.lock")) != environment["lock_sha256"]:
             raise ProjectError("Prepared lockfile changed; restore it before replaying")
         # Reconcile additions/removals made from the terminal with the saved lock.

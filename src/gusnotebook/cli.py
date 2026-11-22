@@ -10,6 +10,7 @@ browser immediately.
     gusnb add --no-run "import pandas"     # add without running
     gusnb run <cell_id>                    # re-run a cell
     gusnb run-all
+    gusnb export-output <cell_id> --file figure.html  # embed this output in a report
     gusnb set <cell_id> "new source"       # replace a cell's source
     gusnb here                             # current cell or visual selection
     gusnb here - --run                     # replace a cell and run it
@@ -225,6 +226,37 @@ def cmd_run_all(args):
         show_outputs(r.get("outputs"), indent="    ")
 
 
+def cmd_export_output(args):
+    from .output_export import render, snapshot
+    document = call("/api/notebook")
+    if pathlib.Path(document["path"]).suffix != ".ipynb":
+        sys.exit("Export-output currently uses a linked .ipynb notebook.")
+    cell = next((cell for cell in document["cells"] if cell["id"] == args.cell_id), None)
+    if cell is None:
+        sys.exit("No such cell in this notebook.")
+    # Pin the resolved notebook even when -n was omitted; browser focus can move.
+    endpoint = ("/api/cells/" + urllib.parse.quote(args.cell_id, safe="") + "/history?" +
+                urllib.parse.urlencode({"notebook": document["path"]}))
+    history = call(endpoint)["events"]
+    try:
+        payload = snapshot(document["path"], cell, history, args.output)
+        exported = render(payload)
+        if args.file:
+            path = pathlib.Path(args.file).expanduser().resolve()
+            if path.suffix.lower() not in {".html", ".htm"}:
+                sys.exit("Use an .html file for the exported figure.")
+            path.write_text(exported, encoding="utf-8")
+        else:
+            sys.stdout.write(exported + "\n")
+        call(endpoint, "POST", {"kind": "copy", "snapshot_id": payload["snapshot_id"],
+                               "output_mime": payload["output_mime"], "source": payload["code"],
+                               "note": "Executed output exported for embedding in HTML"})
+    except (OSError, ValueError) as exc:
+        sys.exit(str(exc))
+    if args.file:
+        print(f"Exported {args.cell_id} to {path}. Insert this HTML fragment into the report; keep its provenance attributes.")
+
+
 def cmd_set(args):
     # undoable: this replaces source the user may have written by hand, so the
     # old version goes on the cell's undo stack and the ↶ appears in the browser.
@@ -424,31 +456,19 @@ def cmd_project(args):
         if args.action in {"context", "status"}:
             result = call(base)
             if args.action == "context":
-                # Bound automatic prompt context while retaining the editable source.
-                result.pop("events", None)
-                result["runs"] = result.get("runs", [])[-3:]
+                # Normal projects use Git history, not the legacy run registry.
+                for key in ("events", "runs", "analyses", "tolerances"):
+                    result.pop(key, None)
+                if result.get("job"):
+                    result["job"] = {key: result["job"].get(key) for key in ("kind", "status", "error")}
                 from .project_agent import INSTRUCTIONS
                 result["instructions"] = INSTRUCTIONS
             else:
-                result = {key: result.get(key) for key in ("id", "name", "job", "environment", "analyses")}
+                result = {key: result.get(key) for key in ("id", "name", "job", "environment")}
         elif args.action == "source":
             result = call(base + "/sources", "POST", {"sources": [{"id": args.source_id, "path": target_path(args.path)}]})
-        elif args.action == "publish":
-            revision = args.revision or call(base + "/report")["revision"]
-            result = call(base + "/publish", "POST", {"run_id": args.run_id, "revision": revision})
         elif args.action == "prepare":
             result = call(base + "/prepare", "POST", {})
-        elif args.action == "save":
-            raw = sys.stdin.read() if args.file == "-" else pathlib.Path(args.file).read_text()
-            body = json.loads(raw)
-            if not isinstance(body, dict) or "revision" not in body:
-                sys.exit('Analysis JSON requires revision: use code_revision from context, or "new".')
-            result = call(base + "/analyses/" + urllib.parse.quote(args.analysis, safe=""), "POST", body)
-        elif args.action == "run":
-            result = call(base + "/analyses/" + urllib.parse.quote(args.analysis, safe="") + "/run", "POST",
-                          {"replay": args.replay, "package": args.package})
-        elif args.action == "result":
-            result = call(base + "/runs/" + urllib.parse.quote(args.run_id, safe="") + "/result.json")
         elif args.action == "report":
             if args.file:
                 if not args.revision:
@@ -488,6 +508,12 @@ def main():
     r.set_defaults(fn=cmd_run)
 
     sub.add_parser("run-all", help="run every code cell").set_defaults(fn=cmd_run_all)
+
+    e = sub.add_parser("export-output", help="export a cell's executed output as HTML with its code and provenance")
+    e.add_argument("cell_id")
+    e.add_argument("--file", help="write an HTML fragment to this path (otherwise stdout)")
+    e.add_argument("--output", type=int, default=0, help="displayed output index, starting at 0; excludes streams")
+    e.set_defaults(fn=cmd_export_output)
 
     s = sub.add_parser("set", help="replace a cell's source")
     s.add_argument("cell_id")
@@ -551,23 +577,6 @@ def main():
     source.add_argument("source_id")
     source.add_argument("path")
     source.set_defaults(fn=cmd_project)
-    publish = commands.add_parser("publish", help="display a completed run in the report, pending user review")
-    publish.add_argument("run_id")
-    publish.add_argument("--revision", help="report revision from context; otherwise read the current revision")
-    publish.set_defaults(fn=cmd_project)
-    save = commands.add_parser("save", help="save auditable analysis JSON from a file or stdin")
-    save.add_argument("analysis")
-    save.add_argument("file", help='JSON file, or "-" for stdin')
-    save.set_defaults(fn=cmd_project)
-    run = commands.add_parser("run", help="run, replay or package a saved analysis in uv")
-    run.add_argument("analysis")
-    mode = run.add_mutually_exclusive_group()
-    mode.add_argument("--replay", metavar="RUN_ID")
-    mode.add_argument("--package", action="store_true")
-    run.set_defaults(fn=cmd_project)
-    result = commands.add_parser("result", help="read the saved JSON output of a run")
-    result.add_argument("run_id")
-    result.set_defaults(fn=cmd_project)
     report = commands.add_parser("report", help="read or save HTML with an optimistic revision check")
     report.add_argument("--file", help='HTML file, or "-" for stdin')
     report.add_argument("--revision")

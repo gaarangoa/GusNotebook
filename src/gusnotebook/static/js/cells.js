@@ -231,6 +231,24 @@ window.addEventListener('message', event => {
     flash(String(data.message || ''));
     return;
   }
+  if (data.kind === 'notebook-source') {
+    (async () => {
+      // HTML cannot authorize opening arbitrary host files. Resolve only a
+      // known notebook, then verify the snapshot against its saved receipt.
+      const known = await api('/api/tabs');
+      if (!(known.all_tabs || known.tabs).some(tab => tab.kind === 'notebook' && tab.path === data.notebook)) {
+        throw new Error('Open the linked notebook first to inspect this saved output.');
+      }
+      const history = await api(`/api/cells/${encodeURIComponent(data.cell)}/history?${new URLSearchParams({notebook:data.notebook})}`);
+      if (!history.events.some(e => e.kind === 'copy' && e.snapshot_id === data.snapshot)) {
+        throw new Error('This output has no matching receipt in the notebook.');
+      }
+      await openFile(data.notebook);
+      selectCell(data.cell);
+      document.querySelector(`.cell[data-id="${CSS.escape(data.cell)}"]`)?.scrollIntoView({block:'center'});
+    })().catch(error => flash(errText(error)));
+    return;
+  }
   if (data.kind === 'upload-images') {
     const reply = {channel:MARKUP_EDITOR_CHANNEL, nonce:t.previewNonce,
       command:'images-uploaded', id:data.id};

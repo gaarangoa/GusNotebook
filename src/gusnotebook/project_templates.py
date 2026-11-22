@@ -1,7 +1,8 @@
-"""Auditable starter analysis and the single report/notebook renderer."""
+"""Project scaffold and backwards-compatible structured analysis templates."""
 
 import html
 import json
+import os
 from pathlib import Path
 
 DEPENDENCIES = ["numpy>=1.26,<3", "pandas>=2.2,<4", "scipy>=1.12,<2",
@@ -9,12 +10,12 @@ DEPENDENCIES = ["numpy>=1.26,<3", "pandas>=2.2,<4", "scipy>=1.12,<2",
                 "setuptools>=75", "wheel>=0.44"]
 
 
-def pyproject(name, extra=()):
+def pyproject(name, extra=(), source_directory="code/src"):
     return ('[project]\nname = ' + json.dumps(name.replace('_', '-')) + '\nversion = "0.1.0"\n'
             'requires-python = ">=3.12,<3.13"\ndependencies = ' + json.dumps(DEPENDENCIES + list(extra)) +
             '\n\n[build-system]\nrequires = ["setuptools>=75", "wheel>=0.44"]\n'
             'build-backend = "setuptools.build_meta"\n\n'
-            '[tool.setuptools.packages.find]\nwhere = ["code/src"]\n')
+            '[tool.setuptools.packages.find]\nwhere = [' + json.dumps(source_directory) + ']\n')
 
 
 PCA_CODE = '''"""Two-component PCA; explicit numeric features, complete cases, standardized by default."""
@@ -98,18 +99,19 @@ svg{width:100%;max-height:540px}table{border-collapse:collapse}td,th{padding:6px
 @media(max-width:700px){main{margin:0;padding:16px}}'''
 
 
-def empty_notebook(name, project_id):
+def empty_notebook(name, project_id, report="../reports/deck.html"):
     import nbformat
     nb = nbformat.v4.new_notebook(cells=[nbformat.v4.new_markdown_cell(
-        "# " + name + "\nThis notebook is linked to ../reports/deck.html. Ask the agent to add an analysis.")])
-    nb.metadata["gusproject"] = {"project_id": project_id, "report": "../reports/deck.html"}
+        "# " + name + "\nLinked report: " + report + ". Ask the agent to add Python and D3 code here.")])
+    nb.metadata["gusproject"] = {"project_id": project_id, "report": report}
     nb.metadata["kernelspec"] = {"name": "python3", "display_name": "Python 3", "language": "python"}
     return nbformat.writes(nb)
 
 
-def notebook(analysis_id, parameters, sources, code, result=None, run_id=None, rendered=None, python=None):
+def notebook(analysis_id, parameters, sources, code, result=None, run_id=None, rendered=None, python=None, layout=None):
     import nbformat
     nb = nbformat.v4.new_notebook()
+    layout = layout or {"reports": "reports", "manifest": "gusproject.json", "notebooks": "notebooks"}
     loads = []
     for source in sources:
         path = f"data/inputs/{source['id']}/{source['sha256']}{source['suffix']}"
@@ -119,12 +121,12 @@ def notebook(analysis_id, parameters, sources, code, result=None, run_id=None, r
         f"# {analysis_id}\nRun: `{run_id or 'not yet executed'}`. The linked report uses this analysis.\n"
         "Uses the project's uv environment. Notebook execution is separate from recorded project runs."),
         nbformat.v4.new_code_cell(code + "\n\n# Run with the approved inputs.\nfrom pathlib import Path\nimport sys\nimport pandas as pd\n"
-            "root = next((p for p in (Path.cwd(), *Path.cwd().parents) if (p / 'gusproject.json').is_file()), None)\n"
+            "root = next((p for p in (Path.cwd(), *Path.cwd().parents) if (p / " + repr(layout["manifest"]) + ").is_file()), None)\n"
             "if root is None: raise RuntimeError('Open this notebook inside its analysis project')\n"
             "sys.path.insert(0, str(root / 'code/src'))\n"
             "data = {\n" + "\n".join(loads) + "\n}\nparameters = " + repr(parameters) + "\nresult = analyze(data, parameters)\nresult"),
         nbformat.v4.new_code_cell("import json\nfrom IPython.display import HTML, display\n"
-            "view = (root / 'reports/views/result.html').read_text()\n"
+            "view = (root / " + repr(layout["reports"] + '/views/result.html') + ").read_text()\n"
             "display(HTML(view.replace('GUS_RESULT_JSON', json.dumps(result, allow_nan=False).replace('<', '\\\\u003c'))))")]
     for index, cell in enumerate(nb.cells):
         cell.id = f"{analysis_id}-{index}"
@@ -137,5 +139,5 @@ def notebook(analysis_id, parameters, sources, code, result=None, run_id=None, r
     nb.metadata["kernelspec"] = {"name": "python3", "display_name": "Python 3", "language": "python"}
     if python:
         nb.metadata["kernelspec"]["notebook_python"] = python
-    nb.metadata["gusproject"]["report"] = "../reports/deck.html"
+    nb.metadata["gusproject"]["report"] = os.path.relpath(layout["reports"] + "/deck.html", layout["notebooks"])
     return nbformat.writes(nb)

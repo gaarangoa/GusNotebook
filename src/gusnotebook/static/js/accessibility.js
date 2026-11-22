@@ -40,7 +40,6 @@ const modalObserver = new MutationObserver(syncModals);
 for (const back of document.querySelectorAll('.modal-back')) modalObserver.observe(back, {attributes: true, attributeFilter: ['class']});
 const modalClosers = {
   'project-create-back': () => ProjectWorkspace.closeCreate(),
-  'project-history-back': () => ProjectWorkspace.closeHistory(),
   'gspy-dialog-back': closeGspyDialog,
   'settings-back': closeSettings, 'environment-back': closeEnvironments, 'history-back': closeHistory,
   'dirpick-back': dirPickCancel, 'ask-back': () => askDone(false), 'prov-back': () => provenanceDone(false),

@@ -47,7 +47,7 @@ class UvProjectTests(unittest.TestCase):
         baseline = project["runs"][-1]["id"]
         # A linked .ipynb must execute its visible code with its selected uv
         # interpreter, including from the per-run notebook directory.
-        for path in (self.root / "uv_test/notebooks/pca.ipynb",
+        for path in (self.root / "uv_test/code/notebooks/pca.ipynb",
                      self.root / f"uv_test/results/runs/{baseline}/notebook.ipynb"):
             notebook = json.loads(path.read_text())
             source = "".join(notebook["cells"][1]["source"])
@@ -96,7 +96,7 @@ def analyze(data, parameters):
         self.manager.cancel(self.pid)
         project = self.wait()
         self.assertEqual(project["job"]["status"], "cancelled", project["job"])
-        self.assertTrue((self.root / "uv_test/reports/deck.html").exists())
+        self.assertTrue((self.root / "uv_test/results/reports/deck.html").exists())
 
 
 if __name__ == "__main__":

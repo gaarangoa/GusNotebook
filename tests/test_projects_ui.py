@@ -1,10 +1,11 @@
 """Normal terminal → HTML editor → linked Jupyter notebook, on a disposable server.
 
-Uses the real terminal CLI and uv PCA without model credentials or model calls.
+Uses the real terminal CLI, uv notebook kernel, D3 output and Git without model calls.
 """
 
 import json
 import os
+import re
 from pathlib import Path
 import shlex
 import subprocess
@@ -13,7 +14,8 @@ import time
 
 from playwright.sync_api import expect, sync_playwright
 from ui_server import authenticate_browser, launch_browser, rerun_isolated
-from gusnotebook.project_templates import PCA_CODE
+from gusnotebook.plotting import D3_EXAMPLE
+from gusnotebook.skills import code_of
 
 
 def main():
@@ -39,7 +41,7 @@ def main():
         # Create through the real, already-open PTY, as the terminal agent does.
         command = shlex.join([cli, 'project', 'create', 'browser_study', str(work)])
         page.evaluate("cmd => findTerm(activeTerm).ws.send(cmd + '\\r')", command + ' > ' + shlex.quote(str(work / 'created.json')))
-        page.wait_for_function("active?.endsWith('/browser_study/reports/deck.html')", timeout=15000)
+        page.wait_for_function("active?.endsWith('/browser_study/results/reports/deck.html')", timeout=15000)
         expect(page.locator('#html-preview-frame')).to_be_visible()
         expect(page.locator('#project-links')).to_be_visible()
         document = page.locator('.left').bounding_box()
@@ -69,47 +71,70 @@ def main():
         pid = project['id']
         assert page.evaluate('findTerm(activeTerm).project') == pid
         assert 'analysis.ipynb' in page.locator('#tabs').inner_text()
-        command('source', 'measurements', str(source))
         command('prepare')
-        finish('prepare')
-        command('save', 'analysis', '-', payload={
-            'revision': 'new', 'code': PCA_CODE, 'source_ids': ['measurements'],
-            'parameters': {'source': 'measurements', 'columns': ['x', 'y', 'z']}})
-        command('run', 'analysis')
-        project = finish('run')
-        run = project['runs'][-1]['id']
-        command('publish', run)
+        project = finish('prepare')
+        root = Path(project['path'])
+        notebook_path = root / 'code/notebooks/analysis.ipynb'
+        code = code_of(D3_EXAMPLE).replace(
+            'data = [{"label": "A", "value": 18}, {"label": "B", "value": 32}, {"label": "C", "value": 24}]',
+            'import random\nrng = random.Random(7)\n# Explicitly requested synthetic example.\n'
+            'data = [{"label": label, "value": rng.randint(10, 40)} for label in ["A", "B", "C"]]')
+        nb_cli = [cli, '-n', str(notebook_path)]
+        added = subprocess.run(nb_cli + ['add', '-'], env=env, input=code,
+                               capture_output=True, text=True, timeout=60)
+        assert added.returncode == 0, added.stderr
+        cell_id = re.search(r'added code cell (\S+)', added.stdout).group(1)
+        output = root / 'results/outputs/figure.html'
+        exported = subprocess.run(nb_cli + ['export-output', cell_id, '--file', str(output)],
+                                  env=env, capture_output=True, text=True, timeout=30)
+        assert exported.returncode == 0, exported.stderr
+        current = command('report')
+        updated = work / 'updated.html'
+        updated.write_text('<!doctype html><html><body><main style="display:grid;grid-template-columns:1fr 1fr">' +
+                           output.read_text() + '<aside><h2>Synthetic example</h2><p>Description on the right.</p></aside>' +
+                           '</main></body></html>')
+        command('report', '--file', str(updated), '--revision', current['revision'])
         frame = page.frame_locator('#html-preview-frame')
-        expect(frame.locator('svg circle')).to_have_count(6, timeout=15000)
-        expect(frame.get_by_role('heading', name='Principal component analysis')).to_be_visible()
-        expect(page.locator('#project-review')).to_have_text('Review 1 result')
-        assert command('context')['analyses']['analysis']['accepted_run'] is None
-        # This is the normal HTML editor with its source and visual controls.
+        plot = frame.frame_locator('.gusnb-viz-frame')
+        expect(plot.locator('svg .bar')).to_have_count(3, timeout=15000)
+        expect(frame.get_by_role('heading', name='Synthetic example')).to_be_visible()
+        expect(page.locator('#project-review')).to_have_count(0)
+        expect(page.locator('#project-history-back')).to_have_count(0)
+        assert 'runs' not in command('context')
+        assert not (root / 'results/runs').exists()
+        assert not (root / 'results/reports/views').exists()
+        assert not (root / 'data/.gusnotebook/audit/artifacts').exists()
         expect(page.locator('#text-editor')).not_to_be_visible()
-        frame.locator('.analysis-link').click()
-        page.wait_for_function("active?.includes('/results/runs/') && active.endsWith('/notebook.ipynb')")
-        page.locator('#project-notebook').click()
-        page.wait_for_function("active?.endsWith('/notebooks/analysis.ipynb')")
-        notebook = json.loads((work / 'browser_study/notebooks/analysis.ipynb').read_text())
-        assert 'def analyze(data, parameters):' in ''.join(notebook['cells'][1]['source'])
+        frame.get_by_role('button', name='Notebook code', exact=True).click()
+        page.wait_for_function('p => active === p', arg=str(notebook_path))
+        notebook = json.loads(notebook_path.read_text())
+        assert 'random.Random(7)' in ''.join(notebook['cells'][1]['source'])
+        assert 'd3.select' in ''.join(notebook['cells'][1]['source'])
         assert notebook['metadata']['kernelspec']['notebook_python'] == project['environment']['python']
-        assert notebook['cells'][1]['outputs'][0]['data']['application/json']['metrics']['rows_analyzed'] == 6
-        # Human review stays in the workspace; the agent only published a draft.
-        page.locator('#project-review').click()
-        page.get_by_role('button', name='Accept result', exact=True).click()
-        expect(page.locator('#project-reviews')).to_be_empty()
-        assert command('context')['analyses']['analysis']['accepted_run'] == run
-        command('note', 'Explained PCA exclusions in the terminal chat.')
-        expect(page.locator('#project-history')).to_contain_text('Explained PCA exclusions', timeout=10000)
-        page.locator('#project-history details').first.locator('summary').click()
-        command('run', 'analysis', '--replay', run)
-        replay = finish('replay')
-        assert replay['runs'][-1]['comparison']['passed']
-        expect(page.locator('#project-history details[open]')).to_have_count(1)
-        page.get_by_role('button', name='Close project history').click()
+        assert notebook['cells'][1]['outputs'][0]['data']['text/html']
+
+        # The existing Git panel versions source and notebooks, with no run-ID UI.
+        page.locator('#project-git').click()
+        page.wait_for_function('p => gitState?.root === p', arg=str(root))
+        assert (root / '.git').is_dir()
+        for key, value in [('user.name', 'Notebook Test'), ('user.email', 'notebook-test@example.invalid')]:
+            subprocess.run(['git', '-C', str(root), 'config', key, value], check=True)
+        (root / 'code/tests/test_example.py').write_text('def test_example(): pass\n')
+        tracked = ['.gitignore', 'code']
+        page.evaluate('files => gitAction("stage", files)', tracked)
+        page.wait_for_function('gitState?.operation?.action === "stage" && gitState.operation.state === "done"')
+        page.locator('#git-message').fill('Add synthetic D3 figure with notebook source')
+        page.locator('#git-commit-button').click()
+        page.wait_for_function('gitState?.operation?.action === "commit" && gitState.operation.state === "done"')
+        listing = subprocess.check_output(['git', '-C', str(root), 'ls-files'], text=True).splitlines()
+        assert 'code/notebooks/analysis.ipynb' in listing and 'code/uv.lock' in listing, listing
+        assert all(name == '.gitignore' or name.startswith('code/') for name in listing), listing
+        assert 'code/tests/test_example.py' not in listing, listing
+        assert not any(name.startswith(('data/', 'results/', 'environment/', 'audit/')) for name in listing), listing
+        committed = subprocess.check_output(['git', '-C', str(root), 'show', 'HEAD:code/notebooks/analysis.ipynb'], text=True)
+        assert 'd3.select' in committed and 'gusnotebook_history' in committed
         page.locator('#project-report').click()
-        expect(frame.locator('svg circle')).to_have_count(6)
-        expect(frame.get_by_role('heading', name='Principal component analysis')).to_be_visible()
+        expect(plot.locator('svg .bar')).to_have_count(3)
         # Tab selection is persisted with the normal workspace's 100 ms debounce.
         page.wait_for_function('activeTimers.size === 0')
         page.wait_for_timeout(250)
@@ -119,7 +144,7 @@ def main():
         page.wait_for_function("booted && active?.endsWith('/reports/deck.html')")
         expect(page.locator('#project-links')).to_be_visible()
         page.wait_for_function("id => terms.some(t => t.id === id)", arg=terminal_id)
-        expect(frame.locator('svg circle')).to_have_count(6)
+        expect(plot.locator('svg .bar')).to_have_count(3)
         page.evaluate('AppAppearance.toggle()')
         expect(page.locator('#agent-pane .term-host.on')).to_be_visible()
         page.evaluate("openTerminalClipboard(findTerm(activeTerm), 'paste')")

@@ -5,6 +5,7 @@ from flask import Blueprint, Response, current_app, jsonify, request
 
 from pathlib import Path
 from .project_files import ProjectError
+from .git_process import GitError, redact
 from . import bus
 
 project_routes = Blueprint("projects", __name__)
@@ -14,8 +15,8 @@ def manager():
     return current_app.extensions["gusnotebook"].projects
 
 
-def body():
-    if request.content_length and request.content_length > 5 * 1024 * 1024:
+def body(limit=5 * 1024 * 1024):
+    if limit is not None and request.content_length and request.content_length > limit:
         raise ProjectError("Request exceeds 5 MB")
     value = request.get_json(silent=True)
     if not isinstance(value, dict):
@@ -52,6 +53,13 @@ def create():
 def activate(project):
     from .app import request_session, cell_audit_context
     runtime = current_app.extensions["gusnotebook"]
+    project.update(manager().use_git(project["id"]))
+    try:
+        directory, root = runtime.git.root(project["path"])
+        if root is None:
+            runtime.git.git(directory, "init")
+    except (GitError, OSError) as exc:
+        project["git_warning"] = redact(exc)
     session = request_session()
     terminal = runtime.terms.get(request.headers.get("X-Terminal-Id"))
     if terminal and terminal.workspace and terminal.workspace != session.id:
@@ -72,7 +80,7 @@ def activate(project):
 
 @project_routes.post("/api/projects/<project_id>/open")
 def open_project(project_id):
-    project = manager().view(project_id)
+    project = manager().use_git(project_id)
     activate(project)
     return jsonify(project)
 
@@ -92,7 +100,9 @@ def context():
         project_id = match["id"] if match else None
     if not project_id:
         return jsonify(error="No linked project. Use gusnb project create NAME /parent/folder or gusnb project open PROJECT_ID."), 404
-    project = manager().view(project_id)
+    project = manager().use_git(project_id)
+    for key in ("events", "runs", "analyses", "tolerances"):
+        project.pop(key, None)
     project["instructions"] = INSTRUCTIONS
     return jsonify(project)
 
@@ -105,7 +115,7 @@ def publish(project_id):
 
 @project_routes.get("/api/projects/<project_id>")
 def view(project_id):
-    return jsonify(manager().view(project_id))
+    return jsonify(manager().use_git(project_id))
 
 
 @project_routes.post("/api/projects/<project_id>/sources")
@@ -153,7 +163,8 @@ def cancel(project_id):
 
 @project_routes.route("/api/projects/<project_id>/report", methods=["GET", "POST"])
 def report(project_id):
-    data = body() if request.method == "POST" else {}
+    # Reports carry self-contained figures, as in the normal HTML editor.
+    data = body(limit=None) if request.method == "POST" else {}
     return jsonify(manager().report(project_id, data.get("html"), data.get("revision")))
 
 

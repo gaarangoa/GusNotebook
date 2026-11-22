@@ -1,4 +1,4 @@
-<!-- Project setup and history reuse the workspace's ordinary small dialogs. -->
+<!-- Project setup reuses the workspace's ordinary small dialogs. -->
 <div class="modal-back" id="project-create-back" onclick="if(event.target===this) ProjectWorkspace.closeCreate()">
   <form class="modal" id="project-create">
     <div class="mhead"><span class="grow">Linked report and notebook</span><button class="help-close" type="button" onclick="ProjectWorkspace.closeCreate()" aria-label="Close project setup">×</button></div>
@@ -13,17 +13,4 @@
     </div>
     <div class="mfoot"><button type="button" class="btn" onclick="ProjectWorkspace.closeCreate()">Cancel</button><button type="submit" class="btn" id="project-create-submit">Create project</button></div>
   </form>
-</div>
-<div class="modal-back" id="project-history-back" onclick="if(event.target===this) ProjectWorkspace.closeHistory()">
-  <section class="modal project-history-modal">
-    <div class="mhead"><span class="grow" id="project-history-title">Project history</span><button class="help-close" onclick="ProjectWorkspace.closeHistory()" aria-label="Close project history">×</button></div>
-    <div class="mbody">
-      <p id="project-environment"></p>
-      <details><summary>Approved inputs</summary><div id="project-sources"></div></details>
-      <div id="project-reviews"></div>
-      <details><summary>Saved runs and notebooks</summary><div id="project-runs"></div></details>
-      <a id="project-history-download">Download full JSONL history</a>
-      <div id="project-history"></div>
-    </div>
-  </section>
 </div>
