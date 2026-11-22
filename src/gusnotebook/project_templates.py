@@ -147,7 +147,16 @@ svg{width:100%;max-height:540px}table{border-collapse:collapse}td,th{padding:6px
 @media(max-width:700px){main{margin:0;padding:16px}}'''
 
 
-def notebook(analysis_id, parameters, sources, code, result=None, run_id=None, rendered=None):
+def empty_notebook(name, project_id):
+    import nbformat
+    nb = nbformat.v4.new_notebook(cells=[nbformat.v4.new_markdown_cell(
+        "# " + name + "\nThis notebook is linked to ../reports/deck.html. Ask the agent to add an analysis.")])
+    nb.metadata["gusproject"] = {"project_id": project_id, "report": "../reports/deck.html"}
+    nb.metadata["kernelspec"] = {"name": "python3", "display_name": "Python 3", "language": "python"}
+    return nbformat.writes(nb)
+
+
+def notebook(analysis_id, parameters, sources, code, result=None, run_id=None, rendered=None, python=None):
     import nbformat
     nb = nbformat.v4.new_notebook()
     loads = []
@@ -157,11 +166,11 @@ def notebook(analysis_id, parameters, sources, code, result=None, run_id=None, r
         loads.append(f"    {source['id']!r}: pd.{method}(root / {path!r}),")
     nb.cells = [nbformat.v4.new_markdown_cell(
         f"# {analysis_id}\nRun: `{run_id or 'not yet executed'}`. The linked report uses this analysis.\n"
-        "Select environment/.venv/bin/python to use the project's uv environment. Notebook execution is separate from recorded project runs."),
-        nbformat.v4.new_code_cell("from pathlib import Path\nimport sys\nimport pandas as pd\n"
-            "root = Path.cwd()\nif root.name == 'notebooks': root = root.parent\n"
+        "Uses the project's uv environment. Notebook execution is separate from recorded project runs."),
+        nbformat.v4.new_code_cell(code + "\n\n# Run with the approved inputs.\nfrom pathlib import Path\nimport sys\nimport pandas as pd\n"
+            "root = next((p for p in (Path.cwd(), *Path.cwd().parents) if (p / 'gusproject.json').is_file()), None)\n"
+            "if root is None: raise RuntimeError('Open this notebook inside its analysis project')\n"
             "sys.path.insert(0, str(root / 'code/src'))\n"
-            f"from project_analysis.{analysis_id} import analyze\n"
             "data = {\n" + "\n".join(loads) + "\n}\nparameters = " + repr(parameters) + "\nresult = analyze(data, parameters)\nresult"),
         nbformat.v4.new_code_cell("import json\nfrom IPython.display import HTML, display\n"
             "view = (root / 'reports/views/result.html').read_text()\n"
@@ -175,4 +184,7 @@ def notebook(analysis_id, parameters, sources, code, result=None, run_id=None, r
         nb.cells[2].outputs = [nbformat.v4.new_output("display_data", data={"text/html": rendered})]
     nb.metadata["gusproject"] = {"analysis_id": analysis_id, "run_id": run_id, "code": code}
     nb.metadata["kernelspec"] = {"name": "python3", "display_name": "Python 3", "language": "python"}
+    if python:
+        nb.metadata["kernelspec"]["notebook_python"] = python
+    nb.metadata["gusproject"]["report"] = "../reports/deck.html"
     return nbformat.writes(nb)

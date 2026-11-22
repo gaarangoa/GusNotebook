@@ -115,6 +115,11 @@ es.onerror = () => {
 };
 es.onmessage = (e) => {
   const msg = JSON.parse(e.data);
+  if (msg.type === 'project_opened') {
+    if (msg.session === currentSession) window.ProjectWorkspace?.openProject(msg.project_id, msg.terminal);
+    return;
+  }
+  if (msg.type === 'project_changed') { window.ProjectWorkspace?.changed(msg.project_id); return; }
   if (msg.type === 'cell_history_changed') {
     updateCellHistorySummary(msg.notebook, msg.cell_id, msg.summary);
     return;

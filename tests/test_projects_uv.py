@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import tempfile
+import subprocess
 import time
 import unittest
 
@@ -44,6 +45,17 @@ class UvProjectTests(unittest.TestCase):
         project = self.wait()
         self.assertEqual(project["job"]["status"], "completed", project["job"])
         baseline = project["runs"][-1]["id"]
+        # A linked .ipynb must execute its visible code with its selected uv
+        # interpreter, including from the per-run notebook directory.
+        for path in (self.root / "uv_test/notebooks/pca.ipynb",
+                     self.root / f"uv_test/results/runs/{baseline}/notebook.ipynb"):
+            notebook = json.loads(path.read_text())
+            source = "".join(notebook["cells"][1]["source"])
+            execution = subprocess.run([notebook["metadata"]["kernelspec"]["notebook_python"], "-c",
+                                        source + "\nimport json\nprint(json.dumps(result))"],
+                                       cwd=path.parent, capture_output=True, text=True, timeout=30)
+            self.assertEqual(execution.returncode, 0, execution.stderr)
+            self.assertEqual(json.loads(execution.stdout), json.loads(self.manager.artifact(self.pid, baseline, "result.json")))
         self.manager.accept(self.pid, baseline, project["report_revision"])
         self.manager.run(self.pid, "pca", replay=baseline)
         replay = self.wait()

@@ -3,7 +3,9 @@
 import json
 from flask import Blueprint, Response, current_app, jsonify, request
 
+from pathlib import Path
 from .project_files import ProjectError
+from . import bus
 
 project_routes = Blueprint("projects", __name__)
 
@@ -42,7 +44,63 @@ def runner():
 @project_routes.post("/api/projects")
 def create():
     data = body()
-    return jsonify(manager().create(data.get("name"), data.get("location", ""))), 201
+    project = manager().create(data.get("name"), data.get("location", ""))
+    activate(project)
+    return jsonify(project), 201
+
+
+def activate(project):
+    from .app import request_session, cell_audit_context
+    runtime = current_app.extensions["gusnotebook"]
+    session = request_session()
+    terminal = runtime.terms.get(request.headers.get("X-Terminal-Id"))
+    if terminal and terminal.workspace and terminal.workspace != session.id:
+        terminal = None
+    if terminal:
+        if terminal.project != project["id"]:
+            context = cell_audit_context(agent=True)
+            prompt = context.pop("prompt", None)
+            if prompt:
+                manager().record_agent_event(project["id"], "user_message", prompt, **context)
+        terminal.project = project["id"]
+    if Path(project["notebook"]).is_file():
+        runtime.store.add_tab(project["notebook"], session.id)
+    runtime.store.add_tab(project["report"], session.id)
+    bus.publish("project_opened", project_id=project["id"], session=session.id,
+                terminal=terminal.id if terminal else None)
+
+
+@project_routes.post("/api/projects/<project_id>/open")
+def open_project(project_id):
+    project = manager().view(project_id)
+    activate(project)
+    return jsonify(project)
+
+
+@project_routes.get("/api/projects/context")
+def context():
+    from .app import request_session
+    from .project_agent import INSTRUCTIONS
+    runtime = current_app.extensions["gusnotebook"]
+    session = request_session()
+    terminal = runtime.terms.get(request.headers.get("X-Terminal-Id"))
+    project_id = terminal.project if terminal and (not terminal.workspace or terminal.workspace == session.id) else None
+    if not project_id:
+        active = session.active or ""
+        match = next((p for p in sorted(manager().list(), key=lambda p: len(p["path"]), reverse=True)
+                      if active.startswith(p["path"] + "/")), None)
+        project_id = match["id"] if match else None
+    if not project_id:
+        return jsonify(error="No linked project. Use gusnb project create NAME /parent/folder or gusnb project open PROJECT_ID."), 404
+    project = manager().view(project_id)
+    project["instructions"] = INSTRUCTIONS
+    return jsonify(project)
+
+
+@project_routes.post("/api/projects/<project_id>/publish")
+def publish(project_id):
+    data = body()
+    return jsonify(manager().accept(project_id, data.get("run_id"), data.get("revision"), draft=True))
 
 
 @project_routes.get("/api/projects/<project_id>")

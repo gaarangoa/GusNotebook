@@ -90,7 +90,8 @@ def compare_results(original, candidate, rtol=1e-7, atol=1e-10):
 
 
 class ProjectManager:
-    def __init__(self, directory, runner=None):
+    def __init__(self, directory, runner=None, publish=None):
+        self.publish = publish or (lambda *args, **kwargs: None)
         self.directory = Path(directory).resolve()
         self.directory.mkdir(parents=True, exist_ok=True, mode=0o700)
         self.runner = runner or UvRunner()
@@ -163,6 +164,7 @@ class ProjectManager:
         event = {**payload, "event_id": "event_" + uuid.uuid4().hex, "time": now(), "kind": kind}
         project["events"].append(event)
         self._save(project)
+        self.publish("project_changed", project_id=project["id"])
         return event
 
     def list(self):
@@ -180,6 +182,9 @@ class ProjectManager:
             project["events"] = project["events"][-200:]
             report = read_file(Path(project["path"]) / "reports/deck.html").decode()
             project["report_revision"] = digest(report.encode())
+            project["report"] = str(self._root(project) / "reports/deck.html")
+            project["notebook"] = str(self._root(project) / "notebooks/analysis.ipynb")
+            project["notebooks"] = {key: str(self._root(project) / f"notebooks/{key}.ipynb") for key in project["analyses"]}
             for key, analysis in project["analyses"].items():
                 code = read_file(Path(project["path"]) / f"code/src/project_analysis/{key}.py", 100000).decode()
                 analysis["code"] = code
@@ -192,9 +197,10 @@ class ProjectManager:
                     any(not any(s["id"] == src["id"] and s["sha256"] == src["sha256"] for s in project["sources"])
                         for src in accepted["sources"])))
                 analysis["report_modified"] = False
-                if accepted:
-                    result = json.loads(read_file(self._authority(project) / f"runs/{accepted['id']}/result.json"))
-                    expected = templates.result_html(result, key, accepted["id"])
+                displayed = analysis.get("displayed_run") or (accepted["id"] if accepted else None)
+                if displayed:
+                    result = json.loads(read_file(self._authority(project) / f"runs/{displayed}/result.json"))
+                    expected = templates.result_html(result, key, displayed)
                     analysis["report_modified"] = expected not in report
             return project
 
@@ -227,10 +233,12 @@ class ProjectManager:
             write_file(root / "code/src/project_analysis/__init__.py", '"""Reusable analyses with explicit DataFrame inputs."""\n')
             write_file(root / "code/src/project_analysis/api.py", templates.API_CODE)
             write_file(root / "reports/deck.html", templates.deck(name))
+            write_file(root / "notebooks/analysis.ipynb", templates.empty_notebook(name, project["id"]))
             write_file(root / "reports/views/result.html", self._render({}, "analysis", "unexecuted").replace("{}", "GUS_RESULT_JSON", 1))
             write_file(root / "reports/views/renderer.js", templates.renderer())
             write_file(root / "README.md", "# " + name + "\n\nOpen this project in GusNotebook → + → Analysis project.\n"
-                       "Use Prepare environment, approve data, then run and review an analysis.\n"
+                       "Use the existing terminal agent to prepare uv, register your approved data, and update the report.\n"
+                       "The report and Jupyter notebook open as normal workspace tabs. Review results and history from their project toolbar.\n"
                        "Runs use environment/.venv, managed by uv. Runtime details are in environment/runtime.json.\n"
                        "To use the same environment outside GusNotebook:\n\n"
                        "```sh\nUV_PROJECT_ENVIRONMENT=environment/.venv uv sync --locked\n```\n"
@@ -320,6 +328,14 @@ class ProjectManager:
                     write_file(root / "uv.lock", lock)
                     write_file(root / "environment/runtime.json", encoded(environment))
                     project["environment"] = environment
+                    # Store the interpreter in standard notebook metadata without
+                    # restarting any existing kernel or replacing user cells.
+                    for notebook in (root / "notebooks").glob("*.ipynb"):
+                        document = json.loads(read_file(notebook))
+                        document.setdefault("metadata", {}).setdefault("kernelspec", {}).update(
+                            name="python3", display_name="Project · uv", language="python",
+                            notebook_python=environment["python"])
+                        write_file(notebook, encoded(document))
                     self._event(project, "environment_prepared", **environment)
             return self._launch(project, "prepare", action)
 
@@ -341,7 +357,8 @@ class ProjectManager:
             compile(code, "analysis.py", "exec")  # syntax check only; execution happens in the project uv interpreter
             old = project["analyses"].get(analysis_id, {})
             analysis = {"id": analysis_id, "parameters": parameters, "source_ids": source_ids,
-                        "accepted_run": old.get("accepted_run"), "candidate_run": old.get("candidate_run")}
+                        "accepted_run": old.get("accepted_run"), "candidate_run": old.get("candidate_run"),
+                        "displayed_run": old.get("displayed_run")}
             path = self._root(project) / f"code/src/project_analysis/{analysis_id}.py"
             previous = read_file(path).decode() if path.exists() else None
             if expected_revision is not None and expected_revision != (digest(previous.encode()) if previous is not None else "new"):
@@ -350,7 +367,7 @@ class ProjectManager:
             project["analyses"][analysis_id] = analysis
             selected = [s for s in project["sources"] if s["id"] in source_ids]
             write_file(self._root(project) / f"notebooks/{analysis_id}.ipynb",
-                       templates.notebook(analysis_id, parameters, selected, code))
+                       templates.notebook(analysis_id, parameters, selected, code, python=(project.get("environment") or {}).get("python")))
             self._event(project, "analysis_edited", analysis_id=analysis_id, before=previous, after=code,
                         parameters=parameters, source_ids=source_ids)
             return self.view(project_id)
@@ -362,6 +379,9 @@ class ProjectManager:
             raise ProjectError("Agent message must be text under 100 KB")
         with self.guard:
             project = self._get(project_id)
+            if kind == "user_message" and context.get("request_id") and any(
+                    e.get("request_id") == context["request_id"] and e["kind"] == kind for e in project["events"]):
+                return {"status": "recorded"}
             self._event(project, kind, text=text, **context)
         return {"status": "recorded"}
 
@@ -447,7 +467,7 @@ class ProjectManager:
                               installed=output["environment"], log=output.get("log", "")[-32768:])
                 write_file(directory / "result.json", encoded(result))
                 rendered = self._render(result, analysis_id, run_id)
-                nb = templates.notebook(analysis_id, parameters, selected, code, result, run_id, rendered)
+                nb = templates.notebook(analysis_id, parameters, selected, code, result, run_id, rendered, python=environment.get("python"))
                 write_file(directory / "notebook.ipynb", nb)
                 write_file(directory / "view.html", rendered)
                 record["notebook_sha256"] = digest(nb.encode())
@@ -494,7 +514,7 @@ class ProjectManager:
                 write_file(self._root(project) / f"results/runs/{run_id}/receipt.json", encoded(record))
                 self._save(project)
 
-    def accept(self, project_id, run_id, expected_revision):
+    def accept(self, project_id, run_id, expected_revision, *, draft=False):
         with self.guard:
             project = self._get(project_id)
             self._idle(project)
@@ -518,8 +538,10 @@ class ProjectManager:
                     raise ProjectError("Restore the report's gusnb:sections marker before adding an analysis")
                 new = old.replace("<!-- gusnb:sections -->", start + block + end + "\n<!-- gusnb:sections -->")
             write_file(path, new)
-            project["analyses"][key]["accepted_run"] = run_id
-            self._event(project, "run_accepted", run_id=run_id, analysis_id=key,
+            project["analyses"][key]["displayed_run"] = run_id
+            if not draft:
+                project["analyses"][key]["accepted_run"] = run_id
+            self._event(project, "run_published" if draft else "run_accepted", run_id=run_id, analysis_id=key,
                         report_before=old, report_after=new, report_sha256=digest(new.encode()))
             return self.view(project_id)
 

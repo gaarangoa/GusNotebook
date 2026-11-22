@@ -408,12 +408,18 @@ def cmd_tunnel(args):
 
 
 def cmd_project(args):
-    project = args.project_id or os.environ.get("NB_PROJECT")
+    # A live terminal can create/open another project without restarting its
+    # shell. Its server binding takes precedence over its original environment.
+    project = args.project_id or (os.environ.get("NB_PROJECT") if not os.environ.get("NB_TERMINAL") else None)
     if args.action == "list":
         result = call("/api/projects")
+    elif args.action == "create":
+        result = call("/api/projects", "POST", {"name": args.name, "location": target_path(args.location)})
+    elif args.action == "open":
+        result = call("/api/projects/" + urllib.parse.quote(args.id, safe="") + "/open", "POST", {})
     else:
         if not project:
-            sys.exit("Open a project terminal or pass --project-id from `gusnb project list`.")
+            project = call("/api/projects/context")["id"]
         base = "/api/projects/" + urllib.parse.quote(project, safe="")
         if args.action in {"context", "status"}:
             result = call(base)
@@ -421,9 +427,15 @@ def cmd_project(args):
                 # Bound automatic prompt context while retaining the editable source.
                 result.pop("events", None)
                 result["runs"] = result.get("runs", [])[-3:]
-                result["workflow"] = "Use gusnb project save/run/report/note to preserve provenance. User reviews and accepts results."
+                from .project_agent import INSTRUCTIONS
+                result["instructions"] = INSTRUCTIONS
             else:
                 result = {key: result.get(key) for key in ("id", "name", "job", "environment", "analyses")}
+        elif args.action == "source":
+            result = call(base + "/sources", "POST", {"sources": [{"id": args.source_id, "path": target_path(args.path)}]})
+        elif args.action == "publish":
+            revision = args.revision or call(base + "/report")["revision"]
+            result = call(base + "/publish", "POST", {"run_id": args.run_id, "revision": revision})
         elif args.action == "prepare":
             result = call(base + "/prepare", "POST", {})
         elif args.action == "save":
@@ -528,6 +540,21 @@ def main():
     commands = project.add_subparsers(dest="action", required=True)
     for name in ("list", "context", "status", "prepare"):
         commands.add_parser(name).set_defaults(fn=cmd_project)
+    create = commands.add_parser("create", help="create and open a linked report and Jupyter notebook")
+    create.add_argument("name")
+    create.add_argument("location", help="existing parent folder")
+    create.set_defaults(fn=cmd_project)
+    opening = commands.add_parser("open", help="open a project in normal document tabs and bind this terminal")
+    opening.add_argument("id")
+    opening.set_defaults(fn=cmd_project)
+    source = commands.add_parser("source", help="register the exact data file authorized by the user")
+    source.add_argument("source_id")
+    source.add_argument("path")
+    source.set_defaults(fn=cmd_project)
+    publish = commands.add_parser("publish", help="display a completed run in the report, pending user review")
+    publish.add_argument("run_id")
+    publish.add_argument("--revision", help="report revision from context; otherwise read the current revision")
+    publish.set_defaults(fn=cmd_project)
     save = commands.add_parser("save", help="save auditable analysis JSON from a file or stdin")
     save.add_argument("analysis")
     save.add_argument("file", help='JSON file, or "-" for stdin')

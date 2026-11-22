@@ -266,7 +266,8 @@ def main():
         splitter = page.locator('#splitter').bounding_box()
         page.mouse.move(splitter['x'] + 3, splitter['y'] + 80)
         page.mouse.down()
-        page.mouse.move(splitter['x'] - 45, splitter['y'] + 80)
+        # The terminal sits to the left of the document; dragging right widens it.
+        page.mouse.move(splitter['x'] + 45, splitter['y'] + 80)
         page.mouse.up()
         widths = page.evaluate('[layoutPrefs.filesWidth, layoutPrefs.termWidth]')
         assert widths[1] > 390, widths
@@ -308,7 +309,10 @@ def main():
         page.locator('#tab-new').focus()
         page.keyboard.press('Enter')
         expect(page.locator('#new-menu [role=menuitem]').first).to_be_focused()
-        for _ in range(3):
+        environment_index = page.locator('#new-menu [role=menuitem]').evaluate_all(
+            "items => items.findIndex(item => item.textContent.includes('Environment'))")
+        assert environment_index >= 0
+        for _ in range(environment_index):
             page.keyboard.press('ArrowDown')
         page.keyboard.press('Enter')
         expect(page.locator('#environment-back')).to_be_visible()
@@ -377,6 +381,8 @@ def main():
                 page.click('#toggle-terminal')
                 assert page.evaluate('!document.getElementById("agent-pane").inert')
                 assert page.locator('#agent-pane').bounding_box()['y'] == 0
+                terminal = page.locator('#agent-pane').bounding_box()
+                assert terminal['x'] >= 44 and terminal['x'] + terminal['width'] <= width
                 page.keyboard.press('Escape')
             page.screenshot(path=str(screenshots / f'dark-{width}.png'))
         page.click('#settings-button')

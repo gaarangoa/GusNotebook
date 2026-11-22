@@ -25,7 +25,7 @@ body {
 .app {
   --rail-width: 44px;
   display: grid;
-  grid-template-columns: var(--rail-width) 240px minmax(0, 1fr) 6px 360px;
+  grid-template-columns: var(--rail-width) 240px 360px 6px minmax(0, 1fr);
   height: 100vh;
   overflow: hidden;
   /* Grid rows default to auto (content height); pin to the viewport so the
@@ -34,13 +34,13 @@ body {
 }
 /* Collapsed to zero width rather than display:none — a hidden grid item stops
    occupying its column, which would slide every later pane one column left. */
-.app.files-hidden { grid-template-columns: var(--rail-width) 0 minmax(0, 1fr) 6px 360px; }
+.app.files-hidden { grid-template-columns: var(--rail-width) 0 360px 6px minmax(0, 1fr); }
 .app.files-hidden .files { visibility: hidden; }
 .app > .sidebar-rail { grid-column: 1; grid-row: 1; }
 .app > .files { grid-column: 2; grid-row: 1; }
-.app > .left { grid-column: 3; grid-row: 1; }
+.app > .left { grid-column: 5; grid-row: 1; }
 .app > .splitter { grid-column: 4; grid-row: 1; }
-.app > .right { grid-column: 5; grid-row: 1; }
+.app > .right { grid-column: 3; grid-row: 1; }
 
 /* ---------- Sidebar rail and its selected section ---------- */
 .sidebar-rail {
@@ -1905,9 +1905,9 @@ button.tb.primary:hover { background: var(--accent-soft); }
 
 /* Shared workspace styling. Palette and density live in theme.css. */
 body { height: 100dvh; font-size: var(--ui-size); }
-.app { height: 100%; min-height: 0; grid-template-rows: minmax(0, 1fr); grid-template-columns: var(--rail-width) 240px minmax(0, 1fr) 6px 360px; }
+.app { height: 100%; min-height: 0; grid-template-rows: minmax(0, 1fr); grid-template-columns: var(--rail-width) 240px 360px 6px minmax(0, 1fr); }
 .app-header { display: flex; flex: 0 0 var(--workspace-bar-height); align-items: center; height: var(--workspace-bar-height); padding: 0 6px; gap: 6px; background: var(--surface); border-bottom: 1px solid var(--border); min-width: 0; }
-.header-tools { display: flex; align-items: center; gap: 2px; flex-shrink: 0; }
+.header-tools { display: flex; align-items: center; gap: 2px; flex-shrink: 0; padding-right: 30px; }
 .icon { width: 14px; height: 14px; display: inline-block; vertical-align: middle; flex: 0 0 auto; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; pointer-events: none; }
 button { color: var(--text); }
 button .icon, .ni .icon, .ic .icon { pointer-events: none; }
@@ -1920,7 +1920,6 @@ button .icon, .ni .icon, .ic .icon { pointer-events: none; }
 .header-tools .icon-button.on, .header-tools .icon-button[aria-expanded="true"] { background: var(--accent-soft); color: var(--accent); }
 /* Keep the terminal toggle at the window edge in every panel layout. */
 #toggle-terminal { position: fixed; top: calc((var(--workspace-bar-height) - 28px) / 2); right: 6px; z-index: 41; }
-.app.terminal-hidden .header-tools { padding-right: 30px; }
 .workspace-menu { position: fixed; z-index: 65; width: 230px; max-width: calc(100vw - 12px); padding: 4px; border: 1px solid var(--border); border-radius: 8px; background: var(--panel); box-shadow: var(--shadow); }
 .workspace-menu button { display: flex; align-items: center; gap: 9px; width: 100%; min-height: 32px; padding: 6px 9px; border: 0; border-radius: 4px; font: var(--ui-size)/1.4 -apple-system, BlinkMacSystemFont, sans-serif; text-align: left; color: var(--secondary); background: transparent; cursor: pointer; }
 .workspace-menu button:hover, .workspace-menu button:focus-visible { background: var(--hover); color: var(--text); outline-offset: -2px; }
@@ -2052,7 +2051,7 @@ button:disabled { opacity: .55; cursor: default; }
 .panel-backdrop { position: fixed; inset: 0; z-index: 35; border: 0; background: var(--overlay); }
 .app.files-drawer .files, .app.terminal-drawer .right { visibility: visible; position: fixed; top: 0; bottom: 0; z-index: 40; box-shadow: var(--shadow); }
 .app.files-drawer .files { left: var(--rail-width); width: min(320px, calc(100vw - var(--rail-width) - 16px)); }
-.app.terminal-drawer .right { right: 0; width: min(520px, 94vw); }
+.app.terminal-drawer .right { left: var(--rail-width); width: min(520px, calc(100vw - var(--rail-width) - 8px)); }
 .files-drawer .file-splitter { display: none; }
 .modal { border: 1px solid var(--border); box-shadow: var(--shadow); max-height: 88dvh; border-radius: 12px; }
 .modal .mhead { min-height: 52px; padding: 12px 18px; font-size: var(--ui-size); }

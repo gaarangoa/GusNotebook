@@ -3,8 +3,8 @@
 Status: first working implementation on the development branch; the sections
 below describe the broader architecture, including work not yet implemented.
 See [the current workflow and limits](analysis-projects.md) for shipped behavior
-on this branch: new project setup, approved file snapshots, project-local uv
-execution, existing Claude/Codex terminal chat, shared HTML/notebook results, review/replay,
+on this branch: normal workspace tabs, approved file snapshots, project-local uv
+execution, existing Claude/Codex terminal chat on the left, linked Jupyter notebooks, review/replay,
 audit export, and wheel/API generation with reproduction checks.
 Branch: `feature/report-first-analysis`, based on `899b79c` from `main`.
 
@@ -21,7 +21,7 @@ current notebook and HTML workflows while this branch develops.
 
 ## The user experience
 
-1. Open project chat and ask for a slide deck or report. Choose a new project
+1. Open the normal Claude/Codex terminal chat and ask for a slide deck or report. Choose a new project
    directory, or explicitly adopt an existing document into a project.
 2. Select the files the agent may use, directly or through a JSON file listing
    their paths. The application shows the resulting data scope.

@@ -52,10 +52,11 @@ full recorded history, including deleted steps and output versions, and export
 the audit log as `.jsonl`. Ordinary `.ipynb` notebooks remain available.
 [Get started with scientific notebooks](docs/gspy.md).
 
-On the `feature/report-first-analysis` branch, **+ → Analysis project** starts an
-HTML report backed by approved CSV/Parquet data, uv-managed Python analyses, linked
-notebooks, result comparisons and a durable interaction log. Use your existing
-Claude/Codex terminal agent.
+On the `feature/report-first-analysis` branch, ask your existing Claude/Codex
+terminal agent to create a report or slide deck backed by your approved data.
+It opens the HTML and linked Jupyter notebook in normal workspace tabs, manages
+Python with uv, and records analyses, comparisons and interaction history.
+**+ → Analysis project** is an optional setup shortcut.
 [Analysis project setup and workflow](docs/analysis-projects.md).
 
 Normal launches show startup details, login prompts, and warnings/errors only.

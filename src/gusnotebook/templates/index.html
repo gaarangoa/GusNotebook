@@ -142,6 +142,16 @@
       </div>
     </header>
 
+    <div id="project-links" hidden aria-label="Linked analysis project">
+      <strong id="project-label"></strong>
+      <button class="files-btn" id="project-report">Report</button>
+      <button class="files-btn" id="project-notebook">Notebook</button>
+      <button class="files-btn" id="project-review" hidden>Review result</button>
+      <button class="files-btn" id="project-history-button">History</button>
+      <span id="project-job" role="status"></span>
+      <button class="files-btn" id="project-cancel" hidden>Cancel run</button>
+    </div>
+
     <!-- The + tab's menu. Fixed-position, so the tab strip's horizontal scroll
          can't clip it; coordinates come from the + tab's rect in openNewMenu(). -->
     <div class="new-menu" id="new-menu" role="menu" aria-label="Create">

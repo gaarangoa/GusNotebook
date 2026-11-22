@@ -393,6 +393,7 @@ function showPdf(t, reload = false) {
 
 /** Show whichever pane the active tab needs, and fill it. */
 function showActive() {
+  window.ProjectWorkspace?.sync();
   const t = activeTab();
   const kind = t ? t.kind : 'none';
   const isNb = kind === 'notebook' || kind === 'none';

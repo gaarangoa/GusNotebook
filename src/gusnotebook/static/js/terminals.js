@@ -50,8 +50,7 @@ const wsProto = location.protocol === 'https:' ? 'wss:' : 'ws:';
 function findTerm(id) { return terms.find(t => t.id === id); }
 
 function renderTermTabs() {
-  const project = typeof ProjectWorkspace !== 'undefined' ? ProjectWorkspace.terminalProject() : null;
-  const visible = project ? terms.filter(t => t.project === project.id) : terms;
+  const visible = terms;
   document.getElementById('term-tabs').innerHTML = visible.map(t => `
     <div role="tab" data-kind="${escapeAttr(t.kind)}" tabindex="${t.id === activeTerm ? 0 : -1}" aria-selected="${t.id === activeTerm}" class="tterm ${t.id === activeTerm ? 'active' : ''} ${t.alive ? '' : 'dead'}"
          onclick="focusTerm('${t.id}')" title="${escapeAttr(t.cwd)}">
@@ -77,7 +76,7 @@ async function openTerminal(cwd, kind) {
     flash('Cannot open a terminal: ' + errText(err));
     return;
   }
-  if (!project) ensurePanel('terminal');
+  ensurePanel('terminal');
   const t = attachTerm(data);
   loadSessions();          // it belongs to this session now; show the count
   return t;
@@ -181,8 +180,6 @@ function attachTerm(info) {
 function focusTerm(id) {
   const t = findTerm(id);
   if (!t) return;
-  const project = typeof ProjectWorkspace !== 'undefined' ? ProjectWorkspace.terminalProject() : null;
-  if (project && t.project !== project.id) return;
   activeTerm = id;
   for (const other of terms) other.host.classList.toggle('on', other.id === id);
   renderTermTabs();
@@ -246,8 +243,7 @@ async function closeTerminal(id, ev) {
     await api('/api/terminals/' + id, {method: 'DELETE'});
   } catch (err) { /* gone either way */ }
   if (activeTerm === id) {
-    const project = typeof ProjectWorkspace !== 'undefined' ? ProjectWorkspace.terminalProject() : null;
-    const visible = project ? terms.filter(t => t.project === project.id) : terms;
+    const visible = terms;
     const next = visible[Math.min(i, visible.length - 1)];
     activeTerm = next ? next.id : null;
     if (next) focusTerm(next.id); else renderTermTabs();
@@ -271,7 +267,7 @@ async function bootTerminals() {
 /** Resize the visible terminal to its host box. */
 function fitTerm() {
   const t = findTerm(activeTerm);
-  if (!t || (document.getElementById('agent-pane').inert && !document.getElementById('project-workspace')?.open)) return;
+  if (!t || document.getElementById('agent-pane').inert) return;
   try { t.fit.fit(); } catch (e) { return; }
   if (t.ws && t.ws.readyState === WebSocket.OPEN) {
     t.ws.send(JSON.stringify({type: 'resize', cols: t.term.cols, rows: t.term.rows}));

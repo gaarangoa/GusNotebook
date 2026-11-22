@@ -113,6 +113,43 @@ class ProjectTests(unittest.TestCase):
         self.assertEqual(failed["analyses"]["analysis"]["accepted_run"], accepted)
         self.assertEqual(before, self.manager.report(self.pid))
 
+    def test_draft_publication_preserves_human_baseline_and_report_edits(self):
+        self.prepare()
+        baseline = self.run_analysis()
+        accepted = baseline["runs"][-1]["id"]
+        self.manager.accept(self.pid, accepted, baseline["report_revision"])
+        candidate = self.run_analysis({"value": 2})
+        run = candidate["runs"][-1]["id"]
+        published = self.manager.accept(self.pid, run, candidate["report_revision"], draft=True)
+        analysis = published["analyses"]["analysis"]
+        self.assertEqual(analysis["displayed_run"], run)
+        self.assertEqual(analysis["accepted_run"], accepted)
+        self.assertFalse(analysis["report_modified"])
+        self.assertEqual(published["events"][-1]["kind"], "run_published")
+        self.assertIn(run, self.manager.report(self.pid)["html"])
+        report = self.manager.report(self.pid)
+        self.manager.report(self.pid, report["html"].replace("Write your story", "Human edit"), report["revision"])
+        with self.assertRaises(ProjectError):
+            self.manager.accept(self.pid, accepted, report["revision"], draft=True)
+        self.assertIn("Human edit", self.manager.report(self.pid)["html"])
+
+    def test_linked_notebook_contains_producing_source_outputs_and_uv_kernel(self):
+        path = Path(self.project["notebook"])
+        initial = json.loads(path.read_text())
+        self.assertEqual(initial["metadata"]["gusproject"]["project_id"], self.pid)
+        self.prepare()
+        python = self.manager.view(self.pid)["environment"]["python"]
+        self.assertEqual(json.loads(path.read_text())["metadata"]["kernelspec"]["notebook_python"], python)
+        project = self.run_analysis()
+        notebook = json.loads(path.read_text())
+        self.assertIn(PCA_CODE, "".join(notebook["cells"][1]["source"]))
+        self.assertEqual(notebook["metadata"]["kernelspec"]["notebook_python"], python)
+        self.assertEqual(notebook["cells"][1]["outputs"][0]["data"]["application/json"]["metrics"]["value"], 1)
+        run = project["runs"][-1]["id"]
+        path.write_text("human notebook edit")
+        original = json.loads(self.manager.artifact(self.pid, run, "notebook.ipynb"))
+        self.assertEqual(original["metadata"]["gusproject"]["run_id"], run)
+
     def test_compare_replay_and_concurrent_report_edit(self):
         self.prepare()
         p = self.run_analysis({"value": 1})
@@ -216,6 +253,49 @@ class ProjectTests(unittest.TestCase):
 
 
 class ProjectRouteTests(unittest.TestCase):
+    def test_ordinary_terminal_creates_and_switches_projects_in_normal_tabs(self):
+        from types import SimpleNamespace
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            app = create_app({"STATE_DIR": str(root / "state"), "WORK_DIR": str(root),
+                              "START_WATCHERS": False, "AUTH_TOKEN": "test"})
+            try:
+                runtime = app.extensions["gusnotebook"]
+                session = runtime.store.current()
+                terminal = SimpleNamespace(id="ordinary", workspace=session.id, project=None, kind="codex")
+                client = app.test_client()
+                client.environ_base.update(HTTP_AUTHORIZATION="Bearer test", HTTP_X_TERMINAL_ID=terminal.id,
+                                           HTTP_X_SESSION_ID=session.id)
+                with patch.object(runtime.terms, "get", return_value=terminal):
+                    self.assertEqual(client.get("/api/projects/context").status_code, 404)
+                    client.post('/api/prompt', json={"prompt": "Create a report with a linked notebook"})
+                    first = client.post("/api/projects", json={"name": "first", "location": str(root)}).json
+                    self.assertEqual(terminal.project, first["id"])
+                    self.assertIn(first["notebook"], session.tabs)
+                    self.assertEqual(session.active, first["report"])
+                    second = client.post("/api/projects", json={"name": "second", "location": str(root)}).json
+                    self.assertEqual(client.get("/api/projects/context").json["id"], second["id"])
+                    client.post(f"/api/projects/{first['id']}/open")
+                    self.assertEqual(client.get("/api/projects/context").json["id"], first["id"])
+                    requests = [e for e in runtime.projects.view(first["id"])["events"] if e["kind"] == "user_message"]
+                    self.assertEqual(len(requests), 1)
+                    self.assertEqual(requests[0]["text"], "Create a report with a linked notebook")
+                    terminal.workspace = "another-session"
+                    client.post(f"/api/projects/{second['id']}/open")
+                    self.assertEqual(terminal.project, first["id"])
+            finally:
+                close_app(app)
+
+    def test_cli_uses_live_terminal_binding_after_switching_projects(self):
+        from types import SimpleNamespace
+        from gusnotebook.cli import cmd_project
+        with patch.dict(os.environ, {"NB_PROJECT": "old", "NB_TERMINAL": "terminal"}), \
+             patch("gusnotebook.cli.call", side_effect=[{"id": "current"}, {"id": "current"}]) as call, \
+             patch("builtins.print"):
+            cmd_project(SimpleNamespace(project_id=None, action="status"))
+        self.assertEqual(call.call_args_list[0].args, ("/api/projects/context",))
+        self.assertEqual(call.call_args_list[1].args, ("/api/projects/current",))
+
     def test_authentication_validation_and_prefix(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp).resolve()

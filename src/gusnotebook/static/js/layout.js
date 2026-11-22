@@ -45,7 +45,7 @@ function applyLayout() {
   let fw = files ? Math.min(layoutPrefs.filesWidth, Math.max(200, width * .25), terminal ? width - 786 : Infinity) : 0;
   const tw = terminal ? Math.max(300, Math.min(termWidth, width - fw - 486)) : 0;
   if (width >= 1060) panelDrawer = null;
-  app.style.gridTemplateColumns = `${railWidth}px ${fw}px minmax(0, 1fr) ${terminal ? 6 : 0}px ${tw}px`;
+  app.style.gridTemplateColumns = `${railWidth}px ${fw}px ${tw}px ${terminal ? 6 : 0}px minmax(0, 1fr)`;
   app.classList.toggle('files-hidden', !files);
   app.classList.toggle('terminal-hidden', !terminal);
   app.classList.toggle('focus-mode', focus);
@@ -57,7 +57,7 @@ function applyLayout() {
     document.getElementById(id).hidden = !selected;
     document.getElementById('sidebar-' + name).setAttribute('aria-pressed', String(selected && filesVisible()));
   }
-  document.getElementById('agent-pane').inert = !document.getElementById('project-workspace')?.open && !terminal && panelDrawer !== 'terminal';
+  document.getElementById('agent-pane').inert = !terminal && panelDrawer !== 'terminal';
   document.getElementById('splitter').inert = !terminal;
   document.getElementById('panel-backdrop').hidden = !panelDrawer;
   const terminalOpen = terminal || panelDrawer === 'terminal';
@@ -126,7 +126,7 @@ for (const [id, which] of [['file-splitter', 'files'], ['splitter', 'terminal']]
   separator.addEventListener('pointermove', event => {
     if (event.pointerId !== drag) return;
     const box = document.getElementById('app').getBoundingClientRect();
-    changePanelWidth(which, which === 'files' ? event.clientX - box.left - sidebarRailWidth() : box.right - event.clientX);
+    changePanelWidth(which, which === 'files' ? event.clientX - box.left - sidebarRailWidth() : event.clientX - document.getElementById('agent-pane').getBoundingClientRect().left);
   });
   const finish = () => {
     drag = null;
@@ -142,7 +142,7 @@ for (const [id, which] of [['file-splitter', 'files'], ['splitter', 'terminal']]
     if (event.key === 'Home') next = Number(separator.getAttribute('aria-valuemin'));
     if (event.key === 'End') next = Number(separator.getAttribute('aria-valuemax'));
     if (['ArrowLeft', 'ArrowRight'].includes(event.key)) {
-      const direction = (event.key === 'ArrowRight' ? 1 : -1) * (which === 'files' ? 1 : -1);
+      const direction = event.key === 'ArrowRight' ? 1 : -1;
       next = current + direction * (event.shiftKey ? 64 : 16);
     }
     if (next === undefined) return;

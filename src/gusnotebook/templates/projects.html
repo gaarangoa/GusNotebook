@@ -1,93 +1,29 @@
-<dialog id="project-workspace" aria-labelledby="project-title">
-  <header class="project-toolbar">
-    <strong id="project-title">Analysis projects</strong>
-    <select id="project-picker" aria-label="Project"><option value="">New project</option></select>
-    <button type="button" id="project-new">New</button>
-    <span id="project-runtime" role="status"></span>
-    <button type="button" id="project-close" aria-label="Close analysis projects">Close</button>
-  </header>
-  <form id="project-create" class="project-create">
-    <h2>Start with the story. Keep the evidence.</h2>
-    <p>Create an HTML report with linked Python analyses, approved data and a reviewable run history.</p>
-    <label>Project name <input id="project-name" required pattern="[a-z][a-z0-9_]{0,63}" placeholder="cohort_analysis"></label>
-    <label>Parent folder on this workspace host <input id="project-location" required placeholder="/path/to/projects"></label>
-    <button type="submit">Create project</button>
+<!-- Project setup and history reuse the workspace's ordinary small dialogs. -->
+<div class="modal-back" id="project-create-back" onclick="if(event.target===this) ProjectWorkspace.closeCreate()">
+  <form class="modal" id="project-create">
+    <div class="mhead"><span class="grow">Linked report and notebook</span><button class="help-close" type="button" onclick="ProjectWorkspace.closeCreate()" aria-label="Close project setup">×</button></div>
+    <div class="mbody">
+      <p>Create a report and Jupyter notebook in the workspace. Use the agent chat to write, analyze data and update the report.</p>
+      <div class="field"><label for="project-existing">Open an existing project</label><select id="project-existing"><option value="">New project</option></select></div>
+      <div id="project-create-fields">
+        <div class="field"><label for="project-name">Project name</label><input id="project-name" type="text" pattern="[a-z][a-z0-9_]{0,63}" placeholder="cohort_analysis" required></div>
+        <div class="field"><label for="project-location">Parent folder</label><input id="project-location" type="text" required placeholder="/path/to/projects"></div>
+      </div>
+      <p id="project-create-error" role="alert"></p>
+    </div>
+    <div class="mfoot"><button type="button" class="btn" onclick="ProjectWorkspace.closeCreate()">Cancel</button><button type="submit" class="btn" id="project-create-submit">Create project</button></div>
   </form>
-  <div id="project-body" hidden>
-    <aside class="project-sidebar">
-      <details open><summary>Approved data</summary>
-        <p>Runs load these approved snapshots. uv isolates packages; Python and agents retain host filesystem permissions.</p>
-        <div id="project-sources"></div>
-        <form id="project-source-form">
-          <label>Source ID <input id="project-source-id" placeholder="measurements" required></label>
-          <label>CSV or Parquet path <input id="project-source-path" placeholder="/data/measurements.csv" required></label>
-          <button type="submit" data-project-idle>Approve file</button>
-        </form>
-        <details><summary>Approve a source list</summary>
-          <p>Paste JSON, or choose a JSON file listing IDs and paths on the workspace host. Review the list before approving.</p>
-          <input id="project-source-list-file" type="file" accept=".json,application/json" aria-label="Read a source list">
-          <textarea id="project-source-list" aria-label="Source list JSON" placeholder='{"sources":[{"id":"measurements","path":"/data/file.csv"}]}'></textarea>
-          <button id="project-source-list-add" type="button" data-project-idle>Approve listed files</button>
-        </details>
-      </details>
-      <details><summary>Environment</summary>
-        <p id="project-env-info">Create environment/.venv with uv and lock package versions.</p>
-        <button id="project-prepare" type="button" data-project-idle>Prepare environment</button>
-      </details>
-
-    <section class="project-inspector">
-      <h3>Analysis</h3>
-      <label>Report section <select id="project-analysis-picker"><option value="">New analysis</option></select></label>
-      <form id="project-analysis-form">
-        <label>Section ID <input id="project-analysis-id" value="analysis" required></label>
-        <label>Source IDs (comma separated) <input id="project-analysis-sources" placeholder="measurements"></label>
-        <label>Parameters (JSON) <textarea id="project-parameters" spellcheck="false">{}</textarea></label>
-        <details><summary>Python source</summary>
-          <p>Define analyze(data, parameters), returning metrics, a scatter chart and/or a table. Leave empty for the PCA starter.</p>
-          <textarea id="project-code" aria-label="Analysis Python source" spellcheck="false"></textarea>
-        </details>
-        <button type="submit" data-project-idle>Save analysis</button>
-        <button id="project-pca" type="button" data-project-idle>Use PCA starter</button>
-      </form>
-      <p id="project-analysis-state"></p>
-      <div class="project-actions">
-        <button id="project-run" type="button" data-project-idle>Run</button>
-        <button id="project-notebook" type="button">Open notebook</button>
-        <button id="project-package" type="button" data-project-idle>Build package + API</button>
-      </div>
-      <h3>Runs and review</h3>
-      <select id="project-run-picker" aria-label="Analysis run"><option value="">No runs yet</option></select>
-      <div class="project-actions">
-        <button id="project-candidate" type="button">Preview result</button>
-        <button id="project-accept" type="button" data-project-idle>Accept into report</button>
-        <button id="project-replay" type="button" data-project-idle>Replay saved run</button>
-      </div>
-      <p id="project-comparison"></p>
-      <div class="project-actions"><a id="project-producing-code" hidden>Producing code</a><a id="project-producing-notebook" hidden>Producing notebook</a></div>
-      <details><summary>Run receipt</summary><pre id="project-receipt"></pre></details>
-      <h3>History</h3>
-      <a id="project-history-download">Download full JSONL log</a>
+</div>
+<div class="modal-back" id="project-history-back" onclick="if(event.target===this) ProjectWorkspace.closeHistory()">
+  <section class="modal project-history-modal">
+    <div class="mhead"><span class="grow" id="project-history-title">Project history</span><button class="help-close" onclick="ProjectWorkspace.closeHistory()" aria-label="Close project history">×</button></div>
+    <div class="mbody">
+      <p id="project-environment"></p>
+      <details><summary>Approved inputs</summary><div id="project-sources"></div></details>
+      <div id="project-reviews"></div>
+      <details><summary>Saved runs and notebooks</summary><div id="project-runs"></div></details>
+      <a id="project-history-download">Download full JSONL history</a>
       <div id="project-history"></div>
-    </section>
-    </aside>
-    <main class="project-report">
-      <div class="project-toolbar">
-        <strong>Report</strong><span id="project-preview-label">Accepted results</span>
-        <button id="project-report-show" type="button">Show report</button>
-        <button id="project-edit-report" type="button">Edit HTML</button>
-        <button id="project-open-html" type="button">Open in editor</button>
-      </div>
-      <iframe id="project-preview" title="Scientific report" sandbox="allow-scripts" referrerpolicy="no-referrer"></iframe>
-      <section id="project-html-editor" hidden>
-        <p>Generated sections have gusnb markers. Keep them to update results without replacing your surrounding text.</p>
-        <textarea id="project-html" aria-label="Report HTML" spellcheck="false"></textarea>
-        <button id="project-save-report" type="button">Save HTML</button>
-        <button id="project-discard-report" type="button">Close source</button>
-      </section>
-    </main>
-    <aside id="project-agent-dock" aria-label="Project terminal agent">
-      <p id="project-agent-hint">Choose Claude or Codex and click Agent to start in this project. Existing terminal logins are used.</p>
-    </aside>
-  </div>
-  <footer class="project-toolbar"><span id="project-status" role="status"></span><button id="project-cancel" type="button" hidden>Cancel operation</button></footer>
-</dialog>
+    </div>
+  </section>
+</div>

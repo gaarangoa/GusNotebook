@@ -1560,6 +1560,7 @@ def api_set_prompt():
                "session": session.id if session else "default", "request_id": uuid.uuid4().hex,
                "preferences": getattr(running, "audit_preferences", agent_preferences(session)),
                "preferences_source": "Terminal launch" if running else "Settings when request was received"}
+    set_prompt_text(body.get("prompt"), request_session_id(), context)
     if running and getattr(running, "project", None):
         if body.get("prompt"):
             runtime().projects.record_agent_event(running.project, "user_message", body["prompt"], **context)
@@ -1567,7 +1568,6 @@ def api_set_prompt():
     if session and body.get("prompt"):
         runtime().history.begin(session.id, request.headers.get("X-Terminal-Id", "cli"),
                                 body["prompt"], session.tabs)
-    set_prompt_text(body.get("prompt"), request_session_id(), context)
     if body.get("prompt"):
         record_focused_history("request", context={**context, "prompt": body["prompt"]})
     return jsonify({"status": "ok"})

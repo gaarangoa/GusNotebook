@@ -291,7 +291,8 @@ def standing_instructions(extra=None, restrictions=None):
         parts.append("Instructions for this session specifically:\n" + extra)
 
     note = restriction_note(restrictions)
-    body = D3_INSTRUCTIONS + "\n"
+    from .project_agent import WORKSPACE_INSTRUCTIONS
+    body = D3_INSTRUCTIONS + "\n" + WORKSPACE_INSTRUCTIONS.replace("`gusnb", "`" + nb_command()) + "\n"
     if parts:
         body += ("The user set these standing instructions for this workspace. "
                 "Follow them as you would the project's own conventions.\n\n"
@@ -356,10 +357,7 @@ if command -v curl >/dev/null 2>&1; then
     -H "X-Terminal-Id: $NB_TERMINAL" --data-binary @- \
     "$NB_URL/api/prompt" >/dev/null 2>&1
 fi
-if [ -n "$NB_PROJECT" ]; then
-  {nb} project context 2>/dev/null
-  exit 0
-fi
+{nb} project context 2>/dev/null || true
 cell=$({nb} here 2>/dev/null) || exit 0
 [ -n "$cell" ] || exit 0
 printf '%s\\n%s\\n' \
@@ -587,8 +585,7 @@ class Session:
         # child process and into `env` output.
         extra_env = {"NB_URL": app_url(), "NB_TOKEN": app_token(),
                      "NB_TERMINAL": self.id}
-        if self.project:
-            extra_env["NB_PROJECT"] = self.project
+        extra_env["NB_PROJECT"] = self.project or ""
         if self.workspace:
             extra_env["NB_SESSION"] = self.workspace
         is_shell = self.kind == "shell"

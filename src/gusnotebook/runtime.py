@@ -36,7 +36,7 @@ class Runtime:
         self.settings_memory = {}
         self.history = History(paths.state("history"))
         self.environments = EnvironmentManager(paths.state("environments.json"))
-        self.projects = ProjectManager(paths.state("projects"))
+        self.projects = ProjectManager(paths.state("projects"), publish=self.bus.publish)
         self.tools = ToolInstaller(paths.state("tools"))
         self.git = GitManager(paths.work_dir(), tools_dir=self.tools.directory)
         self.tunnels = TunnelManager(paths.state("tunnels.json"), git_auth=self.git.auth)
