@@ -65,55 +65,6 @@ def analyze(data, parameters):
     }
 '''
 
-API_CODE = '''"""Local HTTP adapter for the same analysis. Explicit records, never server paths.
-
-Run: python -m project_analysis.api analysis --port 8080
-POST /analyze with {"data": {"source_id": [{"column": 1}, ...]}, "parameters": {...}}.
-Bind to loopback; put authentication and request governance in front before deployment.
-"""
-import argparse
-import importlib
-import json
-from http.server import BaseHTTPRequestHandler, HTTPServer
-import pandas as pd
-
-
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("analysis")
-    parser.add_argument("--port", type=int, default=8080)
-    args = parser.parse_args()
-    if not args.analysis.isidentifier() or args.analysis.startswith("_"):
-        parser.error("Invalid analysis module")
-    analyze = importlib.import_module("project_analysis." + args.analysis).analyze
-
-    class Handler(BaseHTTPRequestHandler):
-        def do_POST(self):
-            try:
-                size = int(self.headers.get("Content-Length", "0"))
-                if self.path != "/analyze" or size < 1 or size > 5_000_000:
-                    self.send_error(400, "Invalid endpoint or request size")
-                    return
-                body = json.loads(self.rfile.read(size))
-                data = {key: pd.DataFrame(rows) for key, rows in body["data"].items()}
-                response = analyze(data, body.get("parameters", {}))
-                payload = json.dumps(response, allow_nan=False).encode()
-                self.send_response(200)
-            except Exception as exc:
-                payload = json.dumps({"error": str(exc)}).encode()
-                self.send_response(422)
-            self.send_header("Content-Type", "application/json")
-            self.send_header("Content-Length", str(len(payload)))
-            self.end_headers()
-            self.wfile.write(payload)
-    HTTPServer(("127.0.0.1", args.port), Handler).serve_forever()
-
-
-if __name__ == "__main__":
-    main()
-'''
-
-
 def d3_source():
     source = (Path(__file__).parent / "static/vendor/d3-source.js").read_text()
     return json.loads(source.split(" = ", 1)[1].rstrip(";\n"))

@@ -39,7 +39,7 @@ Use `gusnb project result RUN_ID` to inspect the real output. The user previews 
 candidates in the normal HTML editor. Use `gusnb project publish RUN_ID` to put
 completed results in the report immediately, with their notebook links. Publication
 is a draft, not human acceptance. Never accept results on the user's behalf. `run ID --replay RUN_ID` replays a
-saved run; `run ID --package` builds a wheel/API and verifies it on original and synthetic data.
+saved run; `run ID --package` builds a Python wheel and verifies it on original and synthetic data.
 Read report HTML and revision with `gusnb project report`. Write it using
 `gusnb project report --file updated.html --revision SAVED_REVISION`. Preserve gusnb markers and
 accepted result sections. The project creates notebooks/analysis.ipynb; prefer analysis as the first section ID. Each saved analysis has a runnable .ipynb with its actual Python code and results, using the project uv interpreter. Keep calculations in Python and do not invent numbers in the narrative.

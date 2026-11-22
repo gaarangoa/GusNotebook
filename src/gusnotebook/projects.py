@@ -231,7 +231,6 @@ class ProjectManager:
             write_file(root / ".python-version", "3.12\n")
             write_file(root / ".gitignore", "environment/\ndata/\nresults/\naudit/\nnotebooks/\nreports/deck.html\n.gusnb-*\n__pycache__/\n*.egg-info/\n")
             write_file(root / "code/src/project_analysis/__init__.py", '"""Reusable analyses with explicit DataFrame inputs."""\n')
-            write_file(root / "code/src/project_analysis/api.py", templates.API_CODE)
             write_file(root / "reports/deck.html", templates.deck(name))
             write_file(root / "notebooks/analysis.ipynb", templates.empty_notebook(name, project["id"]))
             write_file(root / "reports/views/result.html", self._render({}, "analysis", "unexecuted").replace("{}", "GUS_RESULT_JSON", 1))
@@ -341,7 +340,7 @@ class ProjectManager:
 
     def save_analysis(self, project_id, analysis_id, parameters, source_ids, code=None, _active_job=False, expected_revision=None):
         identifier(analysis_id)
-        if analysis_id in {"api", "__init__"}:
+        if analysis_id == "__init__":
             raise ProjectError("Reserved module name")
         if not isinstance(parameters, dict) or len(encoded(parameters)) > 20000:
             raise ProjectError("Parameters must be a JSON object under 20 KB")
@@ -437,7 +436,6 @@ class ProjectManager:
             run_id = "run_" + uuid.uuid4().hex
             directory = self._authority(project) / "runs" / run_id
             write_file(directory / "code/src/project_analysis/__init__.py", "")
-            write_file(directory / "code/src/project_analysis/api.py", templates.API_CODE)
             write_file(directory / f"code/src/project_analysis/{analysis_id}.py", code)
             write_file(directory / "pyproject.toml", project["specification"])
             write_file(directory / "worker.py", WORKER)

@@ -5,7 +5,7 @@ below describe the broader architecture, including work not yet implemented.
 See [the current workflow and limits](analysis-projects.md) for shipped behavior
 on this branch: normal workspace tabs, approved file snapshots, project-local uv
 execution, existing Claude/Codex terminal chat on the right, linked Jupyter notebooks, review/replay,
-audit export, and wheel/API generation with reproduction checks.
+audit export, and Python package generation with reproduction checks.
 Branch: `feature/report-first-analysis`, based on `899b79c` from `main`.
 
 Start with a question and an HTML report or slide deck. The agent creates the
@@ -37,7 +37,7 @@ current notebook and HTML workflows while this branch develops.
    run, and interaction history. Ask for a correction from that same location.
 7. Compare the new analysis and report with the previously accepted version.
    Accept or retain the previous result. Later, ask to build a reusable Python
-   package or API from the same implementation.
+   package from the same implementation.
 
 ```mermaid
 flowchart LR
@@ -51,7 +51,7 @@ flowchart LR
     Renderer --> HTML[HTML slide or report]
     Renderer --> Notebook
     HTML --> Review[Compare and accept]
-    Code --> Package[Build package or API]
+    Code --> Package[Build Python package]
     Package --> Verify[Replay against accepted baseline]
 ```
 
@@ -278,12 +278,12 @@ affected analysis/report results outdated. Missing inputs or undeclared runtime
 reads are explicit failures. Refreshing dependency status never silently edits
 prose, accepts a new baseline, or runs code while opening a report.
 
-## Readable code and promotion to a general package or API
+## Readable code and promotion to a general package
 
 Start with reusable Python under `code/src` even during exploration. Functions
 have explicit inputs and outputs, validation, concise domain-relevant docstrings,
-and tests for behavior. Keep file access, scientific logic, rendering and HTTP
-transport separate. Notebooks explain the analysis and call this implementation.
+and tests for behavior. Keep file access, scientific logic and rendering
+separate. Notebooks explain the analysis and call this implementation.
 
 Use scikit-learn itself for appropriate preprocessing and learning tasks, such as
 `Pipeline`, `ColumnTransformer`, `StandardScaler` and `PCA`. Custom estimators
@@ -304,16 +304,12 @@ Promotion is a build and verification workflow over that source:
 4. Test independent synthetic or approved fixtures with different row counts,
    values, feature mappings and invalid inputs. Matching only the original
    dataset cannot establish a reusable interface.
-5. Optionally add a thin, versioned HTTP adapter calling the same library. It
-   accepts validated data or scoped uploaded-artifact IDs and parameters, not
-   arbitrary host paths, and returns the same result contract plus run identity.
-6. Update notebook and report bindings to the package-produced run after review,
+5. Update notebook and report bindings to the package-produced run after review,
    retaining the original run and the comparison record.
 
 “General” means reusable for the declared domain/schema, without embedded cohort
 values, machine paths or slide-specific assumptions. It does not mean every
-possible dataset. Packaging a library, exposing an API, and deploying a public
-service are separate actions; promotion need not publish anything externally.
+possible dataset. Packaging a library does not publish it externally.
 
 ## Durable history
 
@@ -342,7 +338,7 @@ are a distinct future feature, not an implication of the word “audit.”
 | 2. uv runner | Project-local locked environment, fresh subprocesses, run records and cancellation | Approved snapshots are loaded, versions recorded, replay checked, and interruption preserves prior results; host permissions are explicit |
 | 3. One HTML-to-analysis workflow | Project chat, scoped agent tools, one notebook, shared D3 renderer and targeted HTML bindings | Request a PCA from a selected HTML region using one approved dataset; inspect and rerun the producing notebook; no hand copying or unlinked hard-coded metrics |
 | 4. Review and replay | Dependency invalidation, baseline retention, numerical/method/report comparisons and recovery | Change a source value or parameter; explain what changed; retain original on failure or rejection; accept a verified candidate without overwriting unrelated HTML |
-| 5. Package/API promotion | Build from the same analysis code, estimator checks where applicable, independent-data tests and optional HTTP adapter | Installed package reproduces the baseline; general input contract works on independent data; API and notebook call the same implementation |
+| 5. Package promotion | Build from the same analysis code, estimator checks where applicable and independent-data tests | Installed package reproduces the baseline; general input contract works on independent data; notebook uses the same implementation |
 | 6. Integration and scale | Adopting existing projects, richer agent adapters, large datasets, remote environments, export and retention policy | Local/remote host semantics remain explicit; no regressions in ordinary notebooks, Quill documents, HTML editing, terminals or tunnels |
 
 These module names and stages are proposed, not implemented interfaces. Add

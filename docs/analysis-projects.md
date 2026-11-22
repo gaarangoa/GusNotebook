@@ -104,12 +104,12 @@ remain readable; prepare uv and create a new baseline to continue those projects
 Comparisons use `rtol=1e-7`, `atol=1e-10`, plus structural/text checks and lineage
 changes. These support reproducibility without establishing scientific validity
 or guaranteeing bitwise equality across machines. The `--package` command builds
-a wheel and local API, then checks the installed package against the source
+a Python wheel, then checks the installed package against the source
 result and an independent same-schema synthetic fixture.
 
 ```text
 pyproject.toml, uv.lock      # dependencies and lock
-code/src/project_analysis/  # reusable modules and HTTP adapter
+code/src/project_analysis/  # reusable analysis modules
 data/inputs/<id>/<hash>.*   # approved file snapshots
 data/derived/<run>/         # computed JSON
 results/runs/<run>/         # result, receipt, producing notebook, optional wheel
@@ -120,10 +120,6 @@ notebooks/                 # editable analysis notebooks
 reports/deck.html          # ordinary HTML report
 audit/                     # events and saved revisions
 ```
-
-The local API runs with `python -m project_analysis.api analysis --port 8080`.
-POST `/analyze` with `{"data":{"source_id":[{"column":1}]},"parameters":{...}}`.
-Package generation does not deploy or publish a service.
 
 ## Current limits
 
