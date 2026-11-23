@@ -15,6 +15,18 @@ def manager():
     return current_app.extensions["gusnotebook"].projects
 
 
+def linked_project():
+    """Only an explicit terminal binding supplies automatic project context."""
+    from .app import request_session
+    runtime = current_app.extensions["gusnotebook"]
+    terminal = runtime.terms.get(request.headers.get("X-Terminal-Id"))
+    if not terminal or (terminal.workspace and terminal.workspace != request_session().id):
+        return None
+    if not terminal.project:
+        return None
+    return next((p for p in manager().list() if p['id'] == terminal.project), None)
+
+
 def body(limit=5 * 1024 * 1024):
     if limit is not None and request.content_length and request.content_length > limit:
         raise ProjectError("Request exceeds 5 MB")
@@ -52,6 +64,7 @@ def create():
 
 def activate(project):
     from .app import request_session, cell_audit_context
+    from .project_agent import instructions_for
     runtime = current_app.extensions["gusnotebook"]
     project.update(manager().use_git(project["id"]))
     try:
@@ -74,6 +87,9 @@ def activate(project):
     if Path(project["notebook"]).is_file():
         runtime.store.add_tab(project["notebook"], session.id)
     runtime.store.add_tab(project["report"], session.id)
+    # A terminal opting in through create/open needs the rules immediately,
+    # including during the same agent turn that created the project.
+    project['instructions'] = instructions_for(project)
     bus.publish("project_opened", project_id=project["id"], session=session.id,
                 terminal=terminal.id if terminal else None)
 
@@ -87,23 +103,14 @@ def open_project(project_id):
 
 @project_routes.get("/api/projects/context")
 def context():
-    from .app import request_session
-    from .project_agent import INSTRUCTIONS
-    runtime = current_app.extensions["gusnotebook"]
-    session = request_session()
-    terminal = runtime.terms.get(request.headers.get("X-Terminal-Id"))
-    project_id = terminal.project if terminal and (not terminal.workspace or terminal.workspace == session.id) else None
-    if not project_id:
-        active = session.active or ""
-        match = next((p for p in sorted(manager().list(), key=lambda p: len(p["path"]), reverse=True)
-                      if active.startswith(p["path"] + "/")), None)
-        project_id = match["id"] if match else None
-    if not project_id:
+    from .project_agent import instructions_for
+    linked = linked_project()
+    if not linked:
         return jsonify(error="No linked project. Use gusnb project create NAME /parent/folder or gusnb project open PROJECT_ID."), 404
-    project = manager().use_git(project_id)
+    project = manager().use_git(linked['id'])
     for key in ("events", "runs", "analyses", "tolerances"):
         project.pop(key, None)
-    project["instructions"] = INSTRUCTIONS
+    project["instructions"] = instructions_for(project)
     return jsonify(project)
 
 

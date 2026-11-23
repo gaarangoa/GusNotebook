@@ -92,6 +92,16 @@ window.ProjectWorkspace = (() => {
   $('git').onclick = () => act(async () => {
     await browse(project.path); showSidebarSection('git'); await refreshGit();
   });
+  $('agent').onclick = event => {
+    event.stopPropagation();
+    const target = project;
+    if (!target) return;
+    const box = event.currentTarget.getBoundingClientRect();
+    showFileCtx(box.left, box.bottom, [
+      {label:'Claude', action:() => openTerminal(target.path, 'claude', target)},
+      {label:'Codex', action:() => openTerminal(target.path, 'codex', target)},
+    ], 'Start project agent');
+  };
   $('cancel').onclick = () => act(async () => { await post(endpoint('/cancel')); await refresh(); });
   window.addEventListener('message', event => {
     const frame = document.getElementById('html-preview-frame');
@@ -102,6 +112,7 @@ window.ProjectWorkspace = (() => {
   const init = () => act(async () => { await catalog(); await sync(); });
   if (booted) init(); else window.addEventListener('workspace-ready', init, {once:true});
   return {open:() => act(open), closeCreate, sync:() => act(sync),
-    terminalProject:() => project, openProject:(id,terminal) => act(() => openProject(id,terminal)),
+    ownsDocument:(id,path) => projects.some(p => p.id === id && path?.startsWith(p.path + '/')),
+    openProject:(id,terminal) => act(() => openProject(id,terminal)),
     changed:id => { if (project?.id === id) { clearTimeout(timer); timer = setTimeout(() => act(refresh),150); } }};
 })();

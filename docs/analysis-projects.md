@@ -1,8 +1,11 @@
 # Reports backed by notebooks
 
 Work in the normal GusNotebook workspace: HTML and notebook tabs in the center,
-Claude/Codex terminal chat on the right. Describe the report or slide you want.
-The agent writes and runs its Python analysis and complete D3 plotting code in
+Claude/Codex terminal chat on the right. Create or open a project with
+**+ → Analysis project**, then choose **Project agent → Claude or Codex** in
+its bar. Describe the report or slide you want. That agent receives the project's
+data, environment, folder, Git, and slide-deck instructions. It writes and runs
+its Python analysis and complete D3 plotting code in
 the linked notebook, then embeds the actual output into your HTML layout.
 
 For example:
@@ -12,7 +15,7 @@ For example:
 > on the right. Keep the data preparation and plotting code in the notebook.
 
 Click **Notebook code** below a figure to open its generating cell. The project
-bar has **Report**, **Notebook**, and **Git**. Keep using the ordinary HTML editor
+bar has **Report**, **Notebook**, **Project agent**, and **Git**. Keep using the ordinary HTML editor
 for layout, text, images, zoom and source edits. Explicit dummy-data requests
 use a recorded random seed and need no external data-file registration.
 
@@ -21,9 +24,22 @@ adapted from the user's model-architecture presentation: white slides, blue
 headings, compact cards, workflow diagrams, and results tables. The five sample
 layouts can be removed, duplicated, or rearranged. They contain placeholders,
 not example scientific results. Slides adapt to narrow screens and support printing.
-Both terminal agents are directed to read the bundled
+Project agents are directed to read the bundled
 [slide-deck skill](../src/gusnotebook/bundled_skills/html-slide-deck/SKILL.md)
 when creating presentations. Existing reports keep their design.
+
+The ordinary Agent and Terminal controls keep the regular notebook/HTML workflow,
+even with a project document selected. Opening a file or changing tabs never
+links an agent to a project. A project agent stays linked to its project and
+does not receive focused content from unrelated documents. Use a separate
+ordinary agent for that work.
+
+An existing terminal can explicitly join or switch projects with
+`gusnb project create NAME /parent/folder` or `gusnb project open PROJECT_ID`.
+The command returns the project's instructions, and subsequent prompts receive
+its context. To return to ordinary
+work, open a fresh agent from the regular Agent control; an existing conversation
+retains instructions it has already received.
 
 ## Project layout
 
@@ -47,7 +63,8 @@ Git tracks **only `code/`, excluding `code/tests/`**, plus the root `.gitignore`
 that enforces this rule. Data, environments, reports and generated outputs remain
 local. Operational metadata lives under `data/.gusnotebook/`. Existing projects
 keep their paths so their open notebooks and kernels continue working; agent
-context supplies the actual paths.
+context supplies the actual paths, including older top-level `notebooks/` and
+dependency files when describing what to commit.
 
 uv must be installed where GusNotebook runs. The agent prepares
 `data/environment/.venv` and selects it as the notebook kernel. Dependency

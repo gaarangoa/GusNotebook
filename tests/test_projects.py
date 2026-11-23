@@ -298,6 +298,7 @@ class ProjectRouteTests(unittest.TestCase):
                     client.post('/api/prompt', json={"prompt": "Create a report with a linked notebook"})
                     first = client.post("/api/projects", json={"name": "first", "location": str(root)}).json
                     self.assertEqual(terminal.project, first["id"])
+                    self.assertIn('html-slide-deck', first['instructions'])
                     self.assertIn(first["notebook"], session.tabs)
                     self.assertEqual(session.active, first["report"])
                     second = client.post("/api/projects", json={"name": "second", "location": str(root)}).json

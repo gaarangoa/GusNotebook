@@ -461,8 +461,8 @@ def cmd_project(args):
                     result.pop(key, None)
                 if result.get("job"):
                     result["job"] = {key: result["job"].get(key) for key in ("kind", "status", "error")}
-                from .project_agent import INSTRUCTIONS
-                result["instructions"] = INSTRUCTIONS
+                from .project_agent import instructions_for
+                result["instructions"] = instructions_for(result)
             else:
                 result = {key: result.get(key) for key in ("id", "name", "job", "environment")}
         elif args.action == "source":

@@ -291,8 +291,7 @@ def standing_instructions(extra=None, restrictions=None):
         parts.append("Instructions for this session specifically:\n" + extra)
 
     note = restriction_note(restrictions)
-    from .project_agent import WORKSPACE_INSTRUCTIONS
-    body = D3_INSTRUCTIONS + "\n" + WORKSPACE_INSTRUCTIONS.replace("`gusnb", "`" + nb_command()) + "\n"
+    body = D3_INSTRUCTIONS + "\n"
     if parts:
         body += ("The user set these standing instructions for this workspace. "
                 "Follow them as you would the project's own conventions.\n\n"
@@ -357,6 +356,8 @@ if command -v curl >/dev/null 2>&1; then
     -H "X-Terminal-Id: $NB_TERMINAL" --data-binary @- \
     "$NB_URL/api/prompt" >/dev/null 2>&1
 fi
+# The server only returns project context for this terminal's explicit binding.
+# Looking at a project document never opts an ordinary agent into its rules.
 {nb} project context 2>/dev/null || true
 cell=$({nb} here 2>/dev/null) || exit 0
 [ -n "$cell" ] || exit 0

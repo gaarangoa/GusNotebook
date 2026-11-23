@@ -55,16 +55,15 @@ function renderTermTabs() {
     <div role="tab" data-kind="${escapeAttr(t.kind)}" tabindex="${t.id === activeTerm ? 0 : -1}" aria-selected="${t.id === activeTerm}" class="tterm ${t.id === activeTerm ? 'active' : ''} ${t.alive ? '' : 'dead'}"
          onclick="focusTerm('${t.id}')" title="${escapeAttr(t.cwd)}">
       <span class="ti">${icon(t.kind === 'shell' ? 'terminal' : (t.kind === 'codex' ? 'code' : 'agent'))}</span>
-      <span class="tn">${escapeHtml(t.label)}</span>
+      <span class="tn">${t.project ? 'Project: ' : ''}${escapeHtml(t.label)}</span>
       <span class="tx" role="button" tabindex="0" aria-label="Close ${escapeAttr(t.label)} terminal" onclick="closeTerminal('${t.id}', event)">${icon('close')}</span>
     </div>`).join('');
   document.getElementById('term-empty').classList.toggle('off', visible.length > 0);
 }
 
-/** Open a session in the requested directory, or wherever Files is browsing.
- * `kind` is "shell", "codex", or "claude". */
-async function openTerminal(cwd, kind) {
-  const project = typeof ProjectWorkspace !== 'undefined' ? ProjectWorkspace.terminalProject() : null;
+/** Ordinary terminals never infer project membership from the active document.
+ * The project's own launch action supplies an explicit project. */
+async function openTerminal(cwd, kind, project = null) {
   const root = project?.path || cwd || fileState.path;
   let data;
   try {
@@ -219,6 +218,12 @@ function waitForTermSocket(t) {
 
 async function sendPromptToAgent(text) {
   let t = activeAgentTerm();
+  // A notebook/HTML request must not go to an unrelated project's agent just
+  // because that terminal happens to be selected on the right.
+  if (t?.project && !ProjectWorkspace.ownsDocument(t.project, active)) {
+    t = terms.find(candidate => candidate.alive && !candidate.project &&
+      (candidate.kind === 'claude' || candidate.kind === 'codex')) || null;
+  }
   if (!t) {
     const kind = document.getElementById('agent-kind').value || 'claude';
     t = await openTerminal(null, kind);

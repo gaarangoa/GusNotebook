@@ -389,13 +389,19 @@ def doc_key():
     From ?notebook= or the JSON body's "notebook"; falls back to the first open
     notebook so single-notebook callers keep working.
 
-    The fallback prefers the **current session's** first notebook. The registry
+    A linked project's terminal defaults to that project's notebook. Otherwise,
+    the fallback prefers the **current session's** first notebook. The registry
     holds every session's documents at once, so its first entry may belong to a
     session nobody is looking at — an unqualified `gusnb add` would land there.
     """
     raw = request.args.get("notebook")
     if not raw:
         raw = (request.get_json(silent=True) or {}).get("notebook")
+    if not raw:
+        from .project_routes import linked_project
+        project = linked_project()
+        if project:
+            raw = runtime().projects.notebook_path(project['id'])
     if not raw:
         paths = notebooks.paths()
         cur = request_session()
@@ -1627,11 +1633,23 @@ def api_here():
     # The focused notebook wins when the caller didn't name one: "here" means
     # the tab on screen, and doc_key()'s fallback is the session's first
     # notebook, which is a different thing whenever the user has switched tabs.
+    from .project_routes import linked_project
+    project = linked_project()
+
+    def outside_project(path):
+        return project and path and not Path(path).resolve().is_relative_to(Path(project['path']).resolve())
+
+    def outside_selection():
+        return jsonify(cell=None, note="The selected document is outside this agent's linked project. "
+                       "Select a document in the project or use the notebook path from gusnb project context.")
+
     named = request.args.get("notebook")
     workspace = request_session_id()
     visual, stale_path = ((None, None) if named
                           else get_markup_focus(workspace))
     if stale_path:
+        if outside_project(stale_path):
+            return outside_selection()
         bus.publish("text_external_changed", path=stale_path,
                     disk_version=textfile.disk_version(stale_path))
         return jsonify({
@@ -1642,6 +1660,8 @@ def api_here():
             "path": stale_path,
         })
     if visual:
+        if outside_project(visual['path']):
+            return outside_selection()
         before = visual["document"][max(0, visual["start"] - 2000):visual["start"]]
         after = visual["document"][visual["end"]:visual["end"] + 2000]
         return jsonify({
@@ -1658,6 +1678,8 @@ def api_here():
         })
 
     key, cell_id = get_focus(named and doc_key(), workspace)
+    if outside_project(key):
+        return outside_selection()
     if not cell_id:
         return jsonify({"cell": None, "notebook": named and doc_key(),
                         "note": "no cell or visual region is selected in the browser"})
@@ -2186,10 +2208,10 @@ def api_new_terminal():
     python = kernel_python(doc_key())
     try:
         if project_id:
-            from .project_agent import INSTRUCTIONS
+            from .project_agent import instructions_for
             project = runtime().projects.view(project_id)
             cwd = project["path"]
-            instructions = (instructions or "") + "\n" + INSTRUCTIONS.replace("`gusnb", "`" + terminals.nb_command())
+            instructions = (instructions or "") + "\n" + instructions_for(project).replace("`gusnb", "`" + terminals.nb_command())
             environment = project.get("environment") or {}
             python = environment.get("python") if environment.get("runner") == "uv" else None
         s = terms.create(str(files.normalize(cwd)),

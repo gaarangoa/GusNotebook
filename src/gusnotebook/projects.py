@@ -176,6 +176,11 @@ class ProjectManager:
                 raise ProjectError(self.registry_error)
             return [{"id": p["id"], "name": p["name"], "path": p["path"]} for p in self.projects.values()]
 
+    def notebook_path(self, project_id):
+        """Resolve an agent's default notebook without loading a large report."""
+        with self.guard:
+            return str(self._path(self._get(project_id), "notebooks", "analysis.ipynb"))
+
     def view(self, project_id):
         with self.guard:
             project = deepcopy(self._get(project_id))

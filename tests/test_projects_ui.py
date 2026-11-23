@@ -16,6 +16,7 @@ from playwright.sync_api import expect, sync_playwright
 from ui_server import authenticate_browser, launch_browser, rerun_isolated
 from gusnotebook.plotting import D3_EXAMPLE
 from gusnotebook.skills import code_of
+from gusnotebook.terminals import FOCUS_HOOK
 
 
 def main():
@@ -165,6 +166,66 @@ def main():
         page.get_by_role('button', name='Open project', exact=True).click()
         expect(page.locator('#project-create-back')).not_to_be_visible()
         expect(page.locator('#html-preview-frame')).to_be_visible()
+
+        # Ordinary launch buttons remain ordinary even while a project is open.
+        # Substitute real shell PTYs at the HTTP boundary: no model login/calls.
+        launches = []
+        def launch_as_shell(route):
+            if route.request.method == 'POST':
+                body = route.request.post_data_json
+                launches.append(body)
+                route.continue_(post_data=json.dumps({**body, 'kind':'shell'}))
+            else:
+                route.continue_()
+        page.route('**/api/terminals*', launch_as_shell)
+        previous = page.evaluate('activeTerm')
+        page.evaluate('openSelectedAgent()')
+        page.wait_for_function('previous => activeTerm !== previous', arg=previous)
+        ordinary_id = page.evaluate('activeTerm')
+        assert 'project' not in launches[-1]
+        assert page.evaluate('findTerm(activeTerm).project') is None
+        for kind, label in [('claude','Claude'), ('codex','Codex')]:
+            previous = page.evaluate('activeTerm')
+            page.locator('#project-agent').click()
+            page.get_by_role('menuitem', name=label, exact=True).click()
+            page.wait_for_function('previous => activeTerm !== previous', arg=previous)
+            assert launches[-1]['kind'] == kind and launches[-1]['project'] == pid
+            assert page.evaluate('findTerm(activeTerm).project') == pid
+        page.unroute('**/api/terminals*', launch_as_shell)
+
+        # Run the actual provider-neutral prompt hook with each terminal identity.
+        # The ordinary one must not inherit the selected project's instructions.
+        hook = work / 'agent-hook.sh'
+        hook.write_text(FOCUS_HOOK.format(nb=shlex.quote(cli), url=shlex.quote(url.rstrip('/'))))
+        for tid, expected in [(ordinary_id, False), (terminal_id, True)]:
+            result = subprocess.run(['/bin/sh', str(hook)], input='{"prompt":"Check the selected document"}',
+                                    text=True, capture_output=True, timeout=20, env={**env,'NB_TERMINAL':tid})
+            assert result.returncode == 0, result.stderr
+            assert ('html-slide-deck' in result.stdout) == expected
+            assert ('Git paths relative' in result.stdout) == expected
+
+        # A request from an ordinary notebook is never pasted into another
+        # project's selected agent. Keep the PTY write stubbed for this check.
+        outside = work / 'ordinary.ipynb'
+        page.evaluate('path => openFile(path)', str(outside))
+        page.wait_for_function('path => active === path', arg=str(outside))
+        sent = page.evaluate('''async ids => {
+          const projectAgent = findTerm(ids.project), ordinary = findTerm(ids.ordinary);
+          projectAgent.kind = 'codex'; ordinary.kind = 'claude';
+          await waitForTermSocket(projectAgent); await waitForTermSocket(ordinary);
+          const writes = [];
+          const projectSend = projectAgent.ws.send, ordinarySend = ordinary.ws.send;
+          projectAgent.ws.send = text => writes.push({id:projectAgent.id, text});
+          ordinary.ws.send = text => writes.push({id:ordinary.id, text});
+          try {
+            focusTerm(projectAgent.id);
+            const chosen = await sendPromptToAgent('Describe this notebook');
+            return {chosen:chosen.id, writes};
+          } finally { projectAgent.ws.send = projectSend; ordinary.ws.send = ordinarySend; }
+        }''', {'project':terminal_id, 'ordinary':ordinary_id})
+        assert sent['chosen'] == ordinary_id
+        assert any(item['id'] == ordinary_id and 'Describe this notebook' in item['text'] for item in sent['writes'])
+        assert not any(item['id'] == terminal_id and 'Describe this notebook' in item['text'] for item in sent['writes'])
         assert not errors, errors
         browser.close()
     print('Normal workspace project workflow passed')

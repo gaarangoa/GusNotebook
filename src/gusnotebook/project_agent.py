@@ -1,6 +1,7 @@
 """Instructions for the existing Claude/Codex terminal, scoped to a project."""
 
 from .project_templates import SLIDE_DECK_DIR
+from .project_layout import paths as layout_paths
 
 
 SLIDE_DECK_INSTRUCTIONS = f"""
@@ -12,28 +13,15 @@ New project reports already start from this template. Keep an existing report's
 design when extending it, and honor an explicitly requested alternative design.
 """
 
-WORKSPACE_INSTRUCTIONS = SLIDE_DECK_INSTRUCTIONS + """
-For a report or slide deck grounded in data, use the NORMAL GusNotebook workspace:
-the existing terminal chat, HTML editor and Jupyter notebook tabs. You can create
-the linked files with `gusnb project create NAME /absolute/parent/folder`; it opens
-the report and notebook automatically. Or use `gusnb project list` then
-`gusnb project open PROJECT_ID`. Read `gusnb project context` for paths and workflow.
-Start from the user's HTML and layout. Write and execute the Python data preparation
-AND the complete D3/HTML plotting code in the linked notebook, then embed that actual
-output into the HTML. Use `gusnb -n NOTEBOOK export-output CELL_ID --file figure.html`.
-Do not leave the generating code only in the terminal, an external module or the HTML.
-The agent handles this; the user does not need to copy outputs or fill analysis forms.
-Use Git/GitHub to version the code and notebooks, including uv dependency files under code/.
-Do not create per-run folders, run IDs, a review/acceptance workflow or an analysis API.
-"""
-
 INSTRUCTIONS = SLIDE_DECK_INSTRUCTIONS + r'''
-This terminal is linked to an ordinary HTML report and Jupyter notebook.
+This terminal is explicitly linked to an analysis project. These rules apply to
+that project only. An ordinary notebook/HTML agent uses its own workflow.
 Run `gusnb project context` at the start of each request for the project paths,
 approved sources and uv interpreter. Use the existing HTML editor and terminal chat.
-New project layout: code/src, code/notebooks, code/tests; data/inputs and
-data/environment/.venv; results/reports and results/outputs. Only code/ is tracked
-by Git; code/tests/ is ignored. Use paths from context for existing projects.
+Use the current context's notebook, report and layout_paths; they take precedence
+over paths from earlier requests if the user explicitly switches this terminal's
+project. Resolve layout_paths relative to context.path. Changing browser tabs
+does not change the terminal's project.
 
 Default workflow for a plot, table, number or other computed content in the HTML:
 1. Read `gusnb here --full` and `gusnb project report` to preserve the requested
@@ -41,13 +29,13 @@ Default workflow for a plot, table, number or other computed content in the HTML
 2. Use only the user's authorized inputs. Register exact approved file paths with
    `gusnb project source ID PATH`. Read their snapshots under the project's
    data/inputs/ID/SHA256.SUFFIX (metadata is in context). Save derived data under
-   results/outputs/ and reports under results/reports/. If the user explicitly asks
+   layout_paths.outputs and reports under layout_paths.reports. If the user explicitly asks
    for dummy/synthetic data, generate it in the notebook with a fixed random seed,
    label it synthetic, and record that choice. Synthetic examples need no external
    source registration. Never substitute dummy data for a real-data request.
 3. Prepare the uv environment using `gusnb project prepare` if needed, then poll
    `gusnb project status` until complete. Target the linked notebook explicitly
-   with `gusnb -n /absolute/project/code/notebooks/analysis.ipynb ...`. Check its kernel
+   with `gusnb -n NOTEBOOK_PATH ...`, using context.notebook. Check its kernel
    with `env`; select the project environment.python if it differs. Do not switch
    an already correct kernel. uv manages dependencies; do not create a service.
 4. Put readable Python data preparation and ALL custom plotting code in ordinary
@@ -59,7 +47,7 @@ Default workflow for a plot, table, number or other computed content in the HTML
    a link to a .py file or code that reads a hidden renderer. Keep calculations in
    Python and the D3 rendering beside them. Put explanatory Markdown between cells.
 5. After successful execution, export the producing cell:
-   `gusnb -n NOTEBOOK export-output CELL_ID --file /absolute/project/results/outputs/figure.html`.
+   `gusnb -n NOTEBOOK export-output CELL_ID --file FIGURE_HTML`, saving under layout_paths.outputs.
    Use --output N for a particular displayed output (zero based). This writes a
    self-contained HTML fragment with the actual output, code snapshot and history.
    Read it from the file programmatically and insert it into the requested position
@@ -75,12 +63,12 @@ Default workflow for a plot, table, number or other computed content in the HTML
 7. Keep explanations, data choices and limitations in notebook Markdown. Cell history
    already keeps prompts, edits, executions and output links inside the notebook.
    Version changes with ordinary Git commits. Inspect git status/diff; stage only
-   code/ for this task (including notebooks and uv definitions), excluding code/tests/, then
-   commit with a meaningful message. Follow the user's commit/push preferences.
+   this task's source, notebooks and uv definitions using the Git paths below,
+   then commit with a meaningful message. Follow the user's commit/push preferences.
    Reuse the existing GitHub remote and credentials. If no remote is configured,
    keep commits local and ask for the intended GitHub repository before connecting
    or pushing. Do not create a remote repository or invent a Git identity.
-   Never stage code/tests/, data/, results/, secrets or unrelated files. Reports and outputs stay local.
+   Never stage tests, data, environments, reports, outputs, secrets or unrelated files.
 
 Keep the normal workspace and the user's chosen HTML design. Do not force arbitrary
 D3 plots through `project save/run/publish` or its scatter/metric/table schema.
@@ -93,3 +81,16 @@ Do not create api.py or an HTTP service for analysis. Do not use Docker.
 Respect approved data paths; uv is dependency isolation, not a filesystem sandbox.
 Never accept results on the user's behalf or invent numerical results.
 '''
+
+
+def instructions_for(project):
+    """Use the actual layout, including notebooks outside code/ in older projects."""
+    paths = layout_paths(project)
+    definitions = paths['dependencies'].rstrip('/')
+    prefix = '' if definitions == '.' else definitions + '/'
+    tracked = ['code/', paths['notebooks'] + '/',
+               *(prefix + name for name in ('pyproject.toml', 'uv.lock', '.python-version'))]
+    return (INSTRUCTIONS + '\nGit paths relative to the linked project root: ' +
+            ', '.join('`' + path + '`' for path in tracked) + '.\n' +
+            'Exclude tests in `' + paths['tests'] + '/` and reports in `' + paths['reports'] +
+            '/`. Select the changed files; never stage the whole project root.\n')
