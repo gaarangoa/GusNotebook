@@ -155,7 +155,7 @@ class ProjectTests(unittest.TestCase):
         self.assertEqual(published["events"][-1]["kind"], "run_published")
         self.assertIn(run, self.manager.report(self.pid)["html"])
         report = self.manager.report(self.pid)
-        self.manager.report(self.pid, report["html"].replace("Write your story", "Human edit"), report["revision"])
+        self.manager.report(self.pid, report["html"].replace("</body>", "<p>Human edit</p></body>"), report["revision"])
         with self.assertRaises(ProjectError):
             self.manager.accept(self.pid, accepted, report["revision"], draft=True)
         self.assertIn("Human edit", self.manager.report(self.pid)["html"])
@@ -187,7 +187,7 @@ class ProjectTests(unittest.TestCase):
         self.assertFalse(candidate["comparison"]["passed"])
         self.assertIn("parameters", candidate["comparison"]["lineage_changes"])
         report = self.manager.report(self.pid)
-        self.manager.report(self.pid, report["html"].replace("Write your story", "Human edit"), report["revision"])
+        self.manager.report(self.pid, report["html"].replace("</body>", "<p>Human edit</p></body>"), report["revision"])
         with self.assertRaises(ProjectError):
             self.manager.accept(self.pid, candidate["id"], report["revision"])
         self.manager.run(self.pid, "analysis", replay=accepted)

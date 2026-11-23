@@ -1,6 +1,18 @@
 """Instructions for the existing Claude/Codex terminal, scoped to a project."""
 
-WORKSPACE_INSTRUCTIONS = """
+from .project_templates import SLIDE_DECK_DIR
+
+
+SLIDE_DECK_INSTRUCTIONS = f"""
+For a new HTML slide deck or presentation, read and use the html-slide-deck skill:
+{SLIDE_DECK_DIR / 'SKILL.md'}
+Its reusable HTML template is at {SLIDE_DECK_DIR / 'assets' / 'deck.html'}.
+Use it for the deck's design; use the linked notebook for computed figures and tables.
+New project reports already start from this template. Keep an existing report's
+design when extending it, and honor an explicitly requested alternative design.
+"""
+
+WORKSPACE_INSTRUCTIONS = SLIDE_DECK_INSTRUCTIONS + """
 For a report or slide deck grounded in data, use the NORMAL GusNotebook workspace:
 the existing terminal chat, HTML editor and Jupyter notebook tabs. You can create
 the linked files with `gusnb project create NAME /absolute/parent/folder`; it opens
@@ -15,7 +27,7 @@ Use Git/GitHub to version the code and notebooks, including uv dependency files 
 Do not create per-run folders, run IDs, a review/acceptance workflow or an analysis API.
 """
 
-INSTRUCTIONS = r'''
+INSTRUCTIONS = SLIDE_DECK_INSTRUCTIONS + r'''
 This terminal is linked to an ordinary HTML report and Jupyter notebook.
 Run `gusnb project context` at the start of each request for the project paths,
 approved sources and uv interpreter. Use the existing HTML editor and terminal chat.

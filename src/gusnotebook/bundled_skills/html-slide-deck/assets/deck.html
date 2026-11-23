@@ -1,0 +1,242 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Analysis title</title>
+<style>
+/* Adapted from the user's model-architecture.html. No external assets required. */
+:root {
+  color-scheme: light;
+  --canvas: #f5f5f5; --paper: #fff; --ink: #1a1a1a; --muted: #666;
+  --blue: #2E6B9E; --green: #3D8A5F; --orange: #C96B2E; --purple: #8B5AA6;
+  --line: #e8e8e8; --panel: #fafbfc;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--canvas); color: var(--ink); font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+main { counter-reset: slide; }
+.slide {
+  counter-increment: slide; width: min(1100px, calc(100% - 48px)); min-height: 720px;
+  margin: 40px auto; padding: 56px 64px 20px; background: var(--paper);
+  border-radius: 12px; box-shadow: 0 2px 20px rgba(0,0,0,.07);
+  position: relative; display: flex; flex-direction: column; overflow-wrap: anywhere;
+  break-after: page;
+}
+.slide:last-child { break-after: auto; }
+.slide-num { position: absolute; top: 24px; right: 32px; font-size: 12px; font-weight: 600; color: #aaa; letter-spacing: 1px; }
+.slide-num::before { content: counter(slide, decimal-leading-zero); }
+.section-tag { font-size: 11px; font-weight: 700; letter-spacing: 2.5px; text-transform: uppercase; color: var(--blue); margin-bottom: 10px; }
+.slide-title { font-size: 28px; font-weight: 900; letter-spacing: -.5px; line-height: 1.2; margin: 0 0 8px; }
+.slide-subtitle { font-size: 15px; color: #777; line-height: 1.5; margin: 0 0 28px; }
+.slide-body { flex: 1; min-width: 0; }
+.slide-footer { font-size: 11px; color: #888; border-top: 1px solid #f0f0f0; padding-top: 8px; margin-top: 32px; line-height: 1.5; }
+p { font-size: 13.5px; line-height: 1.6; }
+a { color: var(--blue); }
+a:focus-visible, button:focus-visible { outline: 2px solid var(--blue); outline-offset: 3px; }
+.card-row { display: flex; gap: 16px; margin: 20px 0; }
+.card { flex: 1; min-width: 0; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 18px; }
+.card-label { font-size: 11px; font-weight: 700; letter-spacing: 1.2px; text-transform: uppercase; color: #777; }
+.card-value { font-size: 26px; font-weight: 900; color: var(--blue); font-variant-numeric: tabular-nums; margin: 4px 0; }
+.card-detail { font-size: 12.5px; color: var(--muted); line-height: 1.45; }
+.pipeline { display: flex; align-items: stretch; gap: 8px; margin: 14px 0; }
+.pipe-step { flex: 1; min-width: 0; background: var(--panel); border: 1px solid #e3e3e3; border-radius: 10px; padding: 14px; }
+.pipe-step-label { font-size: 10px; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase; color: #777; }
+.pipe-step-name { font-size: 14.5px; font-weight: 800; margin: 4px 0 5px; line-height: 1.25; }
+.pipe-step-detail { font-size: 12px; color: var(--muted); line-height: 1.45; }
+.pipe-arrow { display: flex; align-items: center; justify-content: center; color: #999; font-size: 20px; }
+.pipe-step.blue { border-color: var(--blue); background: rgba(46,107,158,.07); }
+.pipe-step.green { border-color: var(--green); background: rgba(61,138,95,.07); }
+.pipe-step.orange { border-color: var(--orange); background: rgba(201,107,46,.07); }
+.pipe-step.purple { border-color: var(--purple); background: rgba(139,90,166,.07); }
+.lane-tag { font-size: 11px; font-weight: 800; letter-spacing: 1.5px; text-transform: uppercase; margin: 18px 0 8px; }
+.lane-tag.green { color: var(--green); } .lane-tag.orange { color: var(--orange); }
+.lane-tag.purple { color: var(--purple); } .lane-tag.blue { color: var(--blue); }
+.explain { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; font-size: 12.5px; line-height: 1.55; color: #444; }
+.explain .h { font-size: 11px; font-weight: 800; letter-spacing: 1.3px; text-transform: uppercase; color: #777; margin-bottom: 6px; }
+.two { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; align-items: start; }
+.figure-text { grid-template-columns: minmax(0, 1.65fr) minmax(0, 1fr); }
+.two > *, .data-cols > * { min-width: 0; }
+.part-title { font-size: 16px; font-weight: 900; margin: 0 0 8px; }
+.figure-slot { min-height: 320px; border: 1px dashed #bccbd7; border-radius: 10px; background: var(--panel); display: grid; place-content: center; text-align: center; padding: 24px; color: #657581; }
+.figure-slot p { margin: 6px 0; }
+.note, .table-foot { font-size: 12px; color: #777; line-height: 1.6; margin: 10px 0 14px; }
+.obs { font-size: 13.5px; line-height: 1.6; color: #444; padding-left: 20px; }
+.obs li { margin-bottom: 8px; }
+.obs strong { color: var(--ink); }
+svg { display: block; width: 100%; height: auto; }
+svg text { font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+img { max-width: 100%; height: auto; }
+figure { margin: 0; min-width: 0; }
+/* Exported notebook figures own their iframe height and provenance controls. */
+.gusnb-viz { max-width: 100%; }
+.gusnb-viz button[data-gusnb-notebook-link] { margin-top: 8px; padding: 0; border: 0; background: none; color: var(--blue); font-family: inherit; font-size: 11px; line-height: 1.5; cursor: pointer; }
+.table-wrap { overflow-x: auto; }
+.rs-table { width: 100%; border-collapse: collapse; margin-top: 6px; }
+.rs-table caption { text-align: left; font-size: 12px; color: #777; margin-bottom: 10px; }
+.rs-table th { font-size: 12.5px; font-weight: 700; color: #333; padding: 9px 10px; text-align: left; border-top: 2.5px solid #555; border-bottom: 1px solid #333; }
+.rs-table th.num { text-align: center; }
+.rs-table tbody tr { border-bottom: 1px solid var(--line); }
+.rs-table tbody tr:last-child { border-bottom: 2px solid #333; }
+.rs-table td { padding: 9px 10px; font-size: 13px; vertical-align: middle; }
+.rs-table td.name { font-weight: 700; }
+.rs-table td.val { text-align: center; font-variant-numeric: tabular-nums; font-weight: 500; }
+.rs-table td.best { font-weight: 800; background: rgba(140,180,100,.18); }
+.rs-table tr.group td { font-size: 11px; font-weight: 800; letter-spacing: 1.3px; text-transform: uppercase; color: #777; background: #fafafa; padding: 6px 10px; }
+.data-cols { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 28px; margin-top: 8px; }
+.data-col-title { font-size: 12px; font-weight: 800; letter-spacing: 1.5px; text-transform: uppercase; padding-bottom: 8px; margin: 0 0 10px; border-bottom: 2px solid; }
+.included { color: var(--green); } .excluded { color: #c0392b; } .pending { color: var(--orange); }
+.data-item { display: flex; gap: 10px; margin-bottom: 11px; }
+.data-bullet { width: 8px; height: 8px; border-radius: 50%; margin-top: 6px; flex-shrink: 0; background: currentColor; }
+.data-item-text { font-size: 13.5px; line-height: 1.5; color: #444; }
+.analysis-result { margin: 24px 0; padding: 20px; border: 1px solid var(--line); border-radius: 10px; }
+.analysis-link { font: 12px system-ui; color: var(--blue); background: none; border: 0; cursor: pointer; padding: 0; }
+.analysis-metrics { display: flex; gap: 24px; flex-wrap: wrap; }
+.analysis-metrics strong { display: block; font-size: 22px; }
+@media (max-width: 760px) {
+  .slide { width: calc(100% - 24px); min-height: 0; margin: 12px auto; padding: 52px 24px 20px; }
+  .slide-title { font-size: 25px; }
+  .card-row, .pipeline { flex-direction: column; }
+  .pipe-arrow { transform: rotate(90deg); }
+  .two, .figure-text, .data-cols { grid-template-columns: 1fr; }
+}
+@media print {
+  @page { size: A4 landscape; margin: 10mm; }
+  body { background: white; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+  .slide { width: 100%; min-height: 0; margin: 0; padding: 12mm 10mm 6mm; border-radius: 0; box-shadow: none; }
+  .slide-num { top: 4mm; right: 10mm; }
+  .slide-title { font-size: 24px; }
+  .slide-footer { margin-top: 20px; }
+  .card, .pipe-step, figure, .explain, tr { break-inside: avoid; }
+  .table-wrap { overflow: visible; }
+}
+</style>
+</head>
+<body>
+<main>
+<!-- Reuse only the layouts needed for the story. Replace sample copy before presenting. -->
+<section class="slide" aria-labelledby="overview-title">
+  <span class="slide-num" aria-hidden="true"></span>
+  <div class="section-tag">Overview</div>
+  <h1 class="slide-title" id="overview-title">Analysis title</h1>
+  <p class="slide-subtitle">State the research question, the study population, and the decision this analysis supports.</p>
+  <div class="slide-body">
+    <div class="explain"><div class="h">Research question</div>Describe what you want to learn and why it matters. Keep this opening focused on one clear question.</div>
+    <div class="card-row">
+      <div class="card"><div class="card-label">Data</div><div class="card-value">Sources</div><div class="card-detail">Name the approved inputs and their scope.</div></div>
+      <div class="card"><div class="card-label">Method</div><div class="card-value">Approach</div><div class="card-detail">Summarize the analysis or model being evaluated.</div></div>
+      <div class="card"><div class="card-label">Evidence</div><div class="card-value">Findings</div><div class="card-detail">Add the verified result after the notebook runs.</div></div>
+    </div>
+    <div class="lane-tag blue">Analysis workflow</div>
+    <div class="pipeline">
+      <div class="pipe-step blue"><div class="pipe-step-label">Inputs</div><div class="pipe-step-name">Approved data</div><div class="pipe-step-detail">Identify sources and inclusion criteria.</div></div>
+      <span class="pipe-arrow" aria-hidden="true">→</span>
+      <div class="pipe-step green"><div class="pipe-step-label">Preparation</div><div class="pipe-step-name">Process and validate</div><div class="pipe-step-detail">Document transformations and exclusions.</div></div>
+      <span class="pipe-arrow" aria-hidden="true">→</span>
+      <div class="pipe-step purple"><div class="pipe-step-label">Analysis</div><div class="pipe-step-name">Estimate and evaluate</div><div class="pipe-step-detail">Run the method in the linked notebook.</div></div>
+      <span class="pipe-arrow" aria-hidden="true">→</span>
+      <div class="pipe-step orange"><div class="pipe-step-label">Interpretation</div><div class="pipe-step-name">Explain the evidence</div><div class="pipe-step-detail">Report uncertainty and limitations.</div></div>
+    </div>
+  </div>
+  <footer class="slide-footer">Analysis title · Study overview</footer>
+</section>
+
+<section class="slide" aria-labelledby="method-title">
+  <span class="slide-num" aria-hidden="true"></span>
+  <div class="section-tag">Architecture and methods</div>
+  <h2 class="slide-title" id="method-title">Show how the analysis turns inputs into evidence</h2>
+  <p class="slide-subtitle">Use a diagram to explain the method, its assumptions, and what is compared.</p>
+  <div class="slide-body">
+    <svg viewBox="0 0 972 230" role="img" aria-labelledby="workflow-title workflow-desc">
+      <title id="workflow-title">Example analysis architecture</title>
+      <desc id="workflow-desc">Approved inputs flow through preparation and then branch into a primary analysis and a sensitivity check.</desc>
+      <defs><marker id="workflow-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#999"/></marker></defs>
+      <rect x="6" y="65" width="230" height="100" rx="10" fill="#fafbfc" stroke="#d9d9d9"/>
+      <text x="26" y="98" font-size="16" font-weight="800">Approved inputs</text>
+      <text x="26" y="125" font-size="13" fill="#666">Sources, population, variables</text>
+      <path d="M238 115 H304" fill="none" stroke="#999" stroke-width="1.5" marker-end="url(#workflow-arrow)"/>
+      <rect x="314" y="65" width="260" height="100" rx="10" fill="#eef4f8" stroke="#2E6B9E" stroke-width="1.5"/>
+      <text x="334" y="98" font-size="16" font-weight="800" fill="#1d4f78">Shared preparation</text>
+      <text x="334" y="125" font-size="13" fill="#666">Clean, transform, validate</text>
+      <path d="M576 115 H622 V56 H676" fill="none" stroke="#999" stroke-width="1.5" marker-end="url(#workflow-arrow)"/>
+      <path d="M622 115 V174 H676" fill="none" stroke="#999" stroke-width="1.5" marker-end="url(#workflow-arrow)"/>
+      <rect x="686" y="14" width="280" height="85" rx="10" fill="#f1f7f3" stroke="#3D8A5F" stroke-width="1.5"/>
+      <text x="706" y="48" font-size="16" font-weight="800" fill="#2b6a47">Primary analysis</text>
+      <text x="706" y="73" font-size="13" fill="#666">Method and outcome of interest</text>
+      <rect x="686" y="132" width="280" height="85" rx="10" fill="#f6f2f9" stroke="#8B5AA6" stroke-width="1.5"/>
+      <text x="706" y="166" font-size="16" font-weight="800" fill="#684181">Sensitivity check</text>
+      <text x="706" y="191" font-size="13" fill="#666">Alternative assumptions or splits</text>
+    </svg>
+    <div class="two">
+      <div class="explain"><div class="h">Method</div>Explain the transformation, estimation procedure, or model. Define the outcome and evaluation strategy.</div>
+      <div class="explain"><div class="h">Assumptions</div>Describe what must hold for the interpretation to be valid and how you check it.</div>
+    </div>
+    <p class="note">This is an editable example diagram. Adapt its labels and structure to the actual method.</p>
+  </div>
+  <footer class="slide-footer">Analysis title · Methods</footer>
+</section>
+
+<section class="slide" aria-labelledby="figure-title">
+  <span class="slide-num" aria-hidden="true"></span>
+  <div class="section-tag">Results</div>
+  <h2 class="slide-title" id="figure-title">Lead with the finding supported by the figure</h2>
+  <p class="slide-subtitle">Describe the population, comparison, units, and uncertainty shown below.</p>
+  <div class="slide-body">
+    <div class="two figure-text">
+      <div>
+        <!-- Replace the entire figure-slot with the exported notebook fragment. -->
+        <div class="figure-slot"><strong>Figure</strong><p>Your notebook-generated visualization goes here.</p></div>
+        <p class="note">Add a concise caption explaining the axes, sample, and uncertainty.</p>
+      </div>
+      <aside>
+        <h3 class="part-title">Interpretation</h3>
+        <ul class="obs"><li><strong>Observation:</strong> describe what the data show.</li><li><strong>Meaning:</strong> connect the finding to the research question.</li><li><strong>Limitation:</strong> explain what cannot be concluded.</li></ul>
+        <div class="explain"><div class="h">Takeaway</div>State the evidence-supported message in one sentence.</div>
+      </aside>
+    </div>
+    <!-- gusnb:sections -->
+  </div>
+  <footer class="slide-footer">Analysis title · Findings</footer>
+</section>
+
+<section class="slide" aria-labelledby="table-title">
+  <span class="slide-num" aria-hidden="true"></span>
+  <div class="section-tag">Comparison</div>
+  <h2 class="slide-title" id="table-title">Compare the results using a consistent evaluation</h2>
+  <p class="slide-subtitle">Define the metric, evaluation set, and direction of improvement.</p>
+  <div class="slide-body">
+    <!-- Layout example only: replace computed tables with their notebook output. -->
+    <div class="table-wrap"><table class="rs-table">
+      <caption>Example table layout. Dashes indicate results that have not been computed.</caption>
+      <thead><tr><th scope="col">Analysis</th><th scope="col" class="num">Estimate</th><th scope="col" class="num">Uncertainty</th><th scope="col">Notes</th></tr></thead>
+      <tbody>
+        <tr class="group"><td colspan="4">Primary comparison</td></tr>
+        <tr><td class="name">Reference</td><td class="val">—</td><td class="val">—</td><td>Describe the baseline.</td></tr>
+        <tr><td class="name">Candidate</td><td class="val">—</td><td class="val">—</td><td>Describe the comparison.</td></tr>
+        <tr class="group"><td colspan="4">Robustness</td></tr>
+        <tr><td class="name">Sensitivity analysis</td><td class="val">—</td><td class="val">—</td><td>State the changed assumption.</td></tr>
+      </tbody>
+    </table></div>
+    <p class="table-foot">Report the sample size, interval definition, aggregation method, and relevant exclusions.</p>
+    <div class="explain"><div class="h">What the comparison supports</div>Explain the size and uncertainty of the difference. Distinguish observed performance from conclusions that need further evidence.</div>
+  </div>
+  <footer class="slide-footer">Analysis title · Evaluation</footer>
+</section>
+
+<section class="slide" aria-labelledby="scope-title">
+  <span class="slide-num" aria-hidden="true"></span>
+  <div class="section-tag">Scope and next steps</div>
+  <h2 class="slide-title" id="scope-title">Make the boundaries of the evidence explicit</h2>
+  <p class="slide-subtitle">Summarize the data used, exclusions, and remaining questions.</p>
+  <div class="slide-body">
+    <div class="data-cols">
+      <div><h3 class="data-col-title included">Included</h3><div class="data-item included"><span class="data-bullet"></span><div class="data-item-text"><strong>Approved data.</strong> Name the sources and population represented.</div></div><div class="data-item included"><span class="data-bullet"></span><div class="data-item-text"><strong>Analysis scope.</strong> Define the outcomes and comparisons covered.</div></div></div>
+      <div><h3 class="data-col-title excluded">Excluded</h3><div class="data-item excluded"><span class="data-bullet"></span><div class="data-item-text"><strong>Exclusions.</strong> Describe removed observations and the reason.</div></div><div class="data-item excluded"><span class="data-bullet"></span><div class="data-item-text"><strong>Outside scope.</strong> State which conclusions the study cannot support.</div></div></div>
+      <div><h3 class="data-col-title pending">Next steps</h3><div class="data-item pending"><span class="data-bullet"></span><div class="data-item-text"><strong>Validation.</strong> Identify the next test or independent dataset needed.</div></div><div class="data-item pending"><span class="data-bullet"></span><div class="data-item-text"><strong>Decision.</strong> Explain how the evidence will inform the next action.</div></div></div>
+    </div>
+    <div class="explain" style="margin-top:28px"><div class="h">Closing message</div>Return to the research question. Summarize the supported conclusion and the most important remaining uncertainty.</div>
+  </div>
+  <footer class="slide-footer">Analysis title · Scope and limitations</footer>
+</section>
+</main>
+</body>
+</html>

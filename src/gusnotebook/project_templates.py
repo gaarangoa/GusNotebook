@@ -5,6 +5,8 @@ import json
 import os
 from pathlib import Path
 
+SLIDE_DECK_DIR = Path(__file__).parent / "bundled_skills" / "html-slide-deck"
+
 DEPENDENCIES = ["numpy>=1.26,<3", "pandas>=2.2,<4", "scipy>=1.12,<2",
                 "scikit-learn>=1.5,<2", "pyarrow>=17", "ipykernel>=6",
                 "setuptools>=75", "wheel>=0.44"]
@@ -84,10 +86,11 @@ def result_html(result, analysis_id, run_id):
 
 
 def deck(title):
-    return ('<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width">'
-            '<title>' + html.escape(title) + '</title><style>' + STYLE + '</style></head><body><main>'
-            '<h1>' + html.escape(title) + '</h1><p>Write your story here. Add an analysis to ground it in data.</p>'
-            '<!-- gusnb:sections --></main><script>' + d3_source() + '</script><script>' + renderer() + '</script></body></html>')
+    template = (SLIDE_DECK_DIR / "assets" / "deck.html").read_text(encoding="utf-8")
+    template = template.replace("Analysis title", html.escape(title))
+    # Retain rendering for the legacy structured-analysis endpoints. Ordinary
+    # notebook exports carry their own renderer inside the exported fragment.
+    return template.replace('</body>', '<script>' + d3_source() + '</script><script>' + renderer() + '</script></body>')
 
 
 STYLE = '''body{margin:0;background:#f4f5f8;color:#172033;font:16px/1.6 system-ui}

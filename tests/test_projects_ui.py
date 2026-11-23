@@ -69,6 +69,9 @@ def main():
 
         project = command('context')
         pid = project['id']
+        frame = page.frame_locator('#html-preview-frame')
+        expect(frame.locator('.slide')).to_have_count(5)
+        expect(frame.get_by_role('heading', name='browser_study', exact=True)).to_be_visible()
         assert page.evaluate('findTerm(activeTerm).project') == pid
         assert 'analysis.ipynb' in page.locator('#tabs').inner_text()
         command('prepare')
@@ -90,14 +93,18 @@ def main():
         assert exported.returncode == 0, exported.stderr
         current = command('report')
         updated = work / 'updated.html'
-        updated.write_text('<!doctype html><html><body><main style="display:grid;grid-template-columns:1fr 1fr">' +
-                           output.read_text() + '<aside><h2>Synthetic example</h2><p>Description on the right.</p></aside>' +
-                           '</main></body></html>')
+        deck = re.sub(r'<div class="figure-slot">.*?</div>', lambda _: output.read_text(),
+                      current['html'], count=1, flags=re.S)
+        deck = deck.replace('Lead with the finding supported by the figure', 'Synthetic example')
+        updated.write_text(deck)
         command('report', '--file', str(updated), '--revision', current['revision'])
-        frame = page.frame_locator('#html-preview-frame')
         plot = frame.frame_locator('.gusnb-viz-frame')
         expect(plot.locator('svg .bar')).to_have_count(3, timeout=15000)
         expect(frame.get_by_role('heading', name='Synthetic example')).to_be_visible()
+        expect(frame.locator('.figure-slot')).to_have_count(0)
+        figure = frame.locator('.gusnb-viz').bounding_box()
+        commentary = frame.locator('.figure-text aside').bounding_box()
+        assert figure['x'] + figure['width'] <= commentary['x'] + 1
         expect(page.locator('#project-review')).to_have_count(0)
         expect(page.locator('#project-history-back')).to_have_count(0)
         assert 'runs' not in command('context')

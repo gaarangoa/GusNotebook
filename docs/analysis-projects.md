@@ -16,6 +16,15 @@ bar has **Report**, **Notebook**, and **Git**. Keep using the ordinary HTML edit
 for layout, text, images, zoom and source edits. Explicit dummy-data requests
 use a recorded random seed and need no external data-file registration.
 
+New projects start with the [HTML slide-deck template](../src/gusnotebook/bundled_skills/html-slide-deck/assets/deck.html),
+adapted from the user's model-architecture presentation: white slides, blue
+headings, compact cards, workflow diagrams, and results tables. The five sample
+layouts can be removed, duplicated, or rearranged. They contain placeholders,
+not example scientific results. Slides adapt to narrow screens and support printing.
+Both terminal agents are directed to read the bundled
+[slide-deck skill](../src/gusnotebook/bundled_skills/html-slide-deck/SKILL.md)
+when creating presentations. Existing reports keep their design.
+
 ## Project layout
 
 ```text

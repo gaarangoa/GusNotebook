@@ -60,7 +60,6 @@ gusnb = "gusnotebook.cli:main"
 # `static/` (the stylesheet and the page's eight JS files) package data without
 # a MANIFEST or a force-include — a wheel that builds but serves a 404 for its
 # own stylesheet is the failure this arrangement avoids.
-# Starter skills are deliberately *not* package data: they're written into the
-# user's state directory on first run, because a skill the user has since edited
-# must not be overwritten by an upgrade.
+# Editable starter skills live in the user's state directory. The bundled HTML
+# slide-deck skill and its template ship here so agents can read them on any host.
 packages = ["src/gusnotebook"]
