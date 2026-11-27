@@ -1,6 +1,6 @@
 # Reports backed by executable notebooks
 
-Development branch: `feature/report-first-analysis`.
+Available on `main` (developed on `feature/report-first-analysis`).
 
 An explicitly linked project agent edits an HTML report or slide deck. Its supporting
 Python analysis and complete D3 rendering code live in ordinary Jupyter cells.
