@@ -16,7 +16,7 @@ from playwright.sync_api import expect, sync_playwright
 from ui_server import authenticate_browser, launch_browser, rerun_isolated
 from gusnotebook.plotting import D3_EXAMPLE
 from gusnotebook.skills import code_of
-from gusnotebook.terminals import FOCUS_HOOK
+from gusnotebook.terminals import FOCUS_CONTEXT, FOCUS_HOOK
 
 
 def main():
@@ -243,14 +243,18 @@ def main():
         # Run the actual provider-neutral prompt hook with each terminal identity.
         # The ordinary one must not inherit the selected project's instructions.
         hook = work / 'agent-hook.sh'
-        hook.write_text(FOCUS_HOOK.format(nb=shlex.quote(cli), url=shlex.quote(url.rstrip('/'))))
+        hook.write_text(FOCUS_HOOK.format(nb=shlex.quote(cli), url=shlex.quote(url.rstrip('/')),
+                                         python=shlex.quote(sys.executable),
+                                         context=shlex.quote(FOCUS_CONTEXT.format(nb=shlex.quote(cli)))))
         for tid, expected in [(ordinary_id, False), (terminal_id, True)]:
             result = subprocess.run(['/bin/sh', str(hook)], input='{"prompt":"Check the selected document"}',
                                     text=True, capture_output=True, timeout=20, env={**env,'NB_TERMINAL':tid},
                                     cwd=root if expected else work)
             assert result.returncode == 0, result.stderr
-            assert ('html-slide-deck' in result.stdout) == expected
-            assert ('Git paths relative' in result.stdout) == expected
+            output = json.loads(result.stdout)['hookSpecificOutput']
+            assert output['hookEventName'] == 'UserPromptSubmit'
+            assert ('html-slide-deck' in output['additionalContext']) == expected
+            assert ('Git paths relative' in output['additionalContext']) == expected
 
         # A request from an ordinary notebook is never pasted into another
         # project's selected agent. Keep the PTY write stubbed for this check.

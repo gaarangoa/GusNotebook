@@ -45,10 +45,11 @@ BUFFER_BYTES = 256 * 1024
 
 CLAUDE_COMMAND = ["claude", "--dangerously-skip-permissions"]
 
-# Codex keeps the user's own model, login, approval, and sandbox settings. The
-# app only asks it to render inline (important inside an embedded xterm) and
-# supplies an app-owned, reviewable current-target hook in codex_args().
-CODEX_COMMAND = ["codex", "--no-alt-screen"]
+# Match Claude's unattended terminal workflow without editing global settings.
+# Hook trust bypass applies to all enabled hooks, including project/user hooks.
+CODEX_COMMAND = ["codex", "--no-alt-screen",
+                 "--dangerously-bypass-approvals-and-sandbox",
+                 "--dangerously-bypass-hook-trust"]
 
 # Backwards-compatible name for callers that construct a Session directly.
 DEFAULT_COMMAND = CLAUDE_COMMAND
@@ -338,9 +339,21 @@ def system_prompt_file(extra=None, restrictions=None):
 # added to the conversation as context, so "rewrite this paragraph" arrives
 # already knowing the exact protected range, with no /command to remember.
 #
-# A shell script rather than a Python one so it costs no interpreter startup on
-# every prompt, and it stays silent on failure: if the app is down or nothing is
-# focused, a prompt must still go through unchanged.
+# Serialize all context as one hook response: project context can itself be
+# JSON, followed by plain-text cell content. Providers must not parse that mix
+# as the response envelope. Use the app's Python so the project needs no extras.
+FOCUS_CONTEXT = (
+    "The current user target follows: either a notebook cell or an exact visual "
+    "selection in an HTML/SVG document. For a visual selection, use the document path "
+    "and surrounding context below, then edit that file directly with normal file "
+    "tools. Change only the marked region, preserve the rest of the file, and save it "
+    "on disk; GusNotebook watches the file and reloads the visual editor. Do not use "
+    "`{nb} here -` for a visual document. For a notebook cell, `{nb} here - --run` replaces "
+    "and runs it, with per-cell undo. If an empty cell is asking for code, write it "
+    "into the cell instead of only showing it in the terminal. `{nb} --help` lists "
+    "the rest."
+)
+
 FOCUS_HOOK = """#!/bin/sh
 # Written by GusNotebook. Injects the user's active notebook cell or visual
 # HTML/SVG selection as context on every prompt, and tells the app what was asked
@@ -360,6 +373,7 @@ if command -v curl >/dev/null 2>&1; then
     -H "X-Terminal-Id: $NB_TERMINAL" --data-binary @- \
     "$NB_URL/api/prompt" >/dev/null 2>&1
 fi
+(
 # Project rules follow this terminal's working directory, including subfolders.
 # The selected browser document never changes the terminal's project.
 {nb} project context 2>/dev/null || printf '%s\\n' \
@@ -367,28 +381,24 @@ fi
 cell=$({nb} here 2>/dev/null) || exit 0
 [ -n "$cell" ] || exit 0
 printf '%s\\n%s\\n' \
-  'The current user target follows: either a notebook cell or an exact visual \
-selection in an HTML/SVG document. For a visual selection, use the document path \
-and surrounding context below, then edit that file directly with normal file \
-tools. Change only the marked region, preserve the rest of the file, and save it \
-on disk; GusNotebook watches the file and reloads the visual editor. Do not use \
-`{nb} here -` for a visual document. For a notebook cell, `{nb} here - --run` replaces \
-and runs it, with per-cell undo. If an empty cell is asking for code, write it \
-into the cell instead of only showing it in the terminal. `{nb} --help` lists \
-the rest.' \
+  {context} \
   "$cell"
+) | {python} -c 'import json, sys; print(json.dumps({{"hookSpecificOutput": {{"hookEventName": "UserPromptSubmit", "additionalContext": sys.stdin.read()}}}}))' 2>/dev/null
+# An unavailable app or interpreter must not prevent submitting a prompt.
+exit 0
 """
 
 
 def focus_hook_file(stable=False):
     """Write the provider-neutral current-target hook and return its path.
 
-    Claude settings are temporary, so its hook is too. Codex hook trust is tied
-    to the command it is asked to run; a stable app-state path lets the user
-    review it once instead of being prompted for every randomly named temp file.
-    The stable file is still outside the project and is replaced on app updates.
+    Claude settings are temporary, so its hook is too. Codex uses a stable
+    app-state path outside the project, replaced atomically on app updates.
     """
-    body = FOCUS_HOOK.format(nb=nb_command(), url=shlex.quote(app_url()))
+    nb = nb_command()
+    body = FOCUS_HOOK.format(nb=nb, url=shlex.quote(app_url()),
+                             python=shlex.quote(sys.executable),
+                             context=shlex.quote(FOCUS_CONTEXT.format(nb=nb)))
     if stable:
         from . import paths
         script = paths.state("codex-focus-hook.sh")
@@ -495,10 +505,9 @@ def codex_args(instructions=None):
     already uses for Claude: the prompt is posted to the app and `gusnb here`
     becomes developer context before the model sees the turn.
 
-    The hook uses a stable app-state path so Codex can ask the user to trust it
-    once. We deliberately do not bypass hook trust: that flag would also trust
-    unrelated project hooks. Codex's command approvals and sandbox remain the
-    user's own defaults.
+    The hook returns one structured JSON response containing all context.
+    CODEX_COMMAND disables command approvals, sandboxing and hook trust prompts
+    for this invocation; the user's global configuration is left intact.
     """
     args = []
     body = standing_instructions(instructions)

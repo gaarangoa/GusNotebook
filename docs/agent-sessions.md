@@ -34,6 +34,15 @@ Previews show user and assistant text from a bounded recent excerpt, omitting
 tool output and images; the agent itself restores the saved conversation.
 Lists are paginated, and any discovery limit is shown in the dialog.
 
+New and resumed agent terminals run without command approval prompts: Claude
+uses `--dangerously-skip-permissions`, and Codex bypasses command approvals,
+sandboxing, and trust prompts for all enabled hooks. Agents have the host user's
+filesystem and command access; project `data/access.yaml` rules still apply as
+a data-use policy. These options affect GusNotebook launches, without changing
+the agents' global configuration. After updating GusNotebook, restart the app
+and open or resume an agent to apply changed launch options. Account sign-in
+and operating-system permissions remain separate.
+
 GusNotebook records the native session ID and current project association when
 its prompt hook runs. On resume, the saved working directory determines project
 context, including for externally created conversations. Registered project
