@@ -1863,7 +1863,7 @@ function provenanceHtml(c, visual, details) {
   const render = visual ? provenanceRenderHtml(visual, outputId) : provenancePlaceholder(payload);
   const html = `<figure class="gusnb-viz" data-gusnb-viz="1" data-gusnb-provenance="1" data-gusnb-notebook="${escapeAttr(payload.notebook)}" data-gusnb-cell-id="${escapeAttr(c.id)}" data-gusnb-snapshot="${escapeAttr(payload.snapshot_id)}">
   <div class="gusnb-viz-render" data-gusnb-viz-render>${render}</div>
-  <pre data-gusnb-viz-panel contenteditable="false" hidden>${escapeHtml(summary)}</pre>
+  <pre data-gusnb-viz-panel contenteditable="false" hidden>${escapeHtml(payload.notebook)}</pre>
   <script type="application/json" data-gusnb-viz-source>${jsonForHtml(payload)}</script>
 </figure>${visual && visual.mime === 'text/html' ? provenanceResizeRuntime() : ''}`;
   return {

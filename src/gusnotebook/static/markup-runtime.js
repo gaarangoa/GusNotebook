@@ -12,6 +12,10 @@
   var pendingView = null;
   var userMovedAfterRestore = false;
   var selectedViz = null;
+  var vizHost = null;
+  var vizShadow = null;
+  var vizSourcePanel = null;
+  var vizAppearance = {dark: false, fontSize: 10};
   var vizToolbar = null;
   var vizMoveMode = false;
   var vizDrag = null;
@@ -523,27 +527,16 @@
 
   function wireVizSource(root) {
     (root || document).querySelectorAll('[data-gusnb-viz-info]').forEach(function (button) {
-      if (button.getAttribute('onmouseenter') || button.getAttribute('onclick')) return;
       if (button._gusnbVizInfoWired) return;
       button._gusnbVizInfoWired = true;
       var show = function (event) {
         event.preventDefault();
         event.stopPropagation();
         var block = button.closest('[data-gusnb-viz]');
-        var panel = block && block.querySelector('[data-gusnb-viz-panel]');
-        if (panel) panel.hidden = false;
-      };
-      var hide = function (event) {
-        event.preventDefault();
-        event.stopPropagation();
-        var block = button.closest('[data-gusnb-viz]');
-        var panel = block && block.querySelector('[data-gusnb-viz-panel]');
-        if (panel) panel.hidden = true;
+        if (block) { selectViz(block); showVizSource(true); }
       };
       button.addEventListener('mouseenter', show);
       button.addEventListener('focus', show);
-      button.addEventListener('mouseleave', hide);
-      button.addEventListener('blur', hide);
     });
   }
 
@@ -552,10 +545,29 @@
     var figure = button && button.closest('[data-gusnb-provenance="1"]');
     if (!figure) return;
     event.preventDefault(); event.stopPropagation();
-    sendToParent({channel: config.channel, nonce: config.nonce, kind: 'notebook-source',
-      notebook: figure.getAttribute('data-gusnb-notebook'),
-      cell: figure.getAttribute('data-gusnb-cell-id'), snapshot: figure.getAttribute('data-gusnb-snapshot')});
+    openVizNotebook(figure);
   }, true);
+
+  function vizSource(block) {
+    var payload = {};
+    var source = block && block.querySelector('[data-gusnb-viz-source]');
+    try { payload = JSON.parse(source ? source.textContent : '{}') || {}; } catch (_) {}
+    return {
+      notebook: block.getAttribute('data-gusnb-notebook') || String(payload.notebook || ''),
+      cell: block.getAttribute('data-gusnb-cell-id') || String(payload.cell_id || ''),
+      snapshot: block.getAttribute('data-gusnb-snapshot') || String(payload.snapshot_id || ''),
+      cellIndex: payload.cell_index, execution: payload.execution_count
+    };
+  }
+
+  function openVizNotebook(block) {
+    if (!block) return;
+    var source = vizSource(block);
+    if (!source.notebook) return;
+    // Use the existing receipt-checked navigation in the parent app.
+    sendToParent({channel: config.channel, nonce: config.nonce, kind: 'notebook-source',
+      notebook: source.notebook, cell: source.cell, snapshot: source.snapshot});
+  }
 
   function ensureEditorVizStyle() {
     if (document.querySelector('style[' + runtimeAttr + '="viz-style"]')) return;
@@ -568,14 +580,20 @@
       '.gusnb-viz-render{max-width:100%;overflow:visible;}',
       '.gusnb-viz-render svg{max-width:100%;height:auto;}',
       '.gusnb-viz-frame{display:block;width:100%;min-height:140px;border:0;background:transparent;pointer-events:auto;}',
-      '.gusnb-viz [data-gusnb-viz-panel]{position:absolute;top:14px;left:0;z-index:7;max-width:min(520px,100%);white-space:pre-wrap;margin:0;padding:9px 10px;border:1px solid #cbd5e1;border-radius:6px;background:rgba(255,255,255,.98);color:#0f172a;font:11.5px/1.45 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;box-shadow:0 10px 30px rgba(15,23,42,.16);}'
+      // Older reports contain a full code dump here. Keep it out of the UI.
+      '.gusnb-viz [data-gusnb-viz-panel]{display:none!important;}',
+      '.gusnb-viz [data-gusnb-notebook-link]{display:inline-flex;align-items:center;gap:5px;margin:8px 0 0;padding:4px 8px;border:1px solid #d9dfe7;border-radius:5px;background:#f8fafc;color:#526079;font:500 10px/1.4 system-ui,sans-serif;cursor:pointer;}',
+      '.gusnb-viz [data-gusnb-notebook-link]:hover{border-color:#b66798;color:#830051;}'
     ].join('');
     document.head.appendChild(style);
   }
 
   function vizIcon(name) {
-    var attrs = ' width="15" height="15" viewBox="0 0 24 24" fill="none" ' +
-      'stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"';
+    var attrs = ' width="13" height="13" viewBox="0 0 24 24" fill="none" ' +
+      'stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"';
+    if (name === 'close') return '<svg' + attrs + ' aria-hidden="true"><path d="m6 6 12 12M6 18 18 6"/></svg>';
+    if (name === 'open') return '<svg' + attrs + ' aria-hidden="true"><path d="M14 3h7v7m0-7L10 14M10 3H4a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h16a1 1 0 0 0 1-1v-6"/></svg>';
+    if (name === 'notebook') return '<svg' + attrs + ' aria-hidden="true"><rect x="5" y="3" width="15" height="18" rx="2"/><path d="M9 3v18M3 7h4M3 12h4M3 17h4m10-9-2 2 2 2"/></svg>';
     if (name === 'source') {
       return '<svg' + attrs + ' aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>';
     }
@@ -588,35 +606,89 @@
     return '';
   }
 
+  function ensureVizControls() {
+    if (vizHost) return;
+    vizHost = document.createElement('div');
+    vizHost.setAttribute(runtimeAttr, 'viz-controls');
+    vizHost.contentEditable = 'false';
+    vizHost.style.cssText = 'all:initial!important;position:fixed!important;inset:0!important;pointer-events:none!important;z-index:2147483646!important;';
+    vizShadow = vizHost.attachShadow({mode: 'open'});
+    vizShadow.innerHTML = `<style>
+      :host { --bg:#fff; --fg:#263244; --muted:#66758a; --line:#dce2e9; --soft:#f5f7fa;
+        --hover:#f5eaf1; --accent:#830051; --shadow:0 8px 28px #1723381c,0 2px 6px #1723380a;
+        --size:10px; color-scheme:light; }
+      :host([data-dark]) { --bg:#222832; --fg:#e5eaf0; --muted:#a4b0c0; --line:#414c5b;
+        --soft:#1c222c; --hover:#3c293b; --accent:#f1a9d3; --shadow:0 8px 28px #0005; color-scheme:dark; }
+      * { box-sizing:border-box; }
+      [hidden] { display:none!important; }
+      .panel { position:fixed; pointer-events:auto; max-width:calc(100vw - 12px);
+        background:var(--bg); color:var(--fg); border:1px solid var(--line); border-radius:8px;
+        box-shadow:var(--shadow); font:var(--size)/1.5 system-ui,-apple-system,sans-serif; }
+      button { display:inline-flex; align-items:center; justify-content:center; gap:5px; flex-shrink:0;
+        min-width:24px; height:24px; padding:0 6px; border:0; border-radius:4px;
+        color:inherit; background:transparent; font:inherit; cursor:pointer; }
+      button:hover { background:var(--soft); }
+      button[aria-pressed=true],button[aria-expanded=true] { color:var(--accent); background:var(--hover); }
+      button:focus-visible { outline:2px solid var(--accent); outline-offset:1px; }
+      button:disabled { opacity:.45; cursor:default; }
+      svg { flex-shrink:0; }
+      #toolbar { display:flex; align-items:center; flex-wrap:wrap; gap:3px; padding:4px; }
+      .group { display:flex; align-items:center; gap:1px; }
+      .dimension { padding-left:5px; color:var(--muted); font-size:calc(var(--size) - 1px); }
+      .divider { width:1px; height:15px; background:var(--line); margin:0 2px; }
+      [data-viz-cmd=delete]:hover { color:#dc5264; background:var(--soft); }
+      #source { width:320px; max-height:calc(100vh - 12px); overflow:auto; padding:12px; }
+      .heading { display:flex; align-items:center; gap:7px; margin-bottom:10px; }
+      .heading > svg { color:var(--accent); }
+      .heading strong { flex:1; font-weight:600; }
+      #source-close { margin:-4px -4px -4px 0; color:var(--muted); }
+      .file { padding:9px 10px; background:var(--soft); border:1px solid var(--line); border-radius:6px; }
+      .filename { display:flex; align-items:center; gap:6px; font-weight:600; margin-bottom:5px; }
+      .filename > svg { color:var(--muted); }
+      #source-name { overflow-wrap:anywhere; min-width:0; }
+      #source-path { display:block; white-space:pre-wrap; overflow-wrap:anywhere; user-select:text;
+        color:var(--muted); font:var(--size)/1.6 ui-monospace,SFMono-Regular,Menlo,monospace; }
+      .footer { display:flex; align-items:center; flex-wrap:wrap; gap:8px; margin-top:9px; }
+      #source-detail { flex:1; color:var(--muted); }
+      #source-open { color:var(--accent); background:var(--hover); padding:0 7px; }
+      #source-open:hover { box-shadow:inset 0 0 0 1px var(--accent); }
+      #resize { position:fixed; pointer-events:auto; width:11px; height:11px; border-radius:3px;
+        border:1px solid var(--accent); background:var(--bg); box-shadow:0 1px 4px #0002; cursor:nwse-resize; }
+    </style>`;
+    document.documentElement.appendChild(vizHost);
+    applyVizAppearance(vizAppearance);
+  }
+
+  function applyVizAppearance(appearance) {
+    vizAppearance = appearance;
+    if (!vizHost) return;
+    vizHost.toggleAttribute('data-dark', !!appearance.dark);
+    if (Number.isFinite(appearance.fontSize) && appearance.fontSize >= 10 && appearance.fontSize <= 22) {
+      vizHost.style.setProperty('--size', appearance.fontSize + 'px');
+    }
+    positionVizToolbar();
+  }
+
   function ensureVizToolbar() {
     if (vizToolbar) return vizToolbar;
+    ensureVizControls();
     vizToolbar = document.createElement('div');
+    vizToolbar.id = 'toolbar';
+    vizToolbar.className = 'panel';
+    vizToolbar.setAttribute('role', 'toolbar');
+    vizToolbar.setAttribute('aria-label', 'Plot controls');
     vizToolbar.setAttribute(runtimeAttr, 'viz-toolbar');
     vizToolbar.innerHTML =
-      '<button type="button" data-viz-cmd="source" title="Source" aria-label="Source">' + vizIcon('source') + '</button>' +
-      '<button type="button" data-viz-cmd="move" title="Move freely" aria-label="Move freely">' + vizIcon('move') + '</button>' +
-      '<button type="button" data-viz-cmd="w-">W-</button>' +
-      '<button type="button" data-viz-cmd="w+">W+</button>' +
-      '<button type="button" data-viz-cmd="h-">H-</button>' +
-      '<button type="button" data-viz-cmd="h+">H+</button>' +
+      '<button type="button" data-viz-cmd="source" title="Source notebook" aria-label="Source" aria-expanded="false" aria-controls="source">' + vizIcon('source') + 'Source</button>' +
+      '<span class="divider"></span>' +
+      '<button type="button" data-viz-cmd="move" title="Move freely" aria-label="Move freely" aria-pressed="false">' + vizIcon('move') + '</button>' +
+      '<span class="group"><span class="dimension">W</span><button type="button" data-viz-cmd="w-" title="Decrease width" aria-label="Decrease width">−</button>' +
+      '<button type="button" data-viz-cmd="w+" title="Increase width" aria-label="Increase width">+</button></span>' +
+      '<span class="group"><span class="dimension">H</span><button type="button" data-viz-cmd="h-" title="Decrease height" aria-label="Decrease height">−</button>' +
+      '<button type="button" data-viz-cmd="h+" title="Increase height" aria-label="Increase height">+</button></span>' +
+      '<span class="divider"></span>' +
       '<button type="button" data-viz-cmd="delete" title="Delete" aria-label="Delete">' + vizIcon('delete') + '</button>';
-    Object.assign(vizToolbar.style, {
-      position: 'fixed', zIndex: '2147483646', display: 'none',
-      alignItems: 'center', gap: '4px', padding: '4px',
-      border: '1px solid rgba(15,23,42,.16)', borderRadius: '6px',
-      background: 'rgba(255,255,255,.96)',
-      boxShadow: '0 8px 24px rgba(15,23,42,.16)'
-    });
-    Array.prototype.forEach.call(vizToolbar.querySelectorAll('button'), function (button) {
-      Object.assign(button.style, {
-        border: '1px solid rgba(15,23,42,.14)', borderRadius: '4px',
-        background: '#fff', color: '#334155', padding: '3px 6px',
-        minWidth: '28px', height: '28px', display: 'inline-flex',
-        alignItems: 'center', justifyContent: 'center',
-        font: '11px/1.2 system-ui,-apple-system,Segoe UI,sans-serif',
-        cursor: 'pointer'
-      });
-    });
+    vizToolbar.style.display = 'none';
     vizToolbar.addEventListener('click', function (event) {
       var button = event.target.closest && event.target.closest('[data-viz-cmd]');
       if (!button || !selectedViz) return;
@@ -632,38 +704,31 @@
       }
       editSelectedViz(button.getAttribute('data-viz-cmd'));
     });
-    document.body.appendChild(vizToolbar);
+    vizShadow.appendChild(vizToolbar);
     return vizToolbar;
   }
 
   function ensureVizResizeHandle() {
     if (vizResizeHandle) return vizResizeHandle;
+    ensureVizControls();
     vizResizeHandle = document.createElement('div');
+    vizResizeHandle.id = 'resize';
     vizResizeHandle.setAttribute(runtimeAttr, 'viz-resize-handle');
     vizResizeHandle.setAttribute('title', 'Resize');
-    Object.assign(vizResizeHandle.style, {
-      position: 'fixed',
-      zIndex: '2147483647',
-      display: 'none',
-      width: '13px',
-      height: '13px',
-      borderRadius: '3px',
-      border: '1px solid rgba(131,0,81,.55)',
-      background: '#fff',
-      boxShadow: '0 1px 5px rgba(15,23,42,.25)',
-      cursor: 'nwse-resize'
-    });
+    vizResizeHandle.style.display = 'none';
     vizResizeHandle.addEventListener('pointerdown', startVizResize, true);
-    document.body.appendChild(vizResizeHandle);
+    vizShadow.appendChild(vizResizeHandle);
     return vizResizeHandle;
   }
 
   function positionVizToolbar() {
     if (!selectedViz || !vizToolbar) return;
     var rect = selectedViz.getBoundingClientRect();
-    vizToolbar.style.left = Math.max(6, Math.min(window.innerWidth - 220, rect.left)) + 'px';
-    vizToolbar.style.top = Math.max(6, rect.top - 34) + 'px';
     vizToolbar.style.display = 'flex';
+    vizToolbar.style.left = Math.max(6, Math.min(window.innerWidth - vizToolbar.offsetWidth - 6, rect.left)) + 'px';
+    vizToolbar.style.top = Math.max(6, Math.min(window.innerHeight - vizToolbar.offsetHeight - 6,
+      rect.top - vizToolbar.offsetHeight - 6)) + 'px';
+    positionVizSource();
     positionVizResizeHandle();
   }
 
@@ -728,15 +793,60 @@
   }
 
   function showVizSource(show) {
+    if (vizToolbar) vizToolbar.querySelector('[data-viz-cmd="source"]').setAttribute('aria-expanded', String(!!show));
+    if (!show) {
+      if (vizSourcePanel) vizSourcePanel.hidden = true;
+      return;
+    }
     if (!selectedViz) return;
-    var panel = selectedViz.querySelector('[data-gusnb-viz-panel]');
-    if (panel) panel.hidden = !show;
+    ensureVizControls();
+    if (!vizSourcePanel) {
+      vizSourcePanel = document.createElement('section');
+      vizSourcePanel.id = 'source';
+      vizSourcePanel.className = 'panel';
+      vizSourcePanel.setAttribute('role', 'dialog');
+      vizSourcePanel.setAttribute('aria-label', 'Plot source');
+      vizSourcePanel.innerHTML =
+        '<div class="heading">' + vizIcon('source') + '<strong>Linked source</strong>' +
+        '<button id="source-close" type="button" title="Close source" aria-label="Close source">' + vizIcon('close') + '</button></div>' +
+        '<div class="file"><div class="filename">' + vizIcon('notebook') + '<span id="source-name"></span></div>' +
+        '<code id="source-path"></code></div>' +
+        '<div class="footer"><span id="source-detail"></span>' +
+        '<button id="source-open" type="button">Open notebook code ' + vizIcon('open') + '</button></div>';
+      vizSourcePanel.querySelector('#source-close').addEventListener('click', function () {
+        showVizSource(false);
+        vizToolbar.querySelector('[data-viz-cmd="source"]').focus();
+      });
+      vizSourcePanel.querySelector('#source-open').addEventListener('click', function () { openVizNotebook(selectedViz); });
+      vizShadow.appendChild(vizSourcePanel);
+    }
+    var source = vizSource(selectedViz);
+    vizSourcePanel.querySelector('#source-name').textContent = source.notebook.split(/[\\/]/).pop() || 'Source unavailable';
+    vizSourcePanel.querySelector('#source-path').textContent = source.notebook || 'This output has no linked notebook path.';
+    var details = [];
+    if (Number.isInteger(source.cellIndex) && source.cellIndex > 0) details.push('Cell ' + source.cellIndex);
+    if (Number.isInteger(source.execution)) details.push('Run ' + source.execution);
+    vizSourcePanel.querySelector('#source-detail').textContent = details.join(' · ') || 'Notebook';
+    var open = vizSourcePanel.querySelector('#source-open');
+    open.disabled = !source.notebook || !source.cell || !source.snapshot;
+    vizSourcePanel.hidden = false;
+    positionVizSource();
+    vizSourcePanel.querySelector('#source-close').focus({preventScroll: true});
   }
 
   function toggleVizSource() {
     if (!selectedViz) return;
-    var panel = selectedViz.querySelector('[data-gusnb-viz-panel]');
-    if (panel) panel.hidden = !panel.hidden;
+    showVizSource(!vizSourcePanel || vizSourcePanel.hidden);
+  }
+
+  function positionVizSource() {
+    if (!vizToolbar || !vizSourcePanel || vizSourcePanel.hidden) return;
+    var rect = vizToolbar.getBoundingClientRect();
+    var height = vizSourcePanel.offsetHeight;
+    var top = rect.bottom + 6;
+    if (top + height > window.innerHeight - 6 && rect.top - height - 6 >= 6) top = rect.top - height - 6;
+    vizSourcePanel.style.top = Math.max(6, Math.min(window.innerHeight - height - 6, top)) + 'px';
+    vizSourcePanel.style.left = Math.max(6, Math.min(window.innerWidth - vizSourcePanel.offsetWidth - 6, rect.left)) + 'px';
   }
 
   function setVizTextEdit(enabled) {
@@ -768,7 +878,7 @@
     if (selectedViz) selectedViz.classList.toggle('gusnb-viz-moving', vizMoveMode);
     if (vizToolbar) {
       var button = vizToolbar.querySelector('[data-viz-cmd="move"]');
-      if (button) button.style.background = vizMoveMode ? '#fdf2f8' : '#fff';
+      if (button) button.setAttribute('aria-pressed', String(vizMoveMode));
     }
   }
 
@@ -806,7 +916,7 @@
 
   function startVizDrag(event, block) {
     if (!vizMoveMode || !block || block !== selectedViz || event.button !== 0) return false;
-    if (event.target.closest && event.target.closest('[data-gusnb-viz-panel]')) return false;
+    if (event.target.closest && event.target.closest('[data-gusnb-viz-panel],button,a')) return false;
     startVizDragAt(block, event.clientX, event.clientY);
     event.preventDefault();
     event.stopImmediatePropagation();
@@ -814,20 +924,28 @@
   }
 
   function startVizDragAt(block, clientX, clientY) {
-    prepareVizFreePlacement(block);
     vizDrag = {
       block: block,
       startX: clientX,
       startY: clientY,
-      left: parseFloat(block.style.left) || 0,
-      top: parseFloat(block.style.top) || 0
+      active: false
     };
   }
 
   function moveVizDragTo(clientX, clientY) {
     if (!vizDrag) return;
-    var nextLeft = vizDrag.left + clientX - vizDrag.startX;
-    var nextTop = vizDrag.top + clientY - vizDrag.startY;
+    var dx = clientX - vizDrag.startX, dy = clientY - vizDrag.startY;
+    // Selecting a plot to inspect its source must not pull it out of the
+    // document flow. Start free placement only after an actual drag.
+    if (!vizDrag.active) {
+      if (Math.hypot(dx, dy) < 3) return;
+      prepareVizFreePlacement(vizDrag.block);
+      vizDrag.left = parseFloat(vizDrag.block.style.left) || 0;
+      vizDrag.top = parseFloat(vizDrag.block.style.top) || 0;
+      vizDrag.active = true;
+    }
+    var nextLeft = vizDrag.left + dx;
+    var nextTop = vizDrag.top + dy;
     vizDrag.block.style.left = Math.round(nextLeft) + 'px';
     vizDrag.block.style.top = Math.round(nextTop) + 'px';
     positionVizToolbar();
@@ -842,7 +960,9 @@
   function endVizDragAt(clientX, clientY) {
     if (!vizDrag) return;
     moveVizDragTo(clientX, clientY);
+    var moved = vizDrag.active;
     vizDrag = null;
+    if (!moved) return;
     changed = true;
     send('change');
   }
@@ -922,12 +1042,14 @@
     var frame = vizFrameForSource(event.source);
     var block = frame && frame.closest('[data-gusnb-viz]');
     if (!frame || !block) return false;
-    selectViz(block);
     var point = iframeVizClientPoint(frame, data);
     if (data.phase === 'down') {
-      startVizDragAt(block, point.x, point.y);
+      if (selectedViz !== block) selectViz(block);
+      else showVizSource(false);
+      if (vizMoveMode) startVizDragAt(block, point.x, point.y);
       return true;
     }
+    if (!vizDrag || vizDrag.block !== block) return true;
     if (data.phase === 'move') {
       moveVizDragTo(point.x, point.y);
       return true;
@@ -1124,7 +1246,7 @@
   }, true);
 
   document.addEventListener('click', function (event) {
-    if (vizToolbar && vizToolbar.contains(event.target)) return;
+    if (vizHost && event.composedPath().includes(vizHost)) return;
     var block = event.target.closest && event.target.closest('[data-gusnb-viz]');
     if (!block) {
       if (selectedViz) {
@@ -1136,6 +1258,7 @@
     event.preventDefault();
     event.stopImmediatePropagation();
     selectViz(block);
+    if (event.target.closest('[data-gusnb-viz-info]')) showVizSource(true);
   }, true);
 
   document.addEventListener('pointerdown', function (event) {
@@ -1164,6 +1287,12 @@
   }, true);
   document.addEventListener('paste', handleVizPaste, true);
   document.addEventListener('keydown', function (event) {
+    if (event.key === 'Escape' && vizSourcePanel && !vizSourcePanel.hidden) {
+      event.preventDefault();
+      showVizSource(false);
+      vizToolbar.querySelector('[data-viz-cmd="source"]').focus();
+      return;
+    }
     if (event.key.toLowerCase() !== 's' || (!event.metaKey && !event.ctrlKey)) return;
     event.preventDefault();
     event.stopImmediatePropagation();
@@ -1229,13 +1358,14 @@
       });
     } else if (editingTools && data.command === 'insert-card') {
       editingTools.then(function (tools) { if (tools) tools.insertCard(); });
-    } else if (editingTools && data.command === 'tools-appearance') {
-      editingTools.then(function (tools) { if (tools) tools.appearance(data); });
+    } else if (data.command === 'tools-appearance') {
+      applyVizAppearance(data);
+      if (editingTools) editingTools.then(function (tools) { if (tools) tools.appearance(data); });
     }
   });
 
   window.addEventListener('scroll', queueViewReport, {passive: true});
-  window.addEventListener('scroll', positionVizToolbar, {passive: true});
+  window.addEventListener('scroll', positionVizToolbar, {passive: true, capture: true});
   window.addEventListener('resize', queueViewReport, {passive: true});
   window.addEventListener('resize', positionVizToolbar, {passive: true});
   window.addEventListener('blur', function () {

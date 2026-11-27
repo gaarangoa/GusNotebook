@@ -73,7 +73,7 @@ def render(payload):
             f'srcdoc="{escape(document)}"></iframe></div>'
             '<button type="button" data-gusnb-notebook-link contenteditable="false">Notebook code</button>'
             '<pre data-gusnb-viz-panel contenteditable="false" hidden>' +
-            escape(payload["notebook"] + "\n\n" + payload["code"]) + '</pre>'
+            escape(payload["notebook"]) + '</pre>'
             '<script type="application/json" data-gusnb-viz-source>' + encoded + '</script></figure>' +
             '<script data-gusnb-viz-runtime>' + RESIZE_RUNTIME + '</script>')
 
