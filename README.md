@@ -64,7 +64,10 @@ notebook links. Git/GitHub track `code/` and its notebooks; `code/tests/`, data,
 environments and results are ignored. Projects use `code/`, `data/`, and `results/`.
 Project instructions apply automatically in registered project folders and subfolders.
 Outside them, agents keep the normal notebook/HTML workflow. Approved data stays
-at its original path; registration creates no dataset copies. Processed datasets
+at its original path; registration creates no dataset copies. Use **Inputs** to
+manually list approved data files/directories in `data/access.yaml`; agents receive
+this policy and app-managed registration checks it. Terminal and Python processes
+still retain their host permissions. Processed datasets
 live in `data/processed/`. The project's **Data** button opens `data/README.md`,
 linking recorded datasets to their inputs, transformations, producing code, and
 agent/user request history.

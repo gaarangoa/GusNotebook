@@ -51,7 +51,8 @@ class ProjectAgentTests(unittest.TestCase):
                 for prompt in (prompt_path.read_text(), codex_prompt):
                     self.assertEqual(SLIDE_DECK_INSTRUCTIONS.strip() in prompt, expected)
                     for rule in ('project context', 'layout_paths', 'Git paths', 'authorized inputs',
-                                 'gusnb project data --file -', 'data/README.md', 'layout_paths.processed'):
+                                 'gusnb project data --file -', 'data/README.md', 'layout_paths.processed',
+                                 'data/access.yaml', 'gusnb project inputs'):
                         self.assertEqual(rule in prompt, expected, rule)
                     self.assertIn('D3.js', prompt)
                     if not expected:
@@ -121,6 +122,8 @@ class ProjectAgentTests(unittest.TestCase):
                                              'cwd':self.first['path']}, headers=headers)
         raw = self.root/'ages.csv'
         raw.write_text('age\n17\n23\n')
+        (Path(self.first['path'])/'data/access.yaml').write_text(json.dumps({
+            'version':1, 'files':[str(raw)], 'directories':[]}))
         base = '/api/projects/'+self.first['id']
         source = self.client.post(base+'/sources', json={'sources':[{'path':str(raw), 'description':'Ages provided by the user'}]}, headers=headers)
         self.assertEqual(source.status_code, 200, source.json)
@@ -159,6 +162,24 @@ class ProjectAgentTests(unittest.TestCase):
         self.project_agent.workspace = 'unrelated-workspace'
         self.assertEqual(self.request_as(self.project_agent).status_code, 404)
         self.assertEqual(self.request_as(SimpleNamespace(id='unknown')).status_code, 404)
+
+    def test_input_policy_routes_and_context_refresh_without_restarting_agent(self):
+        base = '/api/projects/' + self.first['id']
+        headers = {'X-Terminal-Id': self.project_agent.id}
+        self.assertEqual(self.app.test_client().get(base+'/inputs').status_code, 401)
+        self.assertEqual(self.client.get(base+'/inputs').json['status'], 'empty')
+        raw = self.root/'approved.csv'
+        raw.write_text('x\n1\n')
+        denied = self.client.post(base+'/sources', json={'sources':[{'path':str(raw)}]}, headers=headers)
+        self.assertEqual(denied.status_code, 400)
+        policy = Path(self.first['path'])/'data/access.yaml'
+        policy.write_text('version: 1\nfiles:\n  - '+json.dumps(str(raw))+'\ndirectories: []\n')
+        self.assertEqual(self.request_as(self.project_agent).json['data_access']['files'], [str(raw)])
+        self.assertEqual(self.client.get(base+'/inputs', query_string={'path':str(raw)}).status_code, 200)
+        self.assertEqual(self.client.post(base+'/sources', json={'sources':[{'path':str(raw)}]}, headers=headers).status_code, 200)
+        self.assertEqual(self.client.get(base+'/inputs', query_string={'path':str(self.root)}).status_code, 400)
+        policy.write_text('version: 1\nfiles: []\ndirectories: []\n')
+        self.assertEqual(self.request_as(self.project_agent).json['sources'], [])
 
     def test_project_agent_does_not_receive_another_notebooks_focused_cell(self):
         notebook = self.runtime.notebooks.get(self.second['notebook'])

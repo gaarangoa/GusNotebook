@@ -12,6 +12,7 @@ from urllib.parse import quote
 from .project_files import ProjectError, digest, encoded, read_file, write_file
 from .project_layout import paths as layout_paths
 from .project_sources import inspect_source, public_source, verify_reference
+from . import project_access
 
 START = '<!-- gusnb:data:start -->'
 END = '<!-- gusnb:data:end -->'
@@ -113,6 +114,7 @@ def record(project, spec, timestamp, context):
     if any(Path(s['path']) == path for s in raw):
         raise ProjectError('A processed output cannot overwrite a registered raw input')
     parents = []
+    policy = project_access.load(project)
     for value in inputs:
         matches = [('raw', s) for s in raw if value in {s['id'], s['path']}]
         matches += [('processed', s) for s in processed if value in {s['path'], str(root / s['path'])}]
@@ -120,6 +122,8 @@ def record(project, spec, timestamp, context):
             raise ProjectError('Input is not uniquely registered in this project: ' + value)
         kind, parent = matches[0]
         actual = parent['path'] if kind == 'raw' else str(root / parent['path'])
+        if kind == 'raw':
+            project_access.require(project, actual, policy)
         if Path(actual) == path:
             raise ProjectError('An output cannot be its own input; retain the upstream dataset')
         verify_reference({**parent, 'path': actual})
@@ -147,14 +151,17 @@ def record(project, spec, timestamp, context):
     return dict(path=relative, size=output['size'], schema=output['schema'], file_revision=output['file_revision'],
                 description=description, transformation=transformation, parameters=deepcopy(parameters),
                 inputs=parents, producer=producer, synthetic=synthetic, recorded_at=timestamp,
+                access_revision=policy['revision'],
                 activity={k: context[k] for k in ('actor', 'session', 'terminal', 'agent_session', 'request_id') if k in context},
                 environment={k: environment[k] for k in ('python', 'lock_sha256', 'specification_sha256') if k in environment})
 
 
 def catalog(project):
     paths = layout_paths(project)
+    policy = project_access.status(project)
+    sources = [public_source(s, project['path']) for s in project['sources']]
     return dict(format='gusnotebook-data-lineage', version=1, project=project['name'],
-                raw_inputs=[public_source(s, project['path']) for s in project['sources']],
+                raw_inputs=[s for s in sources if project_access.allows(policy, s['path'])], data_access=policy,
                 processed_data=deepcopy(project.get('processed_data', [])),
                 history=paths['audit'] + '/events.jsonl')
 
@@ -173,6 +180,8 @@ def readme(project):
     root = Path(project['path'])
     data = catalog(project)
     lines = [START, '## Data catalog', '',
+             'Set approved input files and directories yourself in [access.yaml](access.yaml).',
+             'Agents must use only these inputs and must not change this policy. App checks do not sandbox terminals or Python.', '',
              'Raw files stay at their original paths. Processed datasets live in `data/processed/`.',
              'Descriptions and input relationships are recorded by the author or agent. A matching notebook execution',
              'is identified when observed; this does not independently prove which process wrote a dataset.', '',

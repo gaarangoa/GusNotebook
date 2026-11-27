@@ -70,6 +70,18 @@ def main():
 
         project = command('context')
         pid = project['id']
+        assert command('inputs')['status'] == 'empty'
+        # The user edits the policy; source registration is not an access grant.
+        page.locator('#project-inputs').click()
+        expect(page.locator('#text-editor')).to_be_visible()
+        expect(page.locator('#text-editor')).to_have_value(re.compile('version: 1'))
+        policy = Path(project['path'])/'data/access.yaml'
+        page.locator('#text-editor').fill('version: 1\nfiles:\n  - ' + json.dumps(str(source)) + '\ndirectories: []\n')
+        page.evaluate('saveText()')
+        assert str(source) in policy.read_text()
+        assert command('inputs')['files'] == [str(source)]
+        assert command('inputs', str(source))['entries'][0]['size'] == source.stat().st_size
+        page.locator('#project-report').click()
         registered = command('source', str(source))
         assert registered['sources'][0]['path'] == str(source)
         assert registered['sources'][0]['storage'] == 'reference'

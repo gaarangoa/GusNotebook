@@ -473,6 +473,11 @@ def cmd_project(args):
             if args.description:
                 source['description'] = args.description
             result = call(base + "/sources", "POST", {"sources": [source]})
+        elif args.action == 'inputs':
+            query = {'offset': args.offset, 'limit': args.limit}
+            if args.path:
+                query['path'] = args.path
+            result = call(base + '/inputs?' + urllib.parse.urlencode(query))
         elif args.action == 'data':
             if args.file:
                 raw = sys.stdin.read() if args.file == '-' else pathlib.Path(args.file).read_text()
@@ -590,6 +595,11 @@ def main():
     source.add_argument("path", nargs="?", help="original file path when specifying a label")
     source.add_argument('--description', help='what this raw data contains and its origin')
     source.set_defaults(fn=cmd_project)
+    inputs = commands.add_parser('inputs', help='show manually approved data paths, or browse an approved directory')
+    inputs.add_argument('path', nargs='?', help='approved path, relative to the project or absolute')
+    inputs.add_argument('--offset', type=int, default=0)
+    inputs.add_argument('--limit', type=int, default=100)
+    inputs.set_defaults(fn=cmd_project)
     data = commands.add_parser('data', help='read the data catalog or record a processed dataset and its producing code')
     data.add_argument('--file', help='processed-data metadata JSON file, or - for stdin; paths are relative to the project')
     data.set_defaults(fn=cmd_project)

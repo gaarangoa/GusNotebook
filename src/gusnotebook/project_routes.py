@@ -159,6 +159,12 @@ def sources(project_id):
     return jsonify(manager().sources(project_id, body().get("sources"), data_activity()))
 
 
+@project_routes.get('/api/projects/<project_id>/inputs')
+def inputs(project_id):
+    return jsonify(manager().inputs(project_id, request.args.get('path'),
+                                    request.args.get('offset', 0), request.args.get('limit', 100)))
+
+
 def data_activity():
     from .app import cell_audit_context, request_session
     context = cell_audit_context(agent=True)

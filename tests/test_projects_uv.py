@@ -21,6 +21,8 @@ class UvProjectTests(unittest.TestCase):
         cls.pid = cls.manager.create("uv_test", str(cls.root))["id"]
         source = cls.root / "measurements.csv"
         source.write_text("x,y,z\n1,8,3\n2,4,9\n3,7,5\n4,3,1\n5,2,8\n6,6,4\n")
+        (cls.root/'uv_test/data/access.yaml').write_text(json.dumps({
+            'version':1, 'files':[str(source)], 'directories':[]}))
         cls.manager.sources(cls.pid, [{"id": "measurements", "path": str(source)}])
         cls.manager.prepare(cls.pid)
         cls.manager.jobs[cls.pid]["_thread"].join(timeout=300)

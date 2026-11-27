@@ -37,6 +37,8 @@ class ProjectTests(unittest.TestCase):
         self.pid = self.project["id"]
         self.source = self.root / "data.csv"
         self.source.write_text("a,b\n1,4\n2,2\n3,5\n")
+        (Path(self.project['path'])/'data/access.yaml').write_text(json.dumps({
+            'version':1, 'files':[], 'directories':[str(self.root)]}))
         self.manager.sources(self.pid, [{"id": "data", "path": str(self.source)}])
 
     def tearDown(self):

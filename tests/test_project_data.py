@@ -26,6 +26,8 @@ class ProjectDataTests(unittest.TestCase):
         self.root = Path(self.project['path'])
         self.raw = self.base/'measurements.csv'
         self.raw.write_text('age,value\n15,1\n20,2\n35,3\n')
+        (self.root/'data/access.yaml').write_text(json.dumps({
+            'version':1, 'files':[], 'directories':[str(self.base)]}))
         self.manager.sources(self.pid, [{'path':str(self.raw), 'description':'Original measurement cohort'}])
         self.code = self.root/'code/cohort.py'
         self.code.write_text('def cohort(frame):\n    return frame[frame.age >= 18]\n')

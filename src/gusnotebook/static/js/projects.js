@@ -61,9 +61,11 @@ window.ProjectWorkspace = (() => {
   }
   function render() {
     $('links').hidden = false; $('label').textContent = project.name;
-    $('job').textContent = project.job?.status === 'running' ? 'Preparing environment…' : 'Linked Jupyter notebook';
+    $('job').textContent = project.job?.status === 'running' ? 'Preparing environment…'
+      : project.data_access?.status === 'invalid' ? 'Check input policy'
+      : project.data_access?.status === 'empty' ? 'No approved inputs' : 'Linked Jupyter notebook';
     $('job').classList.toggle('failed', project.job?.status === 'failed');
-    $('job').title = project.job?.error || project.path;
+    $('job').title = project.job?.error || project.data_access?.error || project.path;
     $('cancel').hidden = project.job?.status !== 'running';
     clearTimeout(timer);
     timer = setTimeout(() => act(refresh), project.job?.status === 'running' ? 1200 : 5000);
@@ -84,6 +86,7 @@ window.ProjectWorkspace = (() => {
   };
   $('report').onclick = () => act(() => openFile(project.report));
   $('data').onclick = () => act(() => openFile(project.data_readme));
+  $('inputs').onclick = () => act(() => openFile(project.data_access.path));
   $('notebook').onclick = event => {
     const ids = Object.keys(project.notebooks);
     if (ids.length <= 1) return act(() => openNotebook(ids[0]));

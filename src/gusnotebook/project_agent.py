@@ -29,7 +29,21 @@ context.path. Changing browser tabs does not change the terminal's project.
 Default workflow for a plot, table, number or other computed content in the HTML:
 1. Read `gusnb here --full` and `gusnb project report` to preserve the requested
    layout and surrounding content. Remember the report revision before editing.
-2. Use only the user's authorized inputs. Register each exact approved file path
+2. Use only the user's authorized inputs, configured manually in data/access.yaml.
+   Read `gusnb project inputs` before looking for or using input data. The files
+   and directories there are the complete list of allowed raw inputs; approved
+   directories include their descendants. Discover their contents with
+   `gusnb project inputs APPROVED_DIRECTORY`, one level at a time; use --offset
+   with the returned next_offset for more entries. Do not search other folders,
+   the home directory, sibling projects, environment variables, credentials or
+   network sources for data. Do not follow symlinks out of approved paths.
+   If the policy is empty/invalid or requested data is absent, stop data work and
+   ask the user to edit data/access.yaml using the project's Inputs button.
+   NEVER create, edit, replace or expand this policy yourself, even to make an
+   analysis work. Previously registered inputs and paths mentioned in chat are
+   not permission to bypass it. Project code, notebooks, generated results and
+   the uv environment remain available for work; they are not extra raw-data grants.
+   Register each exact approved file path
    with `gusnb project source PATH --description "contents and origin"`, then read that original path directly from
    context.sources[].path. Registration records a reference, not a dataset copy.
    Reuse already registered paths. Do not copy, rename, hash the entire input,

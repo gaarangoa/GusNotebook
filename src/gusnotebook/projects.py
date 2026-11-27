@@ -15,7 +15,7 @@ from .project_runner import UvRunner, WORKER
 from . import project_templates as templates
 from .project_layout import LAYOUT, GITIGNORE, paths as layout_paths
 from .project_sources import inspect_source, public_source, revision as source_revision, verify_reference
-from . import project_data
+from . import project_access, project_data
 
 
 def now():
@@ -200,6 +200,8 @@ class ProjectManager:
         with self.guard:
             project = deepcopy(self._get(project_id))
             project["sources"] = [public_source(s, self._root(project)) for s in project["sources"]]
+            project['data_access'] = project_access.status(project)
+            project['sources'] = [s for s in project['sources'] if project_access.allows(project['data_access'], s['path'])]
             job = self.jobs.get(project_id)
             project["job"] = {k: v for k, v in job.items() if not k.startswith("_")} if job else None
             project["events"] = project["events"][-200:]
@@ -234,6 +236,11 @@ class ProjectManager:
         """Migrate scaffold exclusions without deleting existing files or runs."""
         with self.guard:
             project = self._get(project_id)
+            project_access.ensure(project)
+            policy = project_access.status(project)
+            if project.get('input_policy_observed') != policy:
+                project['input_policy_observed'] = policy
+                self._event(project, 'input_policy_observed', policy=policy)
             if project.get("versioning") == "git":
                 if not self._path(project, 'data_readme').exists() or not self._path(project, 'lineage').exists():
                     self._save(project)
@@ -287,6 +294,7 @@ class ProjectManager:
                        "Use Git for code and notebook history. Tests, data, environments and reports are ignored.\n"
                        "From this code directory, prepare the same uv environment:\n\n"
                        "```sh\nUV_PROJECT_ENVIRONMENT=../data/environment/.venv uv sync --locked --no-install-project\n```\n")
+            project_access.ensure(project)
             self._event(project, "project_created", name=name)
             return self.view(project["id"])
 
@@ -296,11 +304,12 @@ class ProjectManager:
         with self.guard:
             project = self._get(project_id)
             self._idle(project)
+            policy = project_access.load(project)
             additions = []
             for entry in entries:
                 if not isinstance(entry, dict) or not isinstance(entry.get("path"), str):
                     raise ProjectError("Each source needs a file path")
-                path = Path(entry.get("path", "")).expanduser()
+                path = project_access.require(project, entry['path'], policy)
                 source = inspect_source(path)
                 existing = next((s for s in project["sources"] if s.get("path") == source["path"]), None)
                 label = entry.get("id")
@@ -317,7 +326,7 @@ class ProjectManager:
                 description = entry.get('description', (existing or {}).get('description'))
                 if description is not None:
                     source['description'] = project_data.text(description, 'Source description')
-                source.update(id=source_id, approved_at=now())
+                source.update(id=source_id, approved_at=now(), access_revision=policy['revision'])
                 additions.append(source)
             if len({s["id"] for s in additions}) != len(additions):
                 raise ProjectError("Source IDs must be unique")
@@ -328,6 +337,10 @@ class ProjectManager:
             self._event(project, "sources_approved", sources=[{k: v for k, v in s.items() if k != "snapshot"} for s in additions],
                         context=context or {})
             return self.view(project_id)
+
+    def inputs(self, project_id, path=None, offset=0, limit=100):
+        with self.guard:
+            return project_access.discover(self._get(project_id), path, offset, limit)
 
     def data(self, project_id):
         with self.guard:
@@ -417,6 +430,9 @@ class ProjectManager:
             if not isinstance(source_ids, list) or not source_ids or not all(isinstance(s, str) for s in source_ids) or not set(source_ids) <= {s["id"] for s in project["sources"]}:
                 raise ProjectError("Select approved sources for this analysis")
             selected = [s for s in project["sources"] if s["id"] in source_ids]
+            policy = project_access.load(project)
+            for source in selected:
+                project_access.require(project, public_source(source, self._root(project))['path'], policy)
             if any(s["suffix"] not in {".csv", ".parquet"} for s in selected):
                 raise ProjectError("Structured analyses support CSV or Parquet. Read other formats directly in the project notebook.")
             code = templates.PCA_CODE if code is None else code
@@ -506,6 +522,9 @@ class ProjectManager:
                     if source["id"] not in by_id or source_revision(by_id[source["id"]]) != source_revision(source):
                         raise ProjectError("Replay requires the exact input revision to still be approved")
                     selected.append(deepcopy(by_id[source["id"]]))
+            policy = project_access.load(project)
+            for source in selected:
+                project_access.require(project, public_source(source, self._root(project))['path'], policy)
             run_id = "run_" + uuid.uuid4().hex
             directory = self._authority(project) / "runs" / run_id
             write_file(directory / "code/src/project_analysis/__init__.py", "")
@@ -534,6 +553,7 @@ class ProjectManager:
         try:
             output = self.runner.execute(environment, directory, selected, job["_cancel"])
             for source in selected:
+                project_access.require(project, public_source(source, self._root(project))['path'])
                 verify_reference(source)
             if job["_cancel"].is_set():
                 raise ProjectError("Operation cancelled")

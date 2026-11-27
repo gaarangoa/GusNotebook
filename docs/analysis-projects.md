@@ -15,7 +15,7 @@ For example:
 > on the right. Keep the data preparation and plotting code in the notebook.
 
 Click **Notebook code** below a figure to open its generating cell. The project
-bar has **Report**, **Notebook**, **Data**, and **Git**. Keep using the ordinary HTML editor
+bar has **Report**, **Notebook**, **Data**, **Inputs**, and **Git**. Keep using the ordinary HTML editor
 for layout, text, images, zoom and source edits. Explicit dummy-data requests
 use a recorded random seed and need no external data-file registration.
 
@@ -54,6 +54,7 @@ code/
   uv.lock                 # locked dependency versions
   .python-version
 data/
+  access.yaml             # manually approved input files/directories
   processed/              # derived datasets and cohorts
   README.md               # data descriptions and producing code links
   lineage.json            # portable machine-readable data catalog
@@ -99,9 +100,59 @@ It does not create a GitHub repository automatically.
 
 ## Agent workflow
 
+### Choose approved inputs
+
+Open **Inputs** and edit `data/access.yaml` yourself before asking the agent to
+use real data. New and upgraded projects start with empty lists. Existing source
+registrations do not automatically approve inputs. For example:
+
+```yaml
+version: 1
+files:
+  - /home/me/data/measurements.csv
+directories:
+  - /home/me/data/approved_study
+```
+
+Paths refer to the computer running the workspace. Relative paths resolve from
+the project root. An approved directory includes its descendants; files approve
+only that exact file. Wildcards and symlinks are unsupported. Keep `files: []` or
+`directories: []` when that list is empty. No data is copied or scanned when the
+policy is read.
+
+Agents receive the current policy with project context on each request. They
+must use only these raw inputs, must not change the YAML, and must ask you to
+update it when data is missing. Mentioning a path in chat or registering it with
+`project source` does not grant access. Project code, notebooks, the uv environment
+and generated outputs remain available for ordinary project work.
+
+```bash
+gusnb project inputs                         # approved files/directories
+gusnb project inputs /home/me/data/approved_study  # one directory level
+gusnb project inputs /home/me/data/approved_study --offset 100 --limit 100
+```
+
+Use the listing's `next_offset` for another page. Discovery is limited to approved
+paths, returns file metadata without reading contents, and skips symlinks. The
+app checks the policy before source registration, processed-data lineage using
+raw inputs, and structured analysis runs. Invalid or missing YAML denies those
+operations. Removing a grant hides that source from current project context and
+blocks its use in these operations; historical records remain intact. Policy
+changes observed during project refresh are saved in project activity history.
+
+**Enforcement boundary:** these are agent instructions and checks in the listed
+GusNotebook operations. Direct terminal commands, arbitrary notebook/Python code,
+general file APIs and network tools retain their existing host permissions. The
+YAML is editable by processes running as your user; it is not proof of who
+approved a path. This feature does not provide filesystem isolation. Ordinary
+notebooks outside registered projects keep their existing behavior.
+
+### Register and use data
+
 ```bash
 gusnb project create cohort_study /home/me/projects
 gusnb project context
+# Edit data/access.yaml yourself before registering this input.
 gusnb project source /home/me/data/measurements.csv --description "Original study measurements"
 gusnb project prepare
 gusnb project status
