@@ -90,6 +90,7 @@ window.ProjectWorkspace = (() => {
   $('notebook').onclick = event => {
     const ids = Object.keys(project.notebooks);
     if (ids.length <= 1) return act(() => openNotebook(ids[0]));
+    event.stopPropagation();
     const box = event.currentTarget.getBoundingClientRect();
     showFileCtx(box.left,box.bottom,ids.map(id => ({label:id,action:() => act(() => openNotebook(id))})), 'Linked notebooks');
   };

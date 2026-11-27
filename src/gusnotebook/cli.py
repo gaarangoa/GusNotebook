@@ -422,7 +422,10 @@ def cmd_env(args):
                   f"{DIM}{note}{RESET}\n    {DIM}{v['python']}{RESET}")
         return
 
-    data = call("/api/venv", "POST", {"python": target_path(args.python)})
+    # Keep a venv's bin/python symlink: resolving it selects the base interpreter
+    # and loses the environment's packages. Only expand/absolutize this path.
+    python = os.path.abspath(os.path.expanduser(args.python))
+    data = call("/api/venv", "POST", {"python": python})
     if "error" in data:
         sys.exit(data["error"])
     print(f"kernel now on Python {data['version']} — {data['python']}")

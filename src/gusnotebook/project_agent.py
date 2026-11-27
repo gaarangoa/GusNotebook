@@ -21,10 +21,48 @@ the current `gusnb project context` identifies that project. Outside a project,
 use the normal notebook/HTML workflow; earlier project rules no longer apply.
 Run `gusnb project context` at the start of each request for the project paths,
 approved sources and uv interpreter. Use the existing HTML editor and terminal chat.
-Use the current context's notebook, report and layout_paths; they take precedence
+Use the current context's report, notebooks and layout_paths; they take precedence
 over paths from earlier requests when this terminal changes project directories
 or the user selects a project with create/open. Resolve layout_paths relative to
 context.path. Changing browser tabs does not change the terminal's project.
+
+Choose notebooks and modules by scientific purpose:
+- Continue the same scientific question in its existing notebook. For a change
+  to an existing report figure, follow its data-gusnb-notebook and data-gusnb-cell-id
+  provenance and edit that producing cell. Honor a notebook explicitly named by
+  the user within this project. Inspect context.notebooks and the code/README.md
+  analysis index before creating anything. context.notebook is only the default
+  starting notebook, not a requirement to put every analysis in analysis.ipynb.
+- For a separate scientific question or independent analysis, create a descriptive
+  snake_case notebook directly under layout_paths.notebooks, such as
+  cohort_characterization.ipynb or survival_analysis.ipynb. Use `gusnb open PATH`
+  to create/open it, then always target it explicitly with `gusnb -n PATH ...`.
+  Keep revisions, additional figures and reruns of the same analysis in the same
+  notebook; never make timestamped, per-prompt or per-run notebook copies. The
+  initial analysis.ipynb may be used for the first question. Do not overwrite or
+  reorganize existing notebooks merely to adopt this policy.
+- Put reusable transformations, shared calculations, and model components in
+  code/src/project_analysis/*.py. Factor logic used by multiple cells/notebooks
+  or needed as a reusable component without waiting for a separate refactoring
+  request. Keep short, analysis-specific exploration in its notebook. Use explicit
+  inputs/parameters and returned results; avoid hidden notebook globals and data
+  loading, fitting or file writes on import. Prefer sklearn estimators/Pipelines
+  for reusable modeling. No service, API or separate environment is needed.
+- The notebook remains the executable scientific record: state the question,
+  approved input paths, parameters/seeds, module imports and calls, explanations,
+  outputs and interpretation. Link imported project modules in Markdown; do not
+  duplicate their implementation into cells. Set up imports from project code/src
+  explicitly in a reproducible setup cell, or install the project in editable mode
+  into the SAME uv environment. Never depend on a terminal-only PYTHONPATH.
+  Run the analysis through notebook cells so calls and results have cell history.
+- Document each notebook's purpose, relative link and reusable modules in
+  code/README.md, preserving existing notes. After changing a module, reload it
+  (or restart the chosen kernel when idle), rerun affected notebook cells and
+  re-export affected report outputs. An unchanged import cell does not prove
+  that an output matches changed module code. Commit modules and notebooks
+  together. A code snapshot of a cell does not snapshot its imported modules;
+  Git records those versions. Direct terminal script execution does not receive
+  the same observed execution history as a notebook cell.
 
 Default workflow for a plot, table, number or other computed content in the HTML:
 1. Read `gusnb here --full` and `gusnb project report` to preserve the requested
@@ -59,24 +97,27 @@ Default workflow for a plot, table, number or other computed content in the HTML
    label it synthetic, and record that choice. Synthetic examples need no external
    source registration. Never substitute dummy data for a real-data request.
 3. Prepare the uv environment using `gusnb project prepare` if needed, then poll
-   `gusnb project status` until complete. Target the linked notebook explicitly
-   with `gusnb -n NOTEBOOK_PATH ...`, using context.notebook. Check its kernel
+   `gusnb project status` until complete. Choose the notebook using the policy
+   above and target it explicitly with `gusnb -n NOTEBOOK_PATH ...`. Check its kernel
    with `env`; select the project environment.python if it differs. Do not switch
    an already correct kernel. uv manages dependencies; do not create a service.
-4. Put readable Python data preparation and ALL custom plotting code in ordinary
-   notebook cells. Use `add -` to write/run a cell or `set CELL_ID - --run` to edit
+4. Put analysis-specific Python, calls to reusable modules and the full custom
+   plotting code in notebook cells. Use `add -` to write/run a cell or `set CELL_ID - --run` to edit
    it with history. For D3, use display(HTML(...)) with the actual inline D3 script
    and JSON data computed by Python. Bundled D3 is available in notebook outputs;
    follow the normal D3 instructions. Any chart type and custom layout are allowed.
-   Show the full plotting code in the notebook, not just an import, result JSON,
-   a link to a .py file or code that reads a hidden renderer. Keep calculations in
-   Python and the D3 rendering beside them. Put explanatory Markdown between cells.
+   Keep the figure-specific D3/HTML rendering visible beside its Python data and
+   module calls; do not hide a report's custom renderer in an unlinked script.
+   Put explanatory Markdown between cells.
    After producing or updating a dataset, record it with `gusnb project data --file -`
    using JSON containing path, description (what the dataset represents), transformation
    (filters, exclusions, joins, cleaning and other changes), parameters, inputs
    (approved raw-source labels/paths or already recorded processed paths), and
-   producer: {"path": "code/notebooks/analysis.ipynb", "cell_id": "producing-cell"}.
-   A Python script can be the producer instead; omit cell_id in that case. Paths are
+   producer: {"path": "ACTUAL_NOTEBOOK_PATH", "cell_id": "producing-cell"}.
+   Use the actual executing notebook/cell even when it calls reusable modules;
+   identify those modules in the transformation description and notebook Markdown.
+   If a Python script actually produced the data outside the notebook, record
+   that script as producer and omit cell_id; do not claim an observed cell run. Paths are
    relative to context.path. Use the actual paths from layout_paths for older projects.
    Set synthetic:true and inputs:[] only for explicitly requested synthetic data.
    Record only files that exist and code actually used; never invent an execution,
@@ -115,8 +156,8 @@ D3 plots through `project save/run/publish` or its scatter/metric/table schema.
 Do not generate separate run receipts, run IDs or copies of notebooks per execution.
 Git commits are the version history; use git log/diff or GitHub to inspect changes.
 Never overwrite a hand-authored notebook with a generated structured analysis.
-Reusable Python modules and sklearn Pipelines can be factored out when requested,
-but the notebook must still show how its displayed content is generated.
+Apply the notebook/module policy above while keeping displayed results traceable
+to their executing cells and versioned source modules.
 Do not create api.py or an HTTP service for analysis. Do not use Docker.
 Respect approved data paths; uv is dependency isolation, not a filesystem sandbox.
 Never accept results on the user's behalf or invent numerical results.

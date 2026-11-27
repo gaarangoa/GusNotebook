@@ -519,8 +519,9 @@ def codex_args(instructions=None):
     script = focus_hook_file(stable=True)
     if script:
         command = json.dumps(shlex.quote(script))
+        # Project rules plus paths/lineage and focused content exceed 12k.
         hook = ("[{hooks=[{type=\"command\",command=" + command
-                + ",timeout=5,additionalContextLimit=12000}]}]")
+                + ",timeout=5,additionalContextLimit=32000}]}]")
         args += ["--enable", "hooks", "-c", "hooks.UserPromptSubmit=" + hook]
     return args
 

@@ -4,9 +4,9 @@ Work in the normal GusNotebook workspace: HTML and notebook tabs in the center,
 Claude/Codex terminal chat on the right. Create or open a project with
 **+ → Analysis project**, then use the usual **Agent → Claude or Codex** control
 while browsing its folder. Describe the report or slide you want. The agent receives the project's
-data, environment, folder, Git, and slide-deck instructions. It writes and runs
-its Python analysis and complete D3 plotting code in
-the linked notebook, then embeds the actual output into your HTML layout.
+data, environment, folder, Git, and slide-deck instructions. It runs the analysis
+through notebooks, importing reusable Python modules when appropriate, then
+embeds the actual output into your HTML layout.
 
 For example:
 
@@ -34,7 +34,8 @@ and the closest project wins if projects are nested. Outside those folders,
 agents use the regular notebook/HTML workflow. Opening a file or changing browser
 tabs does not change a terminal's project or give it unrelated focused content.
 The prompt hook and `gusnb` commands refresh context when the terminal changes
-directory; the context includes the project's notebook, approved paths and uv interpreter.
+directory; the context includes the default notebook, available named notebooks,
+approved paths and uv interpreter.
 
 An existing terminal can explicitly join or switch projects with
 `gusnb project create NAME /parent/folder` or `gusnb project open PROJECT_ID`.
@@ -99,6 +100,52 @@ The app uses the existing host credentials or Git sharing through your tunnel.
 It does not create a GitHub repository automatically.
 
 ## Agent workflow
+
+### Choose notebooks and Python modules
+
+Project agents choose by scientific purpose:
+
+- Continue the same question in its existing notebook, including additional
+  figures, revisions and reruns. Follow the producing notebook/cell when changing
+  an existing report figure.
+- Create a descriptive notebook for a separate question, such as
+  `code/notebooks/cohort_characterization.ipynb` or `survival_analysis.ipynb`.
+  The initial `analysis.ipynb` is a starting point. There are no per-prompt,
+  per-run or timestamped notebook copies, and existing work is not reorganized
+  just to follow this policy.
+- Put reusable transformations, shared calculations and model components in
+  `code/src/project_analysis/*.py`. Import and call them from notebook cells.
+  Short, analysis-specific exploration can stay in the notebook. Modules take
+  explicit inputs/parameters, return results, and do not load data or run analysis
+  on import. sklearn estimators/Pipelines are preferred for reusable modeling.
+
+Keep each notebook's question, approved inputs, parameters/seeds, explanations,
+module links and calls, figure-specific plotting code, outputs and interpretation
+visible. Maintain an index of notebook purposes and module links in `code/README.md`.
+These are project-specific agent instructions, not a rule that automatically
+splits files or moves existing code. Ordinary notebooks outside projects keep
+their current behavior.
+
+`gusnb project context` lists notebooks directly inside the project's notebook
+folder without reading their contents. The project's **Notebook** button offers
+these notebooks when more than one exists. `context.notebook` remains the default;
+always name the chosen target explicitly:
+
+```bash
+gusnb open /path/to/project/code/notebooks/survival_analysis.ipynb
+gusnb -n /path/to/project/code/notebooks/survival_analysis.ipynb env /path/to/project/data/environment/.venv/bin/python
+gusnb -n /path/to/project/code/notebooks/survival_analysis.ipynb add - < analysis_cell.py
+```
+
+Use `layout_paths.notebooks` from context for older layouts. Set up module imports
+from `code/src` in a reproducible notebook setup cell, or install the project in
+editable mode into the same uv environment. After a module changes, reload it or
+restart the chosen idle kernel, rerun affected cells and re-export affected report
+outputs. A saved cell snapshot does not include imported module implementations,
+and the exporter does not automatically detect changes to them. Git versions
+modules and notebooks together; data records identify the actual producing
+notebook/cell, with module paths described in the transformation. Direct terminal
+script runs can be registered as producers but do not receive observed cell history.
 
 ### Choose approved inputs
 
@@ -241,8 +288,9 @@ portable foundation for future tracking integrations without another service.
 
 ### Generate report outputs
 
-Once preparation finishes, use the notebook path from context. Write both the
-Python data preparation and the D3 `display(HTML(...))` code there:
+Once preparation finishes, choose the notebook using the policy above. Keep the
+analysis-specific Python, calls to reusable modules and D3 `display(HTML(...))`
+code there:
 
 ```bash
 gusnb -n /path/to/project/code/notebooks/analysis.ipynb add - < plot_cell.py

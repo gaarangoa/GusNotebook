@@ -5,12 +5,13 @@ from copy import deepcopy
 from datetime import datetime, timezone
 import json
 import math
+import os
 from pathlib import Path
 import re
 import threading
 import uuid
 
-from .project_files import ProjectError, digest, encoded, identifier, read_file, write_file
+from .project_files import ProjectError, digest, encoded, identifier, parent_fd, read_file, write_file
 from .project_runner import UvRunner, WORKER
 from . import project_templates as templates
 from .project_layout import LAYOUT, GITIGNORE, paths as layout_paths
@@ -183,6 +184,23 @@ class ProjectManager:
         with self.guard:
             return str(self._path(self._get(project_id), "notebooks", "analysis.ipynb"))
 
+    def _notebook_paths(self, project):
+        """Discover named analysis notebooks without reading outputs or raw data."""
+        directory = self._path(project, 'notebooks')
+        notebooks = {}
+        try:
+            # Open the directory without following symlinked parent folders.
+            # The final component is only a placeholder; no index file is made.
+            with parent_fd(directory / '.notebook-index') as (folder, _):
+                with os.scandir(folder) as entries:
+                    for entry in entries:
+                        if (not entry.name.startswith('.') and entry.name.endswith('.ipynb')
+                                and entry.is_file(follow_symlinks=False)):
+                            notebooks[Path(entry.name).stem] = str(directory / entry.name)
+        except FileNotFoundError:
+            pass
+        return dict(sorted(notebooks.items()))
+
     def for_directory(self, directory):
         """The closest registered project enclosing a terminal's working folder."""
         if not directory:
@@ -213,6 +231,7 @@ class ProjectManager:
             project["data_readme"] = str(self._path(project, "data_readme"))
             project["data_lineage"] = str(self._path(project, "lineage"))
             project["notebooks"] = {key: str(self._path(project, "notebooks", f"{key}.ipynb")) for key in project["analyses"]}
+            project["notebooks"].update(self._notebook_paths(project))
             for key, analysis in project["analyses"].items():
                 code = read_file(Path(project["path"]) / f"code/src/project_analysis/{key}.py", 100000).decode()
                 analysis["code"] = code
@@ -290,7 +309,12 @@ class ProjectManager:
             write_file(root / "code/notebooks/analysis.ipynb", templates.empty_notebook(name, project["id"],
                        report="../../results/reports/deck.html"))
             write_file(root / "code/README.md", "# " + name + "\n\n"
-                       "Write Python and D3 in notebooks/analysis.ipynb and embed executed outputs into ../results/reports/deck.html.\n"
+                       "## Analysis index\n\n"
+                       "- [analysis.ipynb](notebooks/analysis.ipynb): starting notebook for the first scientific question.\n\n"
+                       "Continue the same question in its notebook; create a descriptive notebook in notebooks/ for a separate analysis.\n"
+                       "Record each notebook's purpose and reusable module links here. Keep inputs, parameters, calls, explanations and results in the notebook.\n"
+                       "Put reusable transformations, calculations and model components in src/project_analysis/ and import them from notebook cells.\n"
+                       "Keep figure-specific D3 code visible in the notebook and embed executed outputs into ../results/reports/deck.html.\n"
                        "Use Git for code and notebook history. Tests, data, environments and reports are ignored.\n"
                        "From this code directory, prepare the same uv environment:\n\n"
                        "```sh\nUV_PROJECT_ENVIRONMENT=../data/environment/.venv uv sync --locked --no-install-project\n```\n")

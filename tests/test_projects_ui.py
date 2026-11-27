@@ -215,6 +215,54 @@ def main():
         expect(page.locator('#project-create-back')).not_to_be_visible()
         expect(page.locator('#html-preview-frame')).to_be_visible()
 
+        # A separate question can run shared Python logic in a named notebook,
+        # using the same uv environment and retaining its own output provenance.
+        default_before = notebook_path.read_bytes()
+        module = root / 'code/src/project_analysis/cohorts.py'
+        module.write_text('def select_cohort(frame, minimum_x):\n'
+                          '    return frame.loc[frame["x"] >= minimum_x].copy()\n')
+        named_notebook = root / 'code/notebooks/cohort_characterization.ipynb'
+        named_cli = [cli, '-n', str(named_notebook)]
+        for args in ([cli, 'open', str(named_notebook)],
+                     named_cli + ['env', project['environment']['python']]):
+            result = subprocess.run(args, env=env, cwd=work, capture_output=True, text=True, timeout=60)
+            assert result.returncode == 0, result.stderr
+        reusable = ('import sys\n'
+                    f'sys.path.insert(0, {str(root / "code/src")!r})\n'
+                    'import pandas as pd\n'
+                    'from project_analysis.cohorts import select_cohort\n'
+                    'from IPython.display import HTML, display\n'
+                    f'raw = pd.read_csv({str(source)!r})\n'
+                    'cohort = select_cohort(raw, minimum_x=3)\n'
+                    'display(HTML(f"<p>Cohort size: {len(cohort)}</p>"))\n')
+        added = subprocess.run(named_cli + ['add', '-'], env=env, cwd=work, input=reusable,
+                               capture_output=True, text=True, timeout=60)
+        assert added.returncode == 0, added.stderr
+        named_cell = re.search(r'added code cell (\S+)', added.stdout).group(1)
+        saved = json.loads(named_notebook.read_text())
+        executed = next(cell for cell in saved['cells'] if cell['id'] == named_cell)
+        assert saved['metadata']['kernelspec']['notebook_python'] == project['environment']['python']
+        assert 'Cohort size: 4' in ''.join(executed['outputs'][0]['data']['text/html'])
+        assert 'gusnotebook_history' in executed['metadata']
+        assert notebook_path.read_bytes() == default_before
+        assert command('context')['notebooks'] == {
+            'analysis': str(notebook_path), 'cohort_characterization': str(named_notebook)}
+        named_output = root / 'results/outputs/cohort.html'
+        exported = subprocess.run(named_cli + ['export-output', named_cell, '--file', str(named_output)],
+                                  env=env, cwd=work, capture_output=True, text=True, timeout=30)
+        assert exported.returncode == 0, exported.stderr
+        assert f'data-gusnb-notebook="{named_notebook}"' in named_output.read_text()
+        assert f'data-gusnb-cell-id="{named_cell}"' in named_output.read_text()
+        # Refresh through the ordinary project view, then select the new notebook.
+        page.evaluate('id => ProjectWorkspace.openProject(id)', pid)
+        page.locator('#project-notebook').click()
+        expect(page.get_by_role('menuitem', name='analysis', exact=True)).to_be_visible()
+        page.get_by_role('menuitem', name='cohort_characterization', exact=True).click()
+        page.wait_for_function('path => active === path', arg=str(named_notebook))
+        expect(page.locator('#cell-' + named_cell).frame_locator('iframe[data-output-frame]')
+               .locator('body')).to_contain_text('Cohort size: 4')
+        page.locator('#project-report').click()
+
         # One Agent button: directory membership supplies context automatically.
         # Substitute real shell PTYs at the HTTP boundary: no model login/calls.
         launches = []

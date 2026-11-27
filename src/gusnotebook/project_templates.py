@@ -105,7 +105,10 @@ svg{width:100%;max-height:540px}table{border-collapse:collapse}td,th{padding:6px
 def empty_notebook(name, project_id, report="../reports/deck.html"):
     import nbformat
     nb = nbformat.v4.new_notebook(cells=[nbformat.v4.new_markdown_cell(
-        "# " + name + "\nLinked report: " + report + ". Ask the agent to add Python and D3 code here.")])
+        "# " + name + "\nLinked report: " + report + ".\n\n"
+        "Use this notebook for the first scientific question. Continue related analysis here; "
+        "create a named notebook for a separate question. Import reusable logic from project modules "
+        "and keep inputs, parameters, explanations, calls, plotting code and results visible here.")])
     nb.metadata["gusproject"] = {"project_id": project_id, "report": report}
     nb.metadata["kernelspec"] = {"name": "python3", "display_name": "Python 3", "language": "python"}
     return nbformat.writes(nb)

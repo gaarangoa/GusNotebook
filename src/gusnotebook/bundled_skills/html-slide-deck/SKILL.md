@@ -38,8 +38,19 @@ When working in a linked GusNotebook project, read `gusnb project context` for
 the report, notebook, approved data, and uv environment. New project reports
 already use this template. Read the report and its revision before editing.
 
-Keep Python data preparation and the complete D3/HTML rendering code in the
-linked notebook, execute it, then export the producing cell with:
+Follow the project's notebook/module policy. Continue the same scientific
+question in its notebook; use a descriptive notebook for a separate analysis.
+When changing an existing figure, follow its producing notebook and cell rather
+than defaulting to analysis.ipynb. Reusable transformations, calculations and
+model components belong in code/src/project_analysis/ and are called from
+notebook cells. Keep input paths, parameters, module links/calls, explanations,
+results and the complete figure-specific D3/HTML rendering code in the notebook.
+Do not duplicate shared module implementations in cells. After changing a module,
+reload it and rerun affected cells before exporting; preserve the module versions
+with the notebooks in Git. Update the analysis index in code/README.md.
+
+Execute the chosen notebook in the project's uv environment, then export its
+producing cell with:
 
 ```bash
 gusnb -n NOTEBOOK export-output CELL_ID --file FIGURE_HTML

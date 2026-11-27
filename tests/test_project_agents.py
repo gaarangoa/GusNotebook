@@ -2,6 +2,7 @@
 
 import json
 from pathlib import Path
+import re
 import tempfile
 from types import SimpleNamespace
 import unittest
@@ -52,11 +53,22 @@ class ProjectAgentTests(unittest.TestCase):
                     self.assertEqual(SLIDE_DECK_INSTRUCTIONS.strip() in prompt, expected)
                     for rule in ('project context', 'layout_paths', 'Git paths', 'authorized inputs',
                                  'gusnb project data --file -', 'data/README.md', 'layout_paths.processed',
-                                 'data/access.yaml', 'gusnb project inputs'):
+                                 'data/access.yaml', 'gusnb project inputs',
+                                 'Choose notebooks and modules by scientific purpose',
+                                 'context.notebook is only the default', 'code/README.md'):
                         self.assertEqual(rule in prompt, expected, rule)
                     self.assertIn('D3.js', prompt)
                     if not expected:
                         self.assertIn('Keep my custom preference.', prompt)
+
+    def test_hook_budget_fits_project_policy_paths_and_focused_content(self):
+        context = self.request_as(self.project_agent).json
+        with patch.object(terminals, 'standing_instructions', return_value=''), \
+                patch.object(terminals, 'focus_hook_file', return_value='/tmp/focus.sh'):
+            args = terminals.codex_args()
+        hook = next(arg for arg in args if arg.startswith('hooks.UserPromptSubmit='))
+        limit = int(re.search(r'additionalContextLimit=(\d+)', hook).group(1))
+        self.assertLess(len(json.dumps(context, indent=2)) + len(terminals.FOCUS_CONTEXT) + 2000, limit)
 
     def test_launch_infers_project_from_directory_and_preserves_subfolder(self):
         self.workspace.instructions = 'Keep my workspace preference.'
@@ -198,6 +210,47 @@ class ProjectAgentTests(unittest.TestCase):
         cell_id = response.json['id']
         self.assertIsNotNone(self.runtime.notebooks.get(self.first['notebook']).cell_json(cell_id))
         self.assertIsNone(self.runtime.notebooks.get(self.second['notebook']).cell_json(cell_id))
+
+    def test_named_notebooks_are_discovered_and_explicit_targets_preserve_the_default(self):
+        folder = Path(self.first['notebook']).parent
+        path = folder/'cohort_characterization.ipynb'
+        headers = {'X-Terminal-Id':self.project_agent.id}
+        default_before = Path(self.first['notebook']).read_bytes()
+        opened = self.client.post('/api/open', json={'path':str(path)}, headers=headers)
+        self.assertEqual(opened.status_code, 200, opened.json)
+        added = self.client.post('/api/cells', json={'notebook':str(path), 'cell_type':'code',
+                                                   'source':'cohort_size = 42'}, headers=headers)
+        self.assertEqual(added.status_code, 200, added.json)
+        # Notebook discovery reads names only and ignores non-notebooks,
+        # checkpoint folders and symlinks, including links to other projects.
+        (folder/'helper.py').write_text('pass\n')
+        (folder/'.ipynb_checkpoints').mkdir()
+        (folder/'.ipynb_checkpoints/copy.ipynb').write_text('{}')
+        (folder/'unrelated.ipynb').symlink_to(self.second['notebook'])
+        response = self.request_as(self.project_agent)
+        self.assertEqual(response.json['notebooks'], {'analysis':self.first['notebook'],
+                                                      'cohort_characterization':str(path)})
+        self.assertEqual(response.json['notebook'], self.first['notebook'])
+        self.assertEqual(Path(self.first['notebook']).read_bytes(), default_before)
+        self.assertIsNotNone(self.runtime.notebooks.get(path).cell_json(added.json['id']))
+        self.assertIsNone(self.runtime.notebooks.get(self.first['notebook']).cell_json(added.json['id']))
+        self.runtime.notebooks.close(str(path))
+        path.unlink()
+        self.assertNotIn('cohort_characterization', self.request_as(self.project_agent).json['notebooks'])
+
+    def test_notebook_discovery_uses_legacy_layout_and_does_not_follow_directory_links(self):
+        manager = self.runtime.projects
+        root = Path(self.first['path'])
+        legacy = root/'notebooks'
+        legacy.mkdir()
+        (legacy/'survival.ipynb').write_text('{}')
+        self.assertEqual(manager._notebook_paths({'path':str(root), 'layout':'legacy'}),
+                         {'survival':str(legacy/'survival.ipynb')})
+        (legacy/'survival.ipynb').unlink()
+        legacy.rmdir()
+        legacy.symlink_to(Path(self.second['notebook']).parent, target_is_directory=True)
+        with self.assertRaises(OSError):
+            manager._notebook_paths({'path':str(root), 'layout':'legacy'})
 
     def test_project_agent_does_not_receive_another_reports_visual_selection(self):
         visual = {'path':self.second['report'], 'document':'<p>Second project</p>',
