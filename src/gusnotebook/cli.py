@@ -470,7 +470,15 @@ def cmd_project(args):
             source = {"path": target_path(args.path or args.path_or_label)}
             if args.path:
                 source["id"] = args.path_or_label
+            if args.description:
+                source['description'] = args.description
             result = call(base + "/sources", "POST", {"sources": [source]})
+        elif args.action == 'data':
+            if args.file:
+                raw = sys.stdin.read() if args.file == '-' else pathlib.Path(args.file).read_text()
+                result = call(base + '/data', 'POST', json.loads(raw))
+            else:
+                result = call(base + '/data')
         elif args.action == "prepare":
             result = call(base + "/prepare", "POST", {})
         elif args.action == "report":
@@ -580,7 +588,11 @@ def main():
     source = commands.add_parser("source", help="reference an approved data file in place; never copy it")
     source.add_argument("path_or_label", metavar="PATH_OR_LABEL", help="original file path, or an optional label followed by its path")
     source.add_argument("path", nargs="?", help="original file path when specifying a label")
+    source.add_argument('--description', help='what this raw data contains and its origin')
     source.set_defaults(fn=cmd_project)
+    data = commands.add_parser('data', help='read the data catalog or record a processed dataset and its producing code')
+    data.add_argument('--file', help='processed-data metadata JSON file, or - for stdin; paths are relative to the project')
+    data.set_defaults(fn=cmd_project)
     report = commands.add_parser("report", help="read or save HTML with an optimistic revision check")
     report.add_argument("--file", help='HTML file, or "-" for stdin')
     report.add_argument("--revision")

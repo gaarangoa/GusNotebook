@@ -64,7 +64,10 @@ notebook links. Git/GitHub track `code/` and its notebooks; `code/tests/`, data,
 environments and results are ignored. Projects use `code/`, `data/`, and `results/`.
 Project instructions apply automatically in registered project folders and subfolders.
 Outside them, agents keep the normal notebook/HTML workflow. Approved data stays
-at its original path; registration creates no dataset copies.
+at its original path; registration creates no dataset copies. Processed datasets
+live in `data/processed/`. The project's **Data** button opens `data/README.md`,
+linking recorded datasets to their inputs, transformations, producing code, and
+agent/user request history.
 [Analysis project setup and workflow](docs/analysis-projects.md).
 
 Normal launches show startup details, login prompts, and warnings/errors only.

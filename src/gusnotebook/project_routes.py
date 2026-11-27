@@ -156,7 +156,41 @@ def view(project_id):
 
 @project_routes.post("/api/projects/<project_id>/sources")
 def sources(project_id):
-    return jsonify(manager().sources(project_id, body().get("sources")))
+    return jsonify(manager().sources(project_id, body().get("sources"), data_activity()))
+
+
+def data_activity():
+    from .app import cell_audit_context, request_session
+    context = cell_audit_context(agent=True)
+    terminal = current_app.extensions['gusnotebook'].terms.get(request.headers.get('X-Terminal-Id'))
+    if terminal and (not terminal.workspace or terminal.workspace == request_session().id):
+        native_id = getattr(terminal, 'agent_session', None)
+        if native_id:
+            context['agent_session'] = native_id
+    return context
+
+
+@project_routes.route("/api/projects/<project_id>/data", methods=['GET', 'POST'])
+def data(project_id):
+    if request.method == 'POST':
+        context = data_activity()
+        project = manager().record_data(project_id, body(), context)
+        dataset = project['processed_data'][-1]
+        producer = dataset['producer']
+        if producer.get('cell_id'):
+            try:
+                notebook = current_app.extensions['gusnotebook'].notebooks.get(Path(project['path']) / producer['path'])
+                history = notebook.record_history(producer['cell_id'], 'dataset', context=context,
+                                                  summary='Processed dataset recorded',
+                                                  destination=str(Path(project['path']) / dataset['path']),
+                                                  note=dataset['description'] + '\n\n' + dataset['transformation'],
+                                                  data_recorded_at=dataset['recorded_at'], lineage=project['data_lineage'])
+                if history is None:
+                    raise ProjectError('The producing cell no longer exists')
+            except (OSError, ValueError) as exc:
+                project['notebook_history_warning'] = 'Dataset recorded, but its notebook history link could not be saved: ' + str(exc)
+        return jsonify(project)
+    return jsonify(manager().data(project_id))
 
 
 @project_routes.delete("/api/projects/<project_id>/sources/<source_id>")

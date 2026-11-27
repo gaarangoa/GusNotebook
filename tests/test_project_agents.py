@@ -50,7 +50,8 @@ class ProjectAgentTests(unittest.TestCase):
                                               if arg.startswith('developer_instructions=')))
                 for prompt in (prompt_path.read_text(), codex_prompt):
                     self.assertEqual(SLIDE_DECK_INSTRUCTIONS.strip() in prompt, expected)
-                    for rule in ('project context', 'layout_paths', 'Git paths', 'authorized inputs'):
+                    for rule in ('project context', 'layout_paths', 'Git paths', 'authorized inputs',
+                                 'gusnb project data --file -', 'data/README.md', 'layout_paths.processed'):
                         self.assertEqual(rule in prompt, expected, rule)
                     self.assertIn('D3.js', prompt)
                     if not expected:
@@ -111,6 +112,41 @@ class ProjectAgentTests(unittest.TestCase):
         self.client.post('/api/prompt', json={'prompt':'Move project', 'cwd':self.second['path']},
                          headers={'X-Terminal-Id':self.ordinary.id})
         self.assertEqual(self.request_as(self.ordinary).json['id'], self.second['id'])
+
+    def test_dataset_record_links_agent_request_native_session_and_notebook_history(self):
+        from uuid import uuid4
+        native_id = str(uuid4())
+        headers = {'X-Terminal-Id':self.project_agent.id}
+        self.client.post('/api/prompt', json={'prompt':'Build the adult cohort', 'session_id':native_id,
+                                             'cwd':self.first['path']}, headers=headers)
+        raw = self.root/'ages.csv'
+        raw.write_text('age\n17\n23\n')
+        base = '/api/projects/'+self.first['id']
+        source = self.client.post(base+'/sources', json={'sources':[{'path':str(raw), 'description':'Ages provided by the user'}]}, headers=headers)
+        self.assertEqual(source.status_code, 200, source.json)
+        added = self.client.post('/api/cells', json={'cell_type':'code', 'source':'cohort = raw[raw.age >= 18]'}, headers=headers)
+        output = Path(self.first['path'])/'data/processed/cohort.csv'
+        output.write_text('age\n23\n')
+        metadata = {'path':'data/processed/cohort.csv', 'inputs':['ages'], 'description':'Adult cohort',
+                    'transformation':'Keep participants aged 18 or older',
+                    'producer':{'path':self.first['notebook'], 'cell_id':added.json['id']}}
+        response = self.client.post(base+'/data', json=metadata, headers=headers)
+        self.assertEqual(response.status_code, 200, response.json)
+        dataset = response.json['processed_data'][0]
+        self.assertEqual(dataset['activity']['agent_session'], native_id)
+        self.assertEqual(dataset['activity']['actor'], 'Codex')
+        request_event = next(e for e in response.json['events'] if e.get('text') == 'Build the adult cohort')
+        self.assertEqual(dataset['activity']['request_id'], request_event['request_id'])
+        notebook = json.loads(Path(self.first['notebook']).read_text())
+        cell = next(c for c in notebook['cells'] if c['id'] == added.json['id'])
+        event = cell['metadata']['gusnotebook_history'][-1]
+        self.assertEqual(event['kind'], 'dataset')
+        self.assertEqual(event['destination'], str(output))
+        self.assertIn(metadata['transformation'], event['note'])
+        self.assertEqual(event['prompt'], 'Build the adult cohort')
+        self.assertFalse(dataset['producer']['execution_observed'])
+        self.assertEqual(self.app.test_client().post(base+'/data', json=metadata).status_code, 401)
+        self.assertEqual(self.client.get(base+'/data').json['processed_data'][0]['path'], metadata['path'])
 
     def test_context_does_not_follow_browser_tabs_or_other_workspaces(self):
         for active in (self.first['report'], self.second['notebook']):

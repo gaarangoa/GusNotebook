@@ -15,7 +15,7 @@ For example:
 > on the right. Keep the data preparation and plotting code in the notebook.
 
 Click **Notebook code** below a figure to open its generating cell. The project
-bar has **Report**, **Notebook**, and **Git**. Keep using the ordinary HTML editor
+bar has **Report**, **Notebook**, **Data**, and **Git**. Keep using the ordinary HTML editor
 for layout, text, images, zoom and source edits. Explicit dummy-data requests
 use a recorded random seed and need no external data-file registration.
 
@@ -54,6 +54,9 @@ code/
   uv.lock                 # locked dependency versions
   .python-version
 data/
+  processed/              # derived datasets and cohorts
+  README.md               # data descriptions and producing code links
+  lineage.json            # portable machine-readable data catalog
   environment/.venv/      # uv environment
 results/
   reports/                # HTML reports and slides
@@ -99,7 +102,7 @@ It does not create a GitHub repository automatically.
 ```bash
 gusnb project create cohort_study /home/me/projects
 gusnb project context
-gusnb project source /home/me/data/measurements.csv
+gusnb project source /home/me/data/measurements.csv --description "Original study measurements"
 gusnb project prepare
 gusnb project status
 ```
@@ -110,7 +113,8 @@ the dataset, rename it, hash its contents, or impose a file-size limit. CSV
 inspection reads at most 1 MB; Parquet inspection reads metadata. Other regular
 files can also be registered and read with the appropriate notebook library.
 The agent should select columns/partitions or process chunks for large inputs.
-Only derived outputs belong in `results/outputs/`.
+Save derived datasets and cohorts in `data/processed/`; figures and presentation
+outputs belong in `results/outputs/`.
 
 Registering the same path reuses its entry. The optional form
 `gusnb project source LABEL /original/path` supplies a readable label, useful
@@ -127,6 +131,64 @@ discarded the original path. Relink one with its existing label and original
 path. Old copies and existing notebook code are preserved so older analyses
 continue to work; update those notebooks to read the original path before
 removing any old copies.
+
+### Record processed data
+
+After generating or updating a dataset, the project agent records what it
+contains, its inputs, the transformation, parameters, and the producing notebook
+cell or Python file. These requirements apply only to analysis projects.
+They do not change the ordinary notebook workflow outside project folders.
+
+For example, after running the cell that writes `data/processed/cohort.csv`:
+
+```bash
+gusnb project data --file - <<'JSON'
+{
+  "path": "data/processed/cohort.csv",
+  "inputs": ["measurements"],
+  "description": "Adult participants with measured outcomes",
+  "transformation": "Keep participants aged at least 18",
+  "parameters": {"minimum_age": 18},
+  "producer": {
+    "path": "code/notebooks/analysis.ipynb",
+    "cell_id": "REPLACE_WITH_PRODUCING_CELL_ID"
+  }
+}
+JSON
+
+# Show the current data catalog
+gusnb project data
+```
+
+Paths in this metadata are relative to the project. Replace the example cell ID
+with the ID returned by `gusnb add` or shown by `gusnb list`. For a Python script,
+provide `producer.path` without `cell_id`. Inputs can be registered raw labels,
+original paths, or previously recorded processed-dataset paths. Record upstream
+datasets first. Empty inputs require an explicit `"synthetic": true` declaration
+for user-requested synthetic data.
+
+The **Data** button opens `data/README.md`. GusNotebook maintains its marked
+catalog section and preserves your notes outside it. `data/lineage.json` holds
+the current records; `data/.gusnotebook/audit/events.jsonl` retains dataset
+revisions and project activity, including captured user prompts and agent notes.
+Notebook producers also receive a dataset entry in their cell history. Recording
+an updated dataset replaces its current catalog entry while retaining earlier
+metadata in the history. It does not make extra data copies or run folders.
+
+Records include input file revisions, code fingerprints, available environment
+and Git information, and the agent/session/request context when available.
+Descriptions and input relationships are declared by the author or agent.
+Matching successful notebook executions are identified when GusNotebook observed
+them; they are not independent proof that a particular process wrote a file.
+External edits must be re-recorded. File revision checks use metadata, not full
+data hashes, and cannot recreate overwritten data. Activity history covers
+captured actions, not time spent or work performed outside GusNotebook.
+
+The catalog and activity files stay local under the existing data ignore rule;
+cell history travels with the Git-tracked notebook. JSON and JSONL provide a
+portable foundation for future tracking integrations without another service.
+
+### Generate report outputs
 
 Once preparation finishes, use the notebook path from context. Write both the
 Python data preparation and the D3 `display(HTML(...))` code there:

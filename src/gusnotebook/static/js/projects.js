@@ -83,6 +83,7 @@ window.ProjectWorkspace = (() => {
     finally { $('create-submit').disabled = false; }
   };
   $('report').onclick = () => act(() => openFile(project.report));
+  $('data').onclick = () => act(() => openFile(project.data_readme));
   $('notebook').onclick = event => {
     const ids = Object.keys(project.notebooks);
     if (ids.length <= 1) return act(() => openNotebook(ids[0]));

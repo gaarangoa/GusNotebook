@@ -15,6 +15,7 @@ from .project_runner import UvRunner, WORKER
 from . import project_templates as templates
 from .project_layout import LAYOUT, GITIGNORE, paths as layout_paths
 from .project_sources import inspect_source, public_source, revision as source_revision, verify_reference
+from . import project_data
 
 
 def now():
@@ -147,7 +148,9 @@ class ProjectManager:
             write_file(self._path(project, "manifest"), encoded(projection))
             write_file(self._path(project, "audit", "events.jsonl"),
                        b"".join(json.dumps(e, allow_nan=False).encode() + b"\n" for e in project["events"]))
-        except OSError as exc:
+            project_data.write_docs(project)
+            project.pop("projection_warning", None)
+        except (OSError, ProjectError) as exc:
             project["projection_warning"] = str(exc)
 
     def _event(self, project, kind, **payload):
@@ -205,6 +208,8 @@ class ProjectManager:
             project["report"] = str(self._path(project, "reports", "deck.html"))
             project["notebook"] = str(self._path(project, "notebooks", "analysis.ipynb"))
             project["layout_paths"] = layout_paths(project)
+            project["data_readme"] = str(self._path(project, "data_readme"))
+            project["data_lineage"] = str(self._path(project, "lineage"))
             project["notebooks"] = {key: str(self._path(project, "notebooks", f"{key}.ipynb")) for key in project["analyses"]}
             for key, analysis in project["analyses"].items():
                 code = read_file(Path(project["path"]) / f"code/src/project_analysis/{key}.py", 100000).decode()
@@ -230,6 +235,8 @@ class ProjectManager:
         with self.guard:
             project = self._get(project_id)
             if project.get("versioning") == "git":
+                if not self._path(project, 'data_readme').exists() or not self._path(project, 'lineage').exists():
+                    self._save(project)
                 return self.view(project_id)
             path = self._root(project) / ".gitignore"
             old = read_file(path).decode() if path.exists() else ""
@@ -264,7 +271,7 @@ class ProjectManager:
                        "environment": None, "tolerances": {"rtol": 1e-7, "atol": 1e-10}}
             self.projects[project["id"]] = project
             for folder in ("code/src/project_analysis", "code/notebooks", "code/tests",
-                           "data/environment", "results/reports", "results/outputs"):
+                           "data/environment", "data/processed", "results/reports", "results/outputs"):
                 (root / folder).mkdir(parents=True, exist_ok=True)
             specification = templates.pyproject(name, source_directory="src")
             write_file(root / "code/pyproject.toml", specification)
@@ -283,7 +290,7 @@ class ProjectManager:
             self._event(project, "project_created", name=name)
             return self.view(project["id"])
 
-    def sources(self, project_id, entries):
+    def sources(self, project_id, entries, context=None):
         if not isinstance(entries, list) or not 1 <= len(entries) <= 20:
             raise ProjectError("Provide 1 to 20 source entries with an absolute path and optional label")
         with self.guard:
@@ -307,6 +314,9 @@ class ProjectManager:
                 source_id = identifier(label)
                 if existing and existing["id"] != source_id:
                     raise ProjectError("This path is already registered as " + existing["id"])
+                description = entry.get('description', (existing or {}).get('description'))
+                if description is not None:
+                    source['description'] = project_data.text(description, 'Source description')
                 source.update(id=source_id, approved_at=now())
                 additions.append(source)
             if len({s["id"] for s in additions}) != len(additions):
@@ -315,7 +325,21 @@ class ProjectManager:
                 raise ProjectError("Register each input path only once")
             replaced = {s["id"] for s in additions}
             project["sources"] = [s for s in project["sources"] if s["id"] not in replaced] + additions
-            self._event(project, "sources_approved", sources=[{k: v for k, v in s.items() if k != "snapshot"} for s in additions])
+            self._event(project, "sources_approved", sources=[{k: v for k, v in s.items() if k != "snapshot"} for s in additions],
+                        context=context or {})
+            return self.view(project_id)
+
+    def data(self, project_id):
+        with self.guard:
+            return project_data.catalog(self._get(project_id))
+
+    def record_data(self, project_id, spec, context=None):
+        with self.guard:
+            project = self._get(project_id)
+            self._idle(project)
+            dataset = project_data.record(project, spec, now(), context or {})
+            project['processed_data'] = [d for d in project.get('processed_data', []) if d['path'] != dataset['path']] + [dataset]
+            self._event(project, 'processed_data_recorded', dataset=dataset)
             return self.view(project_id)
 
     def revoke(self, project_id, source_id):

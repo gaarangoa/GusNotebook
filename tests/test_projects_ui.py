@@ -94,6 +94,33 @@ def main():
                                capture_output=True, text=True, timeout=60)
         assert added.returncode == 0, added.stderr
         cell_id = re.search(r'added code cell (\S+)', added.stdout).group(1)
+        processed = root/'data/processed/cohort.csv'
+        preparation = ('import pandas as pd\n'
+                       f'raw = pd.read_csv({str(source)!r})\n'
+                       'cohort = raw.loc[raw["x"] >= 3].copy()\n'
+                       f'cohort.to_csv({str(processed)!r}, index=False)\n')
+        made_data = subprocess.run(nb_cli + ['add', '-'], env=env, input=preparation, cwd=work,
+                                   capture_output=True, text=True, timeout=60)
+        assert made_data.returncode == 0, made_data.stderr
+        data_cell = re.search(r'added code cell (\S+)', made_data.stdout).group(1)
+        recorded = command('data', '--file', '-', payload={
+            'path':'data/processed/cohort.csv', 'inputs':['measurements'],
+            'description':'Measurements with x at least three', 'transformation':'Exclude x below three',
+            'parameters':{'minimum_x':3}, 'producer':{'path':str(notebook_path), 'cell_id':data_cell}})
+        assert recorded['processed_data'][0]['producer']['execution_observed']
+        assert len(command('data')['processed_data']) == 1
+        page.locator('#project-data').click()
+        expect(page.locator('#markdown-preview')).to_be_visible()
+        expect(page.locator('#markdown-preview')).to_contain_text('Measurements with x at least three')
+        expect(page.locator('#markdown-preview')).to_contain_text('Exclude x below three')
+        page.locator('#markdown-preview').get_by_role('link', name='code/notebooks/analysis.ipynb', exact=True).click()
+        page.wait_for_function('path => active === path', arg=str(notebook_path))
+        page.locator('#cell-' + data_cell).get_by_role('button', name='Open cell history', exact=True).last.click()
+        event = page.locator('.cell-history-event[data-event-kind="dataset"]')
+        expect(event).to_contain_text('Exclude x below three')
+        expect(event.get_by_role('button', name=str(processed), exact=True)).to_be_visible()
+        page.evaluate('closeCellHistory()')
+        page.locator('#project-report').click()
         output = root / 'results/outputs/figure.html'
         exported = subprocess.run(nb_cli + ['export-output', cell_id, '--file', str(output)],
                                   env=env, cwd=work, capture_output=True, text=True, timeout=30)

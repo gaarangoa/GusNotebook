@@ -30,7 +30,7 @@ Default workflow for a plot, table, number or other computed content in the HTML
 1. Read `gusnb here --full` and `gusnb project report` to preserve the requested
    layout and surrounding content. Remember the report revision before editing.
 2. Use only the user's authorized inputs. Register each exact approved file path
-   with `gusnb project source PATH`, then read that original path directly from
+   with `gusnb project source PATH --description "contents and origin"`, then read that original path directly from
    context.sources[].path. Registration records a reference, not a dataset copy.
    Reuse already registered paths. Do not copy, rename, hash the entire input,
    or create an ID-named dataset folder to make data part of a project. Files
@@ -38,8 +38,9 @@ Default workflow for a plot, table, number or other computed content in the HTML
    partitions or process chunks; do not load the whole dataset just to inspect it.
    If context marks a source as legacy_snapshot, its original path was not saved;
    ask for the original path when needed and relink with `gusnb project source LABEL PATH`.
-   Never guess the original location. Save derived data under
-   layout_paths.outputs and reports under layout_paths.reports. If the user explicitly asks
+   Never guess the original location. Save processed datasets/cohorts under
+   layout_paths.processed (data/processed), figures under layout_paths.outputs,
+   and reports under layout_paths.reports. If the user explicitly asks
    for dummy/synthetic data, generate it in the notebook with a fixed random seed,
    label it synthetic, and record that choice. Synthetic examples need no external
    source registration. Never substitute dummy data for a real-data request.
@@ -56,6 +57,20 @@ Default workflow for a plot, table, number or other computed content in the HTML
    Show the full plotting code in the notebook, not just an import, result JSON,
    a link to a .py file or code that reads a hidden renderer. Keep calculations in
    Python and the D3 rendering beside them. Put explanatory Markdown between cells.
+   After producing or updating a dataset, record it with `gusnb project data --file -`
+   using JSON containing path, description (what the dataset represents), transformation
+   (filters, exclusions, joins, cleaning and other changes), parameters, inputs
+   (approved raw-source labels/paths or already recorded processed paths), and
+   producer: {"path": "code/notebooks/analysis.ipynb", "cell_id": "producing-cell"}.
+   A Python script can be the producer instead; omit cell_id in that case. Paths are
+   relative to context.path. Use the actual paths from layout_paths for older projects.
+   Set synthetic:true and inputs:[] only for explicitly requested synthetic data.
+   Record only files that exist and code actually used; never invent an execution,
+   input relationship, cohort count or human approval. Re-record after regeneration.
+   `gusnb project data` shows the catalog. GusNotebook maintains data/README.md and
+   data/lineage.json with input revisions, producing code, actor/request context
+   and history links. Keep additional scientific notes outside the README's managed
+   catalog markers. Do not edit lineage.json as a substitute for recording changes.
 5. After successful execution, export the producing cell:
    `gusnb -n NOTEBOOK export-output CELL_ID --file FIGURE_HTML`, saving under layout_paths.outputs.
    Use --output N for a particular displayed output (zero based). This writes a

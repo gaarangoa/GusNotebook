@@ -15,7 +15,11 @@ Approved input files are referenced at their original paths, without dataset cop
 
 Projects use three folders: `code/`, `data/`, and `results/`. Python sources,
 notebooks, tests and uv dependency definitions live under `code/`; environments
-live under `data/environment/`; reports and outputs live under `results/`.
+live under `data/environment/`; derived datasets live under `data/processed/`;
+reports and presentation outputs live under `results/`. The project's **Data**
+button opens `data/README.md`, linking recorded datasets to their inputs,
+transformations and producing code. `data/lineage.json` and project activity
+history retain machine-readable records without copying data.
 Git tracks `code/` except `code/tests/`. Data, environments and results are ignored.
 
 Git/GitHub provide version history. Notebook cell metadata preserves prompts,

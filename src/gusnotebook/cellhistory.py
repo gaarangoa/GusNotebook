@@ -20,6 +20,7 @@ LABELS = {
     "undo": "Cell source restored", "run": "Cell executed", "clear": "Outputs cleared",
     "copy": "Output copied", "export": "Output added to HTML", "note": "Note added",
     "settings": "Agent preferences updated",
+    "dataset": "Processed dataset recorded",
 }
 
 
