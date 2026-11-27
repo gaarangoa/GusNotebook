@@ -166,6 +166,11 @@ es.onmessage = (e) => {
     return;
   }
   if (msg.type === 'terminal_opened') return;   // we already have it locally
+  if (msg.type === 'terminal_context_changed') {
+    const terminal = findTerm(msg.terminal);
+    if (terminal) { terminal.project = msg.project; terminal.cwd = msg.cwd; renderTermTabs(); }
+    return;
+  }
   if (msg.type === 'agent_session_changed') {
     AgentHistory.changed(msg);
     return;

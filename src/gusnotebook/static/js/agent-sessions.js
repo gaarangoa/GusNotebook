@@ -188,7 +188,7 @@ window.AgentHistory = (() => {
         const title = document.createElement('strong');
         title.textContent = row.title;
         const meta = document.createElement('span');
-        meta.textContent = `${providerName(row)} · ${date(row.updated)}${row.project ? ' · Project agent' : ''}${row.running ? ' · Open in terminal' : ''}`;
+        meta.textContent = `${providerName(row)} · ${date(row.updated)}${row.project ? ' · Project context' : ''}${row.running ? ' · Open in terminal' : ''}`;
         const path = document.createElement('span');
         path.textContent = row.cwd;
         view.append(title, meta, path);

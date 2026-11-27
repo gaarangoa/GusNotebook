@@ -1,4 +1,4 @@
-"""Explicit project agents must not change ordinary notebook/HTML agents."""
+"""Project instructions follow terminal folders, never unrelated browser tabs."""
 
 import json
 from pathlib import Path
@@ -26,9 +26,9 @@ class ProjectAgentTests(unittest.TestCase):
         self.client.environ_base.update(HTTP_AUTHORIZATION='Bearer test', HTTP_X_SESSION_ID=self.workspace.id)
         self.first = self.client.post('/api/projects', json={'name':'first', 'location':str(self.root)}).json
         self.second = self.client.post('/api/projects', json={'name':'second', 'location':str(self.root)}).json
-        self.ordinary = SimpleNamespace(id='ordinary', project=None, workspace=self.workspace.id, kind='claude')
+        self.ordinary = SimpleNamespace(id='ordinary', project=None, cwd=str(self.root), workspace=self.workspace.id, kind='claude')
         self.project_agent = SimpleNamespace(id='project-agent', project=self.first['id'],
-                                             workspace=self.workspace.id, kind='codex')
+                                             cwd=self.first['path'], workspace=self.workspace.id, kind='codex')
         self.agents = {agent.id:agent for agent in (self.ordinary, self.project_agent)}
         lookup = patch.object(self.runtime.terms, 'get', side_effect=self.agents.get)
         lookup.start()
@@ -56,23 +56,61 @@ class ProjectAgentTests(unittest.TestCase):
                     if not expected:
                         self.assertIn('Keep my custom preference.', prompt)
 
-    def test_launch_requires_explicit_project_even_in_project_directory(self):
+    def test_launch_infers_project_from_directory_and_preserves_subfolder(self):
         self.workspace.instructions = 'Keep my workspace preference.'
         for kind in ('claude','codex'):
-            for linked in (False, True):
+            for cwd, linked in ((str(self.root), False), (self.first['path'], True),
+                                (str(Path(self.first['path'])/'code/notebooks'), True)):
                 made = SimpleNamespace(id='created', kind=kind, to_json=lambda:{'id':'created'})
-                body = {'kind':kind, 'cwd':self.first['path']}
-                if linked:
-                    body['project'] = self.first['id']
+                body = {'kind':kind, 'cwd':cwd}
                 with patch.object(self.runtime.terms, 'create', return_value=made) as create, \
                         patch.object(terminals, 'command_for', return_value=[kind]) as command:
                     response = self.client.post('/api/terminals', json=body)
                 self.assertEqual(response.status_code, 200, response.json)
                 self.assertEqual(create.call_args.kwargs['project'], self.first['id'] if linked else None)
+                self.assertEqual(create.call_args.args[0], cwd)
                 prompt = command.call_args.args[1]
                 self.assertIn('Keep my workspace preference.', prompt)
                 self.assertEqual('project context' in prompt, linked)
                 self.assertEqual('html-slide-deck' in prompt, linked)
+
+    def test_directory_changes_attach_switch_and_detach_existing_terminal(self):
+        from urllib.parse import quote
+        for folder, expected in ((self.first['path'], self.first['id']),
+                                 (str(Path(self.first['path'])/'code'), self.first['id']),
+                                 (self.second['path'], self.second['id']), (str(self.root), None)):
+            response = self.client.get('/api/projects/context', headers={
+                'X-Terminal-Id': self.ordinary.id, 'X-Terminal-Cwd':quote(folder, safe='')})
+            self.assertEqual(response.status_code, 200 if expected else 404)
+            self.assertEqual(self.ordinary.project, expected)
+            self.assertEqual(self.ordinary.cwd, folder)
+            if expected:
+                self.assertIn('read that original path directly', response.json['instructions'])
+
+    def test_prompt_hook_directory_selects_project_and_records_prompt(self):
+        response = self.client.post('/api/prompt', json={'prompt':'Use the approved cohort', 'cwd':self.second['path']},
+                                    headers={'X-Terminal-Id':self.ordinary.id})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(self.ordinary.project, self.second['id'])
+        events = self.runtime.projects.view(self.second['id'])['events']
+        self.assertTrue(any(e.get('text') == 'Use the approved cohort' for e in events))
+        self.client.post('/api/prompt', json={'prompt':'General notebook work', 'cwd':str(self.root)},
+                         headers={'X-Terminal-Id':self.ordinary.id})
+        self.assertIsNone(self.ordinary.project)
+
+    def test_nested_projects_take_precedence_and_prefix_siblings_do_not_match(self):
+        nested = self.runtime.projects.create('nested', self.first['path'])
+        self.assertEqual(self.runtime.projects.for_directory(Path(nested['path'])/'code')['id'], nested['id'])
+        self.assertIsNone(self.runtime.projects.for_directory(Path(self.first['path']+'ish')))
+
+    def test_explicit_create_open_keeps_selection_until_directory_changes(self):
+        response = self.client.post('/api/projects/'+self.first['id']+'/open', json={},
+                                    headers={'X-Terminal-Id':self.ordinary.id})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(self.request_as(self.ordinary).json['id'], self.first['id'])
+        self.client.post('/api/prompt', json={'prompt':'Move project', 'cwd':self.second['path']},
+                         headers={'X-Terminal-Id':self.ordinary.id})
+        self.assertEqual(self.request_as(self.ordinary).json['id'], self.second['id'])
 
     def test_context_does_not_follow_browser_tabs_or_other_workspaces(self):
         for active in (self.first['report'], self.second['notebook']):

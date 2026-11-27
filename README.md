@@ -55,14 +55,16 @@ full recorded history, including deleted steps and output versions, and export
 the audit log as `.jsonl`. Ordinary `.ipynb` notebooks remain available.
 [Get started with scientific notebooks](docs/gspy.md).
 
-Use **+ → Analysis project**, then
-**Project agent → Claude or Codex**, for reports backed by your approved data.
+Use **+ → Analysis project**, then the usual **Agent → Claude or Codex** control
+inside its folder, for reports backed by your approved data.
 It opens the HTML and linked Jupyter notebook in normal workspace tabs, manages
 Python with uv, and keeps the Python analysis and full D3 plotting code visible
 in the notebook. Executed outputs are embedded into your HTML layout with
 notebook links. Git/GitHub track `code/` and its notebooks; `code/tests/`, data,
 environments and results are ignored. Projects use `code/`, `data/`, and `results/`.
-Ordinary notebook/HTML agents keep their existing workflow and receive no project rules.
+Project instructions apply automatically in registered project folders and subfolders.
+Outside them, agents keep the normal notebook/HTML workflow. Approved data stays
+at its original path; registration creates no dataset copies.
 [Analysis project setup and workflow](docs/analysis-projects.md).
 
 Normal launches show startup details, login prompts, and warnings/errors only.

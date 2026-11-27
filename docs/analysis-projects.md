@@ -2,8 +2,8 @@
 
 Work in the normal GusNotebook workspace: HTML and notebook tabs in the center,
 Claude/Codex terminal chat on the right. Create or open a project with
-**+ → Analysis project**, then choose **Project agent → Claude or Codex** in
-its bar. Describe the report or slide you want. That agent receives the project's
+**+ → Analysis project**, then use the usual **Agent → Claude or Codex** control
+while browsing its folder. Describe the report or slide you want. The agent receives the project's
 data, environment, folder, Git, and slide-deck instructions. It writes and runs
 its Python analysis and complete D3 plotting code in
 the linked notebook, then embeds the actual output into your HTML layout.
@@ -15,7 +15,7 @@ For example:
 > on the right. Keep the data preparation and plotting code in the notebook.
 
 Click **Notebook code** below a figure to open its generating cell. The project
-bar has **Report**, **Notebook**, **Project agent**, and **Git**. Keep using the ordinary HTML editor
+bar has **Report**, **Notebook**, and **Git**. Keep using the ordinary HTML editor
 for layout, text, images, zoom and source edits. Explicit dummy-data requests
 use a recorded random seed and need no external data-file registration.
 
@@ -28,18 +28,20 @@ Project agents are directed to read the bundled
 [slide-deck skill](../src/gusnotebook/bundled_skills/html-slide-deck/SKILL.md)
 when creating presentations. Existing reports keep their design.
 
-The ordinary Agent and Terminal controls keep the regular notebook/HTML workflow,
-even with a project document selected. Opening a file or changing tabs never
-links an agent to a project. A project agent stays linked to its project and
-does not receive focused content from unrelated documents. Use a separate
-ordinary agent for that work.
+There is one Agent control. The terminal's working directory determines its
+project: registered project folders and their subfolders receive project rules,
+and the closest project wins if projects are nested. Outside those folders,
+agents use the regular notebook/HTML workflow. Opening a file or changing browser
+tabs does not change a terminal's project or give it unrelated focused content.
+The prompt hook and `gusnb` commands refresh context when the terminal changes
+directory; the context includes the project's notebook, approved paths and uv interpreter.
 
 An existing terminal can explicitly join or switch projects with
 `gusnb project create NAME /parent/folder` or `gusnb project open PROJECT_ID`.
-The command returns the project's instructions, and subsequent prompts receive
-its context. To return to ordinary
-work, open a fresh agent from the regular Agent control; an existing conversation
-retains instructions it has already received.
+The command selects that project and returns its instructions even when run
+from a parent directory. This selection lasts until the terminal changes directory.
+Existing conversations retain earlier messages, but project instructions are
+scoped to the current context. Open a fresh conversation to discard old context entirely.
 
 ## Project layout
 
@@ -52,7 +54,6 @@ code/
   uv.lock                 # locked dependency versions
   .python-version
 data/
-  inputs/                 # authorized input snapshots
   environment/.venv/      # uv environment
 results/
   reports/                # HTML reports and slides
@@ -98,10 +99,34 @@ It does not create a GitHub repository automatically.
 ```bash
 gusnb project create cohort_study /home/me/projects
 gusnb project context
-gusnb project source measurements /home/me/data/measurements.csv
+gusnb project source /home/me/data/measurements.csv
 gusnb project prepare
 gusnb project status
 ```
+
+Data stays at the original path, even outside the project. Registration saves
+the path, size, file timestamps and available column metadata. It does not copy
+the dataset, rename it, hash its contents, or impose a file-size limit. CSV
+inspection reads at most 1 MB; Parquet inspection reads metadata. Other regular
+files can also be registered and read with the appropriate notebook library.
+The agent should select columns/partitions or process chunks for large inputs.
+Only derived outputs belong in `results/outputs/`.
+
+Registering the same path reuses its entry. The optional form
+`gusnb project source LABEL /original/path` supplies a readable label, useful
+for files with the same filename or for relinking an existing entry. Labels
+are metadata; they do not create new datasets or directories. The original
+file must remain available on the computer running the project. Size and
+timestamp checks detect ordinary changes; they are not a content checksum or
+an archived version of the data. The older structured run/replay commands reject
+changed inputs until you register the path again; replay also requires the
+recorded file revision. Ordinary notebook code reads the file currently at its path.
+
+Registrations made by older versions appear as `legacy_snapshot`: those versions
+discarded the original path. Relink one with its existing label and original
+path. Old copies and existing notebook code are preserved so older analyses
+continue to work; update those notebooks to read the original path before
+removing any old copies.
 
 Once preparation finishes, use the notebook path from context. Write both the
 Python data preparation and the D3 `display(HTML(...))` code there:

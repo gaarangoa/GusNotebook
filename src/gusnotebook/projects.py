@@ -2,9 +2,7 @@
 
 import base64
 from copy import deepcopy
-import csv
 from datetime import datetime, timezone
-import io
 import json
 import math
 from pathlib import Path
@@ -16,6 +14,7 @@ from .project_files import ProjectError, digest, encoded, identifier, read_file,
 from .project_runner import UvRunner, WORKER
 from . import project_templates as templates
 from .project_layout import LAYOUT, GITIGNORE, paths as layout_paths
+from .project_sources import inspect_source, public_source, revision as source_revision, verify_reference
 
 
 def now():
@@ -141,7 +140,7 @@ class ProjectManager:
     def _save(self, project):
         write_file(self.registry, encoded(self.projects))
         projection = {k: v for k, v in project.items() if k not in {"events", "runs"}}
-        projection["sources"] = [{k: v for k, v in s.items() if k not in {"snapshot"}} for s in project["sources"]]
+        projection["sources"] = [public_source(s, self._root(project)) for s in project["sources"]]
         try:
             if not self._root(project).is_dir():
                 raise FileNotFoundError("Project folder is missing; authoritative history was retained")
@@ -181,10 +180,23 @@ class ProjectManager:
         with self.guard:
             return str(self._path(self._get(project_id), "notebooks", "analysis.ipynb"))
 
+    def for_directory(self, directory):
+        """The closest registered project enclosing a terminal's working folder."""
+        if not directory:
+            return None
+        directory = Path(directory).expanduser().resolve()
+        with self.guard:
+            matches = [p for p in self.projects.values()
+                       if Path(p["path"]).resolve() in (directory, *directory.parents)]
+            if not matches:
+                return None
+            project = max(matches, key=lambda p: len(Path(p["path"]).parts))
+            return {key: project[key] for key in ("id", "name", "path")}
+
     def view(self, project_id):
         with self.guard:
             project = deepcopy(self._get(project_id))
-            project["sources"] = [{k: v for k, v in s.items() if k != "snapshot"} for s in project["sources"]]
+            project["sources"] = [public_source(s, self._root(project)) for s in project["sources"]]
             job = self.jobs.get(project_id)
             project["job"] = {k: v for k, v in job.items() if not k.startswith("_")} if job else None
             project["events"] = project["events"][-200:]
@@ -203,7 +215,7 @@ class ProjectManager:
                     accepted["parameters"] != analysis["parameters"] or
                     {s["id"] for s in accepted["sources"]} != set(analysis["source_ids"]) or
                     accepted["environment"] != project["environment"] or
-                    any(not any(s["id"] == src["id"] and s["sha256"] == src["sha256"] for s in project["sources"])
+                    any(not any(s["id"] == src["id"] and source_revision(s) == source_revision(src) for s in project["sources"])
                         for src in accepted["sources"])))
                 analysis["report_modified"] = False
                 displayed = analysis.get("displayed_run") or (accepted["id"] if accepted else None)
@@ -251,7 +263,7 @@ class ProjectManager:
                        "created_at": now(), "sources": [], "analyses": {}, "runs": [], "events": [],
                        "environment": None, "tolerances": {"rtol": 1e-7, "atol": 1e-10}}
             self.projects[project["id"]] = project
-            for folder in ("code/src/project_analysis", "code/notebooks", "code/tests", "data/inputs",
+            for folder in ("code/src/project_analysis", "code/notebooks", "code/tests",
                            "data/environment", "results/reports", "results/outputs"):
                 (root / folder).mkdir(parents=True, exist_ok=True)
             specification = templates.pyproject(name, source_directory="src")
@@ -273,36 +285,34 @@ class ProjectManager:
 
     def sources(self, project_id, entries):
         if not isinstance(entries, list) or not 1 <= len(entries) <= 20:
-            raise ProjectError("Provide 1 to 20 source entries with id and absolute path")
+            raise ProjectError("Provide 1 to 20 source entries with an absolute path and optional label")
         with self.guard:
             project = self._get(project_id)
             self._idle(project)
             additions = []
             for entry in entries:
                 if not isinstance(entry, dict) or not isinstance(entry.get("path"), str):
-                    raise ProjectError("Each source needs an id and a file path")
-                source_id = identifier(entry.get("id"))
+                    raise ProjectError("Each source needs a file path")
                 path = Path(entry.get("path", "")).expanduser()
-                if not path.is_absolute() or path.suffix.lower() not in {".csv", ".parquet"}:
-                    raise ProjectError("Approved inputs must be absolute CSV or Parquet file paths")
-                raw = read_file(path, 256 * 1024 * 1024)
-                sha = digest(raw)
-                if path.suffix.lower() == ".csv":
-                    header = next(csv.reader(io.StringIO(raw[:1024 * 1024].decode("utf-8-sig"))), [])
-                    schema = [{"name": column, "type": "CSV (inferred during execution)"} for column in header]
-                else:
-                    import pyarrow.parquet as pq
-                    schema = [{"name": f.name, "type": str(f.type)} for f in pq.read_schema(io.BytesIO(raw))]
-                if not schema or len(schema) > 1000:
-                    raise ProjectError("Input must have 1 to 1,000 columns")
-                snapshot = self._authority(project) / "inputs" / (sha + path.suffix.lower())
-                write_file(snapshot, raw)
-                source = {"id": source_id, "sha256": sha, "size": len(raw), "suffix": path.suffix.lower(),
-                          "schema": schema, "approved_at": now(), "snapshot": str(snapshot)}
-                write_file(self._root(project) / f"data/inputs/{source_id}/{sha}{source['suffix']}", raw)
+                source = inspect_source(path)
+                existing = next((s for s in project["sources"] if s.get("path") == source["path"]), None)
+                label = entry.get("id")
+                if label is None:
+                    label = existing["id"] if existing else re.sub(r"[^a-z0-9_]+", "_", path.stem.lower()).strip("_")
+                    if not label or not label[0].isalpha():
+                        label = "source_" + label
+                    label = label[:64]
+                    if any(s["id"] == label and s.get("path") != source["path"] for s in project["sources"]):
+                        raise ProjectError("A source already uses this filename. Provide a distinct label, or the existing label to relink it.")
+                source_id = identifier(label)
+                if existing and existing["id"] != source_id:
+                    raise ProjectError("This path is already registered as " + existing["id"])
+                source.update(id=source_id, approved_at=now())
                 additions.append(source)
             if len({s["id"] for s in additions}) != len(additions):
                 raise ProjectError("Source IDs must be unique")
+            if len({s["path"] for s in additions}) != len(additions):
+                raise ProjectError("Register each input path only once")
             replaced = {s["id"] for s in additions}
             project["sources"] = [s for s in project["sources"] if s["id"] not in replaced] + additions
             self._event(project, "sources_approved", sources=[{k: v for k, v in s.items() if k != "snapshot"} for s in additions])
@@ -382,6 +392,9 @@ class ProjectManager:
                 self._idle(project)
             if not isinstance(source_ids, list) or not source_ids or not all(isinstance(s, str) for s in source_ids) or not set(source_ids) <= {s["id"] for s in project["sources"]}:
                 raise ProjectError("Select approved sources for this analysis")
+            selected = [s for s in project["sources"] if s["id"] in source_ids]
+            if any(s["suffix"] not in {".csv", ".parquet"} for s in selected):
+                raise ProjectError("Structured analyses support CSV or Parquet. Read other formats directly in the project notebook.")
             code = templates.PCA_CODE if code is None else code
             if not isinstance(code, str) or len(code.encode()) > 100000:
                 raise ProjectError("Python source must be under 100 KB")
@@ -401,7 +414,6 @@ class ProjectManager:
             if not view.exists():
                 write_file(view, self._render({}, analysis_id, "unexecuted").replace("{}", "GUS_RESULT_JSON", 1))
             project["analyses"][analysis_id] = analysis
-            selected = [s for s in project["sources"] if s["id"] in source_ids]
             write_file(self._path(project, "notebooks", f"{analysis_id}.ipynb"),
                        templates.notebook(analysis_id, parameters, selected, code, python=(project.get("environment") or {}).get("python"), layout=layout_paths(project)))
             self._event(project, "analysis_edited", analysis_id=analysis_id, before=previous, after=code,
@@ -467,7 +479,7 @@ class ProjectManager:
                 by_id = {s["id"]: s for s in project["sources"]}
                 selected = []
                 for source in baseline["sources"]:
-                    if source["id"] not in by_id or by_id[source["id"]]["sha256"] != source["sha256"]:
+                    if source["id"] not in by_id or source_revision(by_id[source["id"]]) != source_revision(source):
                         raise ProjectError("Replay requires the exact input revision to still be approved")
                     selected.append(deepcopy(by_id[source["id"]]))
             run_id = "run_" + uuid.uuid4().hex
@@ -478,9 +490,12 @@ class ProjectManager:
             write_file(directory / "worker.py", WORKER)
             inputs = []
             for source in selected:
-                if digest(read_file(source["snapshot"], 256 * 1024 * 1024)) != source["sha256"]:
-                    raise ProjectError("Approved input snapshot changed")
-                source["path"] = source["snapshot"]
+                if "file_revision" in source:
+                    verify_reference(source)
+                else:
+                    if digest(read_file(source["snapshot"], 256 * 1024 * 1024)) != source["sha256"]:
+                        raise ProjectError("Approved input snapshot changed")
+                    source["path"] = source["snapshot"]
                 inputs.append({k: v for k, v in source.items() if k != "snapshot"})
             request = {"analysis_id": analysis_id, "parameters": parameters, "sources": inputs, "build": package}
             write_file(directory / "request.json", encoded(request))
@@ -494,6 +509,8 @@ class ProjectManager:
             self._event(project, "run_started", **record)
         try:
             output = self.runner.execute(environment, directory, selected, job["_cancel"])
+            for source in selected:
+                verify_reference(source)
             if job["_cancel"].is_set():
                 raise ProjectError("Operation cancelled")
             result = validate_result(output["result"])
@@ -528,6 +545,8 @@ class ProjectManager:
                 request.update(build=False, wheel=wheel, check_generality=True)
                 write_file(directory / "request.json", encoded(request))
                 verified = self.runner.execute(environment, directory, selected, job["_cancel"])
+                for source in selected:
+                    verify_reference(source)
                 comparison = compare_results(result, validate_result(verified["result"]), **project["tolerances"])
                 if not comparison["passed"] or not verified.get("generality", {}).get("passed"):
                     raise ProjectError("Packaged analysis did not reproduce its source result")

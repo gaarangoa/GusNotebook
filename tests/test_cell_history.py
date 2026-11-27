@@ -79,7 +79,8 @@ class CellHistoryTests(unittest.TestCase):
 
     def test_preferences_capture_actual_terminal_launch_and_later_changes(self):
         launch = {"workspace_instructions": "Use medians", "session_instructions": "", "restrictions": {}}
-        terminal = SimpleNamespace(kind="claude", audit_preferences=deepcopy(launch))
+        terminal = SimpleNamespace(id='agent-a', kind="claude", workspace=None, project=None,
+                                   cwd=str(self.path.parent), audit_preferences=deepcopy(launch))
         with patch.object(self.state.terms, "get", return_value=terminal):
             self.client.post("/api/settings", json={"claude_instructions": "Use means"})
             self.prompt("Revisit the analysis")

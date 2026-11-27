@@ -2,14 +2,16 @@
 
 Available on `main` (developed on `feature/report-first-analysis`).
 
-An explicitly linked project agent edits an HTML report or slide deck. Its supporting
+An agent working in a project folder edits an HTML report or slide deck. Its supporting
 Python analysis and complete D3 rendering code live in ordinary Jupyter cells.
 The agent runs those cells and embeds their actual outputs into the requested
 HTML layout. A figure links back to its generating cell.
 
-Start it with **Project agent** in the project bar. Ordinary notebook/HTML agents
-receive their original instructions, even when a project tab is open. A terminal
-can also opt into a project through an explicit `gusnb project create/open` command.
+Use the normal **Agent** control. Project instructions apply automatically inside
+registered project folders and subfolders; outside them, the normal notebook/HTML
+workflow applies. Changing browser tabs does not change the terminal's context.
+A terminal can also select a project with `gusnb project create/open`.
+Approved input files are referenced at their original paths, without dataset copies.
 
 Projects use three folders: `code/`, `data/`, and `results/`. Python sources,
 notebooks, tests and uv dependency definitions live under `code/`; environments

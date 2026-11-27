@@ -161,12 +161,12 @@ class AgentSessionRouteTests(SessionFixture):
     @patch('gusnotebook.terminals.Session.start', lambda s: (setattr(s, 'alive', True) or s))
     @patch('gusnotebook.terminals.claude_args', side_effect=lambda instructions, restrictions: ['--injected', instructions or ''])
     @patch('gusnotebook.terminals.shutil.which', return_value='/fake/cli')
-    def test_project_binding_requires_explicit_record_and_survives_hook(self, which, args):
+    def test_resume_infers_project_from_saved_directory_and_survives_hook(self, which, args):
         project = self.client.post('/api/projects', json=dict(name='linked', location=str(self.work))).json
         sid, _ = write_session(self.claude, 'claude', project['path'])
-        # Active project tab alone cannot opt a resumed conversation in.
+        # The saved directory supplies context even for sessions created elsewhere.
         ordinary = self.launch('claude', sid, project['path']).json
-        self.assertIsNone(ordinary['project'])
+        self.assertEqual(ordinary['project'], project['id'])
         self.runtime.terms.close(ordinary['id'])
         self.manager.remember('claude', sid, project['id'])
         linked = self.launch('claude', sid, project['path']).json

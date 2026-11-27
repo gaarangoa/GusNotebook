@@ -55,14 +55,13 @@ function renderTermTabs() {
     <div role="tab" data-kind="${escapeAttr(t.kind)}" tabindex="${t.id === activeTerm ? 0 : -1}" aria-selected="${t.id === activeTerm}" class="tterm ${t.id === activeTerm ? 'active' : ''} ${t.alive ? '' : 'dead'}"
          onclick="focusTerm('${t.id}')" title="${escapeAttr(t.cwd)}">
       <span class="ti">${icon(t.kind === 'shell' ? 'terminal' : (t.kind === 'codex' ? 'code' : 'agent'))}</span>
-      <span class="tn">${t.project ? 'Project: ' : ''}${escapeHtml(t.label)}</span>
+      <span class="tn">${escapeHtml(t.label)}</span>
       <span class="tx" role="button" tabindex="0" aria-label="Close ${escapeAttr(t.label)} terminal" onclick="closeTerminal('${t.id}', event)">${icon('close')}</span>
     </div>`).join('');
   document.getElementById('term-empty').classList.toggle('off', visible.length > 0);
 }
 
-/** Ordinary terminals never infer project membership from the active document.
- * The project's own launch action supplies an explicit project. */
+/** The server infers project context from this directory, never the active tab. */
 async function openTerminal(cwd, kind, project = null, resume = null) {
   const root = project?.path || cwd || fileState.path;
   let data;

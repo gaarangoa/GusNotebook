@@ -360,9 +360,10 @@ if command -v curl >/dev/null 2>&1; then
     -H "X-Terminal-Id: $NB_TERMINAL" --data-binary @- \
     "$NB_URL/api/prompt" >/dev/null 2>&1
 fi
-# The server only returns project context for this terminal's explicit binding.
-# Looking at a project document never opts an ordinary agent into its rules.
-{nb} project context 2>/dev/null || true
+# Project rules follow this terminal's working directory, including subfolders.
+# The selected browser document never changes the terminal's project.
+{nb} project context 2>/dev/null || printf '%s\\n' \
+  'No analysis project context is available for this terminal. Use the normal notebook/HTML workflow; earlier project-specific rules do not apply outside that project.'
 cell=$({nb} here 2>/dev/null) || exit 0
 [ -n "$cell" ] || exit 0
 printf '%s\\n%s\\n' \

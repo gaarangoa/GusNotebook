@@ -92,16 +92,6 @@ window.ProjectWorkspace = (() => {
   $('git').onclick = () => act(async () => {
     await browse(project.path); showSidebarSection('git'); await refreshGit();
   });
-  $('agent').onclick = event => {
-    event.stopPropagation();
-    const target = project;
-    if (!target) return;
-    const box = event.currentTarget.getBoundingClientRect();
-    showFileCtx(box.left, box.bottom, [
-      {label:'Claude', action:() => openTerminal(target.path, 'claude', target)},
-      {label:'Codex', action:() => openTerminal(target.path, 'codex', target)},
-    ], 'Start project agent');
-  };
   $('cancel').onclick = () => act(async () => { await post(endpoint('/cancel')); await refresh(); });
   window.addEventListener('message', event => {
     const frame = document.getElementById('html-preview-frame');

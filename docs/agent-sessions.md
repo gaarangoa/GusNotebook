@@ -34,11 +34,11 @@ Previews show user and assistant text from a bounded recent excerpt, omitting
 tool output and images; the agent itself restores the saved conversation.
 Lists are paginated, and any discovery limit is shown in the dialog.
 
-GusNotebook records the native session ID when its prompt hook runs. A project
-association explicitly assigned to that terminal is then retained across
-restarts and restored on resume. Existing or externally created conversations
-without that association receive the ordinary agent setup; choosing a project
-file does not add project rules. Resumed conversations still retain their prior
+GusNotebook records the native session ID and current project association when
+its prompt hook runs. On resume, the saved working directory determines project
+context, including for externally created conversations. Registered project
+folders and subfolders receive project instructions; choosing a project file
+in the browser does not change terminal context. Resumed conversations retain their prior
 messages and instructions. Use a fresh agent for a clean conversation.
 
 This unifies discovery and access. It does not combine separate conversations

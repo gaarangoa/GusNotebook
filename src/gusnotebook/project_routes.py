@@ -1,6 +1,7 @@
 """Authenticated project UI endpoints. Shared by the project UI and terminal CLI."""
 
 import json
+from urllib.parse import unquote
 from flask import Blueprint, Response, current_app, jsonify, request
 
 from pathlib import Path
@@ -15,16 +16,39 @@ def manager():
     return current_app.extensions["gusnotebook"].projects
 
 
+def sync_terminal_project(terminal, directory=None):
+    """Refresh from the terminal's directory, never the selected browser tab."""
+    if isinstance(directory, str) and Path(directory).is_absolute() and Path(directory).is_dir():
+        terminal.cwd = str(Path(directory).resolve())
+    cwd = getattr(terminal, "cwd", None)
+    # create/open may deliberately select a project from its parent directory.
+    # Keep that selection until the terminal actually changes directory.
+    override = getattr(terminal, "project_override_cwd", None)
+    if override and override == cwd:
+        return next((p for p in manager().list() if p['id'] == terminal.project), None)
+    terminal.project_override_cwd = None
+    project = manager().for_directory(cwd)
+    previous = terminal.project
+    terminal.project = project['id'] if project else None
+    if previous != terminal.project:
+        runtime = current_app.extensions['gusnotebook']
+        try:
+            runtime.agent_sessions.remember(terminal.kind, getattr(terminal, 'agent_session', None), terminal.project)
+        except OSError:
+            current_app.logger.warning("Could not save agent session association")
+        bus.publish('terminal_context_changed', terminal=terminal.id, project=terminal.project, cwd=cwd)
+    return project
+
+
 def linked_project():
-    """Only an explicit terminal binding supplies automatic project context."""
+    """Project rules follow this terminal's folder, including subfolders."""
     from .app import request_session
     runtime = current_app.extensions["gusnotebook"]
     terminal = runtime.terms.get(request.headers.get("X-Terminal-Id"))
     if not terminal or (terminal.workspace and terminal.workspace != request_session().id):
         return None
-    if not terminal.project:
-        return None
-    return next((p for p in manager().list() if p['id'] == terminal.project), None)
+    directory = unquote(request.headers.get('X-Terminal-Cwd', '')) or None
+    return sync_terminal_project(terminal, directory)
 
 
 def body(limit=5 * 1024 * 1024):
@@ -84,6 +108,7 @@ def activate(project):
             if prompt:
                 manager().record_agent_event(project["id"], "user_message", prompt, **context)
         terminal.project = project["id"]
+        terminal.project_override_cwd = getattr(terminal, 'cwd', None)
         try:
             runtime.agent_sessions.remember(terminal.kind, getattr(terminal, 'agent_session', None), project['id'])
         except OSError:
@@ -110,7 +135,7 @@ def context():
     from .project_agent import instructions_for
     linked = linked_project()
     if not linked:
-        return jsonify(error="No linked project. Use gusnb project create NAME /parent/folder or gusnb project open PROJECT_ID."), 404
+        return jsonify(error="No analysis project in this terminal's directory. Enter a project folder, or use gusnb project create/open."), 404
     project = manager().use_git(linked['id'])
     for key in ("events", "runs", "analyses", "tolerances"):
         project.pop(key, None)

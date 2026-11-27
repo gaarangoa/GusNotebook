@@ -92,11 +92,14 @@ class ProjectTests(unittest.TestCase):
         finally:
             close_app(app)
 
-    def test_snapshots_are_exact_and_manifest_cannot_widen_grants(self):
+    def test_sources_reference_original_files_and_manifest_cannot_widen_grants(self):
         source = self.manager.projects[self.pid]["sources"][0]
-        snapshot = read_file(source["snapshot"])
-        self.source.write_text("changed")
-        self.assertEqual(read_file(source["snapshot"]), snapshot)
+        self.assertEqual(source['path'], str(self.source))
+        self.assertEqual(source['storage'], 'reference')
+        self.assertNotIn('snapshot', source)
+        self.assertNotIn('sha256', source)
+        self.assertFalse((self.root/'research/data/inputs').exists())
+        self.assertFalse((self.root/'state'/self.pid/'inputs').exists())
         manifest = self.root / "research/data/.gusnotebook/project.json"
         manifest.write_text('{"sources":[{"id":"secret","path":"/etc/passwd"}]}')
         with self.assertRaises(ProjectError):
@@ -104,6 +107,109 @@ class ProjectTests(unittest.TestCase):
         reloaded = ProjectManager(self.root / "state", FixtureRunner())
         self.assertEqual([s["id"] for s in reloaded.view(self.pid)["sources"]], ["data"])
         reloaded.close()
+
+    def test_large_source_registration_is_bounded_and_does_not_copy_data(self):
+        # Sparse file: a realistic size without allocating 100 GiB on disk.
+        with self.source.open('r+b') as stream:
+            stream.truncate(100 * 1024 ** 3)
+        checked = self.manager.sources(self.pid, [{'path': str(self.source)}])
+        self.assertEqual(len(checked['sources']), 1)
+        source = checked['sources'][0]
+        self.assertEqual(source['size'], 100 * 1024 ** 3)
+        self.assertEqual(source['path'], str(self.source))
+        self.assertEqual([field['name'] for field in source['schema']], ['a', 'b'])
+        self.assertFalse((self.root/'research/data/inputs').exists())
+        self.assertFalse((self.root/'state'/self.pid/'inputs').exists())
+        self.assertLess(sum(p.stat().st_size for p in (self.root/'state').rglob('*') if p.is_file()), 100000)
+
+    def test_path_only_labels_reuse_sources_and_handle_collisions(self):
+        second = self.root/'Measurements 2026.csv'
+        second.write_text('x,y\n1,2\n')
+        self.manager.sources(self.pid, [{'path':str(second)}])
+        same = self.manager.sources(self.pid, [{'path':str(second)}])
+        self.assertEqual([s['id'] for s in same['sources']], ['data', 'measurements_2026'])
+        elsewhere = self.root/'elsewhere'
+        elsewhere.mkdir()
+        collision = elsewhere/second.name
+        collision.write_text(second.read_text())
+        with self.assertRaisesRegex(ProjectError, 'distinct label'):
+            self.manager.sources(self.pid, [{'path':str(collision)}])
+        self.assertEqual(len(self.manager.view(self.pid)['sources']), 2)
+        other = self.manager.sources(self.pid, [{'id':'other_cohort','path':str(collision)}])
+        self.assertEqual(len(other['sources']), 3)
+        with self.assertRaisesRegex(ProjectError, 'already registered'):
+            self.manager.sources(self.pid, [{'id':'duplicate','path':str(second)}])
+
+    def test_parquet_and_other_file_references(self):
+        import pyarrow as pa
+        import pyarrow.parquet as pq
+        parquet = self.root/'table.parquet'
+        pq.write_table(pa.table({'x':[1,2], 'label':['a','b']}), parquet)
+        binary = self.root/'experiment.h5'
+        binary.write_bytes(b'opaque notebook input')
+        project = self.manager.sources(self.pid, [{'path':str(parquet)}, {'path':str(binary)}])
+        by_id = {s['id']:s for s in project['sources']}
+        self.assertEqual([f['name'] for f in by_id['table']['schema']], ['x','label'])
+        self.assertEqual(by_id['experiment']['path'], str(binary))
+        with self.assertRaisesRegex(ProjectError, 'Read other formats directly'):
+            self.manager.save_analysis(self.pid, 'unsupported', {}, ['experiment'])
+        self.assertNotIn('unsupported', self.manager.view(self.pid)['analyses'])
+
+    def test_runs_use_original_path_and_detect_changed_or_removed_data(self):
+        self.prepare()
+        project = self.run_analysis()
+        run = project['runs'][-1]
+        self.assertEqual(run['sources'][0]['path'], str(self.source))
+        notebook = (self.root/'research/code/notebooks/analysis.ipynb').read_text()
+        self.assertIn(str(self.source), notebook)
+        self.assertNotIn('data/inputs', notebook)
+        self.manager.accept(self.pid, run['id'], project['report_revision'])
+        self.source.write_text('a,b\n8,9\n')
+        self.manager.run(self.pid, 'analysis')
+        self.assertIn('Approved input changed', self.finish()['job']['error'])
+        self.manager.sources(self.pid, [{'path':str(self.source)}])
+        self.assertTrue(self.manager.view(self.pid)['analyses']['analysis']['stale'])
+        self.manager.run(self.pid, 'analysis', replay=run['id'])
+        self.assertIn('exact input revision', self.finish()['job']['error'])
+        self.manager.run(self.pid, 'analysis')
+        self.assertEqual(self.finish()['job']['status'], 'completed')
+        self.source.unlink()
+        self.manager.run(self.pid, 'analysis')
+        self.assertEqual(self.finish()['job']['status'], 'failed')
+
+    def test_changed_input_during_execution_is_not_accepted(self):
+        self.prepare()
+        original = self.manager.runner.execute
+        def execute(*args):
+            result = original(*args)
+            self.source.write_text('a,b\n8,9\n')
+            return result
+        with patch.object(self.manager.runner, 'execute', side_effect=execute):
+            project = self.run_analysis()
+        self.assertEqual(project['runs'][-1]['status'], 'failed')
+        self.assertIn('Approved input changed', project['job']['error'])
+
+    def test_legacy_snapshots_remain_readable_and_can_relink_to_original(self):
+        from gusnotebook.project_files import digest, write_file
+        raw = self.source.read_bytes()
+        sha = digest(raw)
+        snapshot = self.root/'state'/self.pid/'inputs'/(sha+'.csv')
+        legacy_copy = self.root/'research/data/inputs/data'/(sha+'.csv')
+        write_file(snapshot, raw)
+        write_file(legacy_copy, raw)
+        legacy = dict(id='data', sha256=sha, suffix='.csv', size=len(raw), schema=[], snapshot=str(snapshot))
+        self.manager.projects[self.pid]['sources'] = [legacy]
+        self.manager._save(self.manager.projects[self.pid])
+        view = self.manager.view(self.pid)['sources'][0]
+        self.assertEqual(view['storage'], 'legacy_snapshot')
+        self.assertEqual(view['path'], str(legacy_copy))
+        self.prepare()
+        self.assertEqual(self.run_analysis()['job']['status'], 'completed')
+        updated = self.manager.sources(self.pid, [{'id':'data', 'path':str(self.source)}])
+        self.assertEqual(updated['sources'][0]['path'], str(self.source))
+        self.assertNotIn('snapshot', self.manager.projects[self.pid]['sources'][0])
+        self.assertEqual(snapshot.read_bytes(), raw)
+        self.assertEqual(legacy_copy.read_bytes(), raw)
 
     def test_symlink_and_parent_symlink_sources_rejected(self):
         alias = self.root / "alias.csv"
@@ -289,7 +395,7 @@ class ProjectRouteTests(unittest.TestCase):
             try:
                 runtime = app.extensions["gusnotebook"]
                 session = runtime.store.current()
-                terminal = SimpleNamespace(id="ordinary", workspace=session.id, project=None, kind="codex")
+                terminal = SimpleNamespace(id="ordinary", cwd=str(root), workspace=session.id, project=None, kind="codex")
                 client = app.test_client()
                 client.environ_base.update(HTTP_AUTHORIZATION="Bearer test", HTTP_X_TERMINAL_ID=terminal.id,
                                            HTTP_X_SESSION_ID=session.id)
@@ -361,7 +467,7 @@ class ProjectRouteTests(unittest.TestCase):
                 runtime.projects.jobs[pid]["_thread"].join(5)
                 environment = runtime.projects.view(pid)["environment"]
                 for kind in ("claude", "codex"):
-                    session = SimpleNamespace(id="test-agent", kind=kind, project=pid,
+                    session = SimpleNamespace(id="test-agent", kind=kind, project=pid, cwd=made['path'], workspace=None,
                                               to_json=lambda: {"id": "test-agent", "project": pid})
                     with patch.object(runtime.terms, "create", return_value=session) as create, patch.object(terminals, "command_for", return_value=[kind]) as command:
                         response = client.post("/api/terminals", json={"kind": kind, "project": pid, "cwd": str(root)})

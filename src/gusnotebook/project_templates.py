@@ -117,9 +117,13 @@ def notebook(analysis_id, parameters, sources, code, result=None, run_id=None, r
     layout = layout or {"reports": "reports", "manifest": "gusproject.json", "notebooks": "notebooks"}
     loads = []
     for source in sources:
-        path = f"data/inputs/{source['id']}/{source['sha256']}{source['suffix']}"
+        if "file_revision" in source:
+            path = f"Path({source['path']!r})"
+        else:
+            legacy_path = f"data/inputs/{source['id']}/{source['sha256']}{source['suffix']}"
+            path = f"root / {legacy_path!r}"
         method = "read_csv" if source["suffix"] == ".csv" else "read_parquet"
-        loads.append(f"    {source['id']!r}: pd.{method}(root / {path!r}),")
+        loads.append(f"    {source['id']!r}: pd.{method}({path}),")
     nb.cells = [nbformat.v4.new_markdown_cell(
         f"# {analysis_id}\nRun: `{run_id or 'not yet executed'}`. The linked report uses this analysis.\n"
         "Uses the project's uv environment. Notebook execution is separate from recorded project runs."),

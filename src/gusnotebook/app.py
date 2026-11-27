@@ -1562,6 +1562,9 @@ def api_set_prompt():
     session = request_session()
     terminal = request.headers.get("X-Terminal-Id", "cli")
     running = terms.get(terminal)
+    if running and (not running.workspace or (session and running.workspace == session.id)):
+        from .project_routes import sync_terminal_project
+        sync_terminal_project(running, body.get("cwd"))
     native_id = body.get("session_id") or body.get("thread_id")
     from .agent_sessions import valid_id
     if (running and running.kind in {"claude", "codex"} and valid_id(native_id) and
@@ -2231,17 +2234,17 @@ def new_terminal(body):
                     if live['workspace'] != cur.id:
                         raise ValueError("This conversation is already open in another workspace session. Switch to that session to continue.")
                     return jsonify(live)
-            if saved['project']:
-                if project_id and project_id != saved['project']:
-                    raise ValueError("This conversation belongs to a different project. Start a fresh project agent instead.")
-                project_id = saved['project']
             cwd = saved['cwd']
+        inferred = runtime().projects.for_directory(cwd)
+        if not project_id:
+            project_id = inferred['id'] if inferred else None
         if project_id:
             from .project_agent import instructions_for
             project = runtime().projects.view(project_id)
             if resume and not Path(cwd).is_relative_to(Path(project["path"])):
                 raise ValueError("Saved conversation is outside its linked project.")
-            cwd = cwd if resume else project["path"]
+            if not Path(cwd).resolve().is_relative_to(Path(project["path"]).resolve()):
+                cwd = project["path"]
             instructions = (instructions or "") + "\n" + instructions_for(project).replace("`gusnb", "`" + terminals.nb_command())
             environment = project.get("environment") or {}
             python = environment.get("python") if environment.get("runner") == "uv" else None

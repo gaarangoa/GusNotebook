@@ -51,7 +51,7 @@ def main():
         expect(page.locator('#project-create-back')).not_to_be_visible()
 
         def command(*args, payload=None):
-            result = subprocess.run([cli, 'project', *args], env=env,
+            result = subprocess.run([cli, 'project', *args], env=env, cwd=work,
                                     input=json.dumps(payload) if payload is not None else None,
                                     capture_output=True, text=True, timeout=30)
             assert result.returncode == 0, result.stderr
@@ -70,6 +70,12 @@ def main():
 
         project = command('context')
         pid = project['id']
+        registered = command('source', str(source))
+        assert registered['sources'][0]['path'] == str(source)
+        assert registered['sources'][0]['storage'] == 'reference'
+        assert not (Path(project['path'])/'data/inputs').exists()
+        assert len(command('source', str(source))['sources']) == 1
+        expect(page.locator('#project-agent')).to_have_count(0)
         frame = page.frame_locator('#html-preview-frame')
         expect(frame.locator('.slide')).to_have_count(5)
         expect(frame.get_by_role('heading', name='browser_study', exact=True)).to_be_visible()
@@ -84,13 +90,13 @@ def main():
             'import random\nrng = random.Random(7)\n# Explicitly requested synthetic example.\n'
             'data = [{"label": label, "value": rng.randint(10, 40)} for label in ["A", "B", "C"]]')
         nb_cli = [cli, '-n', str(notebook_path)]
-        added = subprocess.run(nb_cli + ['add', '-'], env=env, input=code,
+        added = subprocess.run(nb_cli + ['add', '-'], env=env, input=code, cwd=work,
                                capture_output=True, text=True, timeout=60)
         assert added.returncode == 0, added.stderr
         cell_id = re.search(r'added code cell (\S+)', added.stdout).group(1)
         output = root / 'results/outputs/figure.html'
         exported = subprocess.run(nb_cli + ['export-output', cell_id, '--file', str(output)],
-                                  env=env, capture_output=True, text=True, timeout=30)
+                                  env=env, cwd=work, capture_output=True, text=True, timeout=30)
         assert exported.returncode == 0, exported.stderr
         current = command('report')
         updated = work / 'updated.html'
@@ -167,7 +173,7 @@ def main():
         expect(page.locator('#project-create-back')).not_to_be_visible()
         expect(page.locator('#html-preview-frame')).to_be_visible()
 
-        # Ordinary launch buttons remain ordinary even while a project is open.
+        # One Agent button: directory membership supplies context automatically.
         # Substitute real shell PTYs at the HTTP boundary: no model login/calls.
         launches = []
         def launch_as_shell(route):
@@ -178,19 +184,21 @@ def main():
             else:
                 route.continue_()
         page.route('**/api/terminals*', launch_as_shell)
+        page.evaluate('folder => browse(folder)', str(work))
         previous = page.evaluate('activeTerm')
         page.evaluate('openSelectedAgent()')
         page.wait_for_function('previous => activeTerm !== previous', arg=previous)
         ordinary_id = page.evaluate('activeTerm')
         assert 'project' not in launches[-1]
         assert page.evaluate('findTerm(activeTerm).project') is None
+        page.evaluate('folder => browse(folder)', str(root/'code/notebooks'))
         for kind, label in [('claude','Claude'), ('codex','Codex')]:
             previous = page.evaluate('activeTerm')
-            page.locator('#project-agent').click()
-            page.get_by_role('menuitem', name=label, exact=True).click()
+            page.evaluate('kind => { document.getElementById("agent-kind").value = kind; openSelectedAgent(); }', kind)
             page.wait_for_function('previous => activeTerm !== previous', arg=previous)
-            assert launches[-1]['kind'] == kind and launches[-1]['project'] == pid
+            assert launches[-1]['kind'] == kind and 'project' not in launches[-1]
             assert page.evaluate('findTerm(activeTerm).project') == pid
+            assert page.evaluate('findTerm(activeTerm).cwd') == str(root/'code/notebooks')
         page.unroute('**/api/terminals*', launch_as_shell)
 
         # Run the actual provider-neutral prompt hook with each terminal identity.
@@ -199,7 +207,8 @@ def main():
         hook.write_text(FOCUS_HOOK.format(nb=shlex.quote(cli), url=shlex.quote(url.rstrip('/'))))
         for tid, expected in [(ordinary_id, False), (terminal_id, True)]:
             result = subprocess.run(['/bin/sh', str(hook)], input='{"prompt":"Check the selected document"}',
-                                    text=True, capture_output=True, timeout=20, env={**env,'NB_TERMINAL':tid})
+                                    text=True, capture_output=True, timeout=20, env={**env,'NB_TERMINAL':tid},
+                                    cwd=root if expected else work)
             assert result.returncode == 0, result.stderr
             assert ('html-slide-deck' in result.stdout) == expected
             assert ('Git paths relative' in result.stdout) == expected

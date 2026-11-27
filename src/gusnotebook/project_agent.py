@@ -13,22 +13,32 @@ New project reports already start from this template. Keep an existing report's
 design when extending it, and honor an explicitly requested alternative design.
 """
 
-INSTRUCTIONS = SLIDE_DECK_INSTRUCTIONS + r'''
-This terminal is explicitly linked to an analysis project. These rules apply to
-that project only. An ordinary notebook/HTML agent uses its own workflow.
+INSTRUCTIONS = '''The following project rules, including the slide-deck skill, apply
+only to the project identified by the terminal's current context.
+''' + SLIDE_DECK_INSTRUCTIONS + r'''
+This terminal is working in an analysis project. These rules apply only while
+the current `gusnb project context` identifies that project. Outside a project,
+use the normal notebook/HTML workflow; earlier project rules no longer apply.
 Run `gusnb project context` at the start of each request for the project paths,
 approved sources and uv interpreter. Use the existing HTML editor and terminal chat.
 Use the current context's notebook, report and layout_paths; they take precedence
-over paths from earlier requests if the user explicitly switches this terminal's
-project. Resolve layout_paths relative to context.path. Changing browser tabs
-does not change the terminal's project.
+over paths from earlier requests when this terminal changes project directories
+or the user selects a project with create/open. Resolve layout_paths relative to
+context.path. Changing browser tabs does not change the terminal's project.
 
 Default workflow for a plot, table, number or other computed content in the HTML:
 1. Read `gusnb here --full` and `gusnb project report` to preserve the requested
    layout and surrounding content. Remember the report revision before editing.
-2. Use only the user's authorized inputs. Register exact approved file paths with
-   `gusnb project source ID PATH`. Read their snapshots under the project's
-   data/inputs/ID/SHA256.SUFFIX (metadata is in context). Save derived data under
+2. Use only the user's authorized inputs. Register each exact approved file path
+   with `gusnb project source PATH`, then read that original path directly from
+   context.sources[].path. Registration records a reference, not a dataset copy.
+   Reuse already registered paths. Do not copy, rename, hash the entire input,
+   or create an ID-named dataset folder to make data part of a project. Files
+   can remain outside the project. For large data, select needed columns and
+   partitions or process chunks; do not load the whole dataset just to inspect it.
+   If context marks a source as legacy_snapshot, its original path was not saved;
+   ask for the original path when needed and relink with `gusnb project source LABEL PATH`.
+   Never guess the original location. Save derived data under
    layout_paths.outputs and reports under layout_paths.reports. If the user explicitly asks
    for dummy/synthetic data, generate it in the notebook with a fixed random seed,
    label it synthetic, and record that choice. Synthetic examples need no external

@@ -93,6 +93,7 @@ def call(path, method="GET", body=None, timeout=600):
                "Authorization": "Bearer " + auth_token()}
     if os.environ.get("NB_TERMINAL"):
         headers["X-Terminal-Id"] = os.environ["NB_TERMINAL"]
+        headers["X-Terminal-Cwd"] = urllib.parse.quote(str(pathlib.Path.cwd()), safe="")
     if SESSION:
         headers["X-Session-Id"] = SESSION
     req = urllib.request.Request(
@@ -466,7 +467,10 @@ def cmd_project(args):
             else:
                 result = {key: result.get(key) for key in ("id", "name", "job", "environment")}
         elif args.action == "source":
-            result = call(base + "/sources", "POST", {"sources": [{"id": args.source_id, "path": target_path(args.path)}]})
+            source = {"path": target_path(args.path or args.path_or_label)}
+            if args.path:
+                source["id"] = args.path_or_label
+            result = call(base + "/sources", "POST", {"sources": [source]})
         elif args.action == "prepare":
             result = call(base + "/prepare", "POST", {})
         elif args.action == "report":
@@ -573,9 +577,9 @@ def main():
     opening = commands.add_parser("open", help="open a project in normal document tabs and bind this terminal")
     opening.add_argument("id")
     opening.set_defaults(fn=cmd_project)
-    source = commands.add_parser("source", help="register the exact data file authorized by the user")
-    source.add_argument("source_id")
-    source.add_argument("path")
+    source = commands.add_parser("source", help="reference an approved data file in place; never copy it")
+    source.add_argument("path_or_label", metavar="PATH_OR_LABEL", help="original file path, or an optional label followed by its path")
+    source.add_argument("path", nargs="?", help="original file path when specifying a label")
     source.set_defaults(fn=cmd_project)
     report = commands.add_parser("report", help="read or save HTML with an optimistic revision check")
     report.add_argument("--file", help='HTML file, or "-" for stdin')
