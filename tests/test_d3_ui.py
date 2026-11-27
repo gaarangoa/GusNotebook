@@ -81,6 +81,9 @@ def main():
         # same path-only inspector without needing to regenerate the report.
         legacy = fragment.read_text().replace(html_lib.escape(str(notebook)) + '</pre>',
                                               html_lib.escape(str(notebook) + '\n\n' + code) + '</pre>')
+        assert 'data-gusnb-notebook-link' not in legacy
+        legacy = legacy.replace('<pre data-gusnb-viz-panel',
+                                '<button data-gusnb-notebook-link>Notebook code</button><pre data-gusnb-viz-panel')
         report.write_text('<!doctype html><html><head><style>body{margin:40px;font:14px system-ui}'
                           'button{font-size:32px;background:red}</style></head><body>'
                           '<h1>Analysis results</h1><main style="display:grid;grid-template-columns:1fr 1fr">' +
@@ -104,6 +107,7 @@ def main():
         expect(inspector.locator('#source-path')).to_have_text(str(notebook))
         expect(inspector).not_to_contain_text('d3.select')
         expect(preview.locator('[data-gusnb-viz-panel]')).not_to_be_visible()
+        expect(preview.locator('[data-gusnb-notebook-link]')).not_to_be_visible()
         expect(source_button).to_have_css('font-size', f"{page.evaluate('AppAppearance.get().fontSize')}px")
         for theme in ('light', 'dark'):
             page.evaluate('theme => AppAppearance.update({theme})', theme)
@@ -129,10 +133,14 @@ def main():
                                arg={'path': str(notebook), 'id': cell_id})
         page.evaluate('path => switchTab(path)', str(report))
         expect(plot.locator('svg .bar')).to_have_count(3)
-        # The original link also works after selecting the figure: a click on
-        # it must not start dragging instead of opening the notebook.
+        # Resizing and moving still work through the drag controls; source
+        # navigation stays in the inspector after editing the figure.
         preview.locator('.gusnb-viz').evaluate("el => el.dispatchEvent(new MouseEvent('click', {bubbles:true}))")
-        toolbar.get_by_role('button', name='Increase width', exact=True).click()
+        handle = controls.locator('[data-gusnotebook-runtime="viz-resize-handle"]').bounding_box()
+        page.mouse.move(handle['x']+5, handle['y']+5)
+        page.mouse.down()
+        page.mouse.move(handle['x']+45, handle['y']+25, steps=5)
+        page.mouse.up()
         assert preview.locator('.gusnb-viz').evaluate('el => parseFloat(el.style.width) > 180')
         box = plot.locator('svg').bounding_box()
         page.mouse.move(box['x']+45, box['y']+30)
@@ -146,9 +154,11 @@ def main():
         saved_report = report.read_text()
         assert 'data-gusnotebook-runtime' not in saved_report
         assert 'source-open' not in saved_report
+        assert 'data-gusnb-notebook-link' not in saved_report
         payload = preview.locator('[data-gusnb-viz-source]').text_content()
         assert json.loads(payload)['code'] == code
-        preview.get_by_role('button', name='Notebook code', exact=True).click()
+        source_button.click()
+        inspector.get_by_role('button', name='Open notebook code').click()
         page.wait_for_function('args => active === args.path && selected === args.id',
                                arg={'path': str(notebook), 'id': cell_id})
         assert 'd3.select' in page.evaluate('cells[0].source')

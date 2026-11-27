@@ -252,6 +252,10 @@
     clone.querySelectorAll('[data-gusnb-applied-height]').forEach(function (el) {
       el.removeAttribute('data-gusnb-applied-height');
     });
+    // Old exports placed this editor shortcut inside the report itself.
+    clone.querySelectorAll('.gusnb-viz [data-gusnb-notebook-link]').forEach(function (el) {
+      el.remove();
+    });
     return clone;
   }
 
@@ -540,14 +544,6 @@
     });
   }
 
-  document.addEventListener('click', function (event) {
-    var button = event.target.closest && event.target.closest('[data-gusnb-notebook-link]');
-    var figure = button && button.closest('[data-gusnb-provenance="1"]');
-    if (!figure) return;
-    event.preventDefault(); event.stopPropagation();
-    openVizNotebook(figure);
-  }, true);
-
   function vizSource(block) {
     var payload = {};
     var source = block && block.querySelector('[data-gusnb-viz-source]');
@@ -582,8 +578,7 @@
       '.gusnb-viz-frame{display:block;width:100%;min-height:140px;border:0;background:transparent;pointer-events:auto;}',
       // Older reports contain a full code dump here. Keep it out of the UI.
       '.gusnb-viz [data-gusnb-viz-panel]{display:none!important;}',
-      '.gusnb-viz [data-gusnb-notebook-link]{display:inline-flex;align-items:center;gap:5px;margin:8px 0 0;padding:4px 8px;border:1px solid #d9dfe7;border-radius:5px;background:#f8fafc;color:#526079;font:500 10px/1.4 system-ui,sans-serif;cursor:pointer;}',
-      '.gusnb-viz [data-gusnb-notebook-link]:hover{border-color:#b66798;color:#830051;}'
+      '.gusnb-viz [data-gusnb-notebook-link]{display:none!important;}'
     ].join('');
     document.head.appendChild(style);
   }
@@ -633,8 +628,6 @@
       button:disabled { opacity:.45; cursor:default; }
       svg { flex-shrink:0; }
       #toolbar { display:flex; align-items:center; flex-wrap:wrap; gap:3px; padding:4px; }
-      .group { display:flex; align-items:center; gap:1px; }
-      .dimension { padding-left:5px; color:var(--muted); font-size:calc(var(--size) - 1px); }
       .divider { width:1px; height:15px; background:var(--line); margin:0 2px; }
       [data-viz-cmd=delete]:hover { color:#dc5264; background:var(--soft); }
       #source { width:320px; max-height:calc(100vh - 12px); overflow:auto; padding:12px; }
@@ -682,10 +675,6 @@
       '<button type="button" data-viz-cmd="source" title="Source notebook" aria-label="Source" aria-expanded="false" aria-controls="source">' + vizIcon('source') + 'Source</button>' +
       '<span class="divider"></span>' +
       '<button type="button" data-viz-cmd="move" title="Move freely" aria-label="Move freely" aria-pressed="false">' + vizIcon('move') + '</button>' +
-      '<span class="group"><span class="dimension">W</span><button type="button" data-viz-cmd="w-" title="Decrease width" aria-label="Decrease width">−</button>' +
-      '<button type="button" data-viz-cmd="w+" title="Increase width" aria-label="Increase width">+</button></span>' +
-      '<span class="group"><span class="dimension">H</span><button type="button" data-viz-cmd="h-" title="Decrease height" aria-label="Decrease height">−</button>' +
-      '<button type="button" data-viz-cmd="h+" title="Increase height" aria-label="Increase height">+</button></span>' +
       '<span class="divider"></span>' +
       '<button type="button" data-viz-cmd="delete" title="Delete" aria-label="Delete">' + vizIcon('delete') + '</button>';
     vizToolbar.style.display = 'none';
@@ -702,7 +691,7 @@
         toggleVizMoveMode();
         return;
       }
-      editSelectedViz(button.getAttribute('data-viz-cmd'));
+      if (button.getAttribute('data-viz-cmd') === 'delete') deleteSelectedViz();
     });
     vizShadow.appendChild(vizToolbar);
     return vizToolbar;
@@ -1087,33 +1076,13 @@
     }
   }
 
-  function editSelectedViz(command) {
-    var block = selectedViz;
-    if (!block) return;
-    if (command === 'delete') {
-      block.remove();
-      setVizMoveMode(false);
-      selectViz(null);
-      changed = true;
-      send('change');
-      return;
-    }
-    var frame = block.querySelector('.gusnb-viz-frame');
-    var rect = block.getBoundingClientRect();
-    if (command === 'w-' || command === 'w+') {
-      var parentWidth = block.parentElement ? block.parentElement.clientWidth : window.innerWidth;
-      var width = parseFloat(block.style.width) || rect.width || parentWidth;
-      width += command === 'w+' ? 40 : -40;
-      width = Math.max(180, Math.min(parentWidth, width));
-      block.style.width = Math.round(width) + 'px';
-      block.style.maxWidth = '100%';
-    } else if (frame && (command === 'h-' || command === 'h+')) {
-      var scale = vizScale(frame) + (command === 'h+' ? .08 : -.08);
-      applyVizScale(frame, scale);
-    }
+  function deleteSelectedViz() {
+    if (!selectedViz) return;
+    selectedViz.remove();
+    setVizMoveMode(false);
+    selectViz(null);
     changed = true;
     send('change');
-    positionVizToolbar();
   }
 
   function scrubVizFragment(fragment) {

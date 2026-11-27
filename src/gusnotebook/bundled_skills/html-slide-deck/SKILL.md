@@ -48,7 +48,9 @@ gusnb -n NOTEBOOK export-output CELL_ID --file FIGURE_HTML
 Read the exported fragment from disk and insert it in the chosen slide. Replace
 the whole `.figure-slot` placeholder; do not recreate the plot in the report or
 put it inside another fixed-size iframe. Preserve the fragment's provenance,
-code snapshot, and **Notebook code** button. The same applies to computed tables
+code snapshot, and history. GusNotebook opens the generating cell through the
+selected figure's **Source → Open notebook code** control; add no code button
+or label to the figure itself. The same applies to computed tables
 and metrics: use the executed notebook output, not the template's sample rows.
 Apply the deck's palette and table typography inside the notebook HTML output
 too: exported figures use isolated iframes and do not inherit the deck's CSS.

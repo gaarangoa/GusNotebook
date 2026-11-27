@@ -71,7 +71,6 @@ def render(payload):
             f'referrerpolicy="no-referrer" data-output-frame="{frame_id}" data-gusnb-scale="1" '
             f'data-gusnb-base-height="460" height="460" style="display:block;width:100%;height:460px;border:0" '
             f'srcdoc="{escape(document)}"></iframe></div>'
-            '<button type="button" data-gusnb-notebook-link contenteditable="false">Notebook code</button>'
             '<pre data-gusnb-viz-panel contenteditable="false" hidden>' +
             escape(payload["notebook"]) + '</pre>'
             '<script type="application/json" data-gusnb-viz-source>' + encoded + '</script></figure>' +

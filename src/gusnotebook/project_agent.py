@@ -90,7 +90,8 @@ Default workflow for a plot, table, number or other computed content in the HTML
    Use --output N for a particular displayed output (zero based). This writes a
    self-contained HTML fragment with the actual output, code snapshot and history.
    Read it from the file programmatically and insert it into the requested position
-   in the report. Keep its provenance attributes and Notebook code button. Do not
+   in the report. Keep its provenance attributes; GusNotebook provides the notebook
+   link in the selected figure's Source card, so add no code button or label. Do not
    recreate the chart independently in the report, change the exported data, or
    print the bundled D3 library into the conversation.
 6. Save the updated HTML with `gusnb project report --file updated.html --revision SAVED_REVISION`.

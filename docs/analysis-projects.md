@@ -14,7 +14,7 @@ For example:
 > /home/me/data/measurements.csv. Add a D3 boxplot on the left, with an explanation
 > on the right. Keep the data preparation and plotting code in the notebook.
 
-Click **Notebook code** below a figure to open its generating cell. The project
+Select a figure, then choose **Source → Open notebook code** to open its generating cell. The project
 bar has **Report**, **Notebook**, **Data**, and **Inputs**. Keep using the ordinary HTML editor
 for layout, text, images, zoom and source edits. Explicit dummy-data requests
 use a recorded random seed and need no external data-file registration.
