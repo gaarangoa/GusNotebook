@@ -7,6 +7,19 @@ titles and session IDs. Click a conversation for a text preview, then **Resume
 in terminal** to continue it. **All sessions** returns to the list; the history
 button stays available after resuming.
 
+Use the **pencil** button to rename a conversation and the **trash** button to
+delete it. Both actions are also available in the preview. Names are saved in
+the agent's own history, remain after restarting GusNotebook, and update any
+open GusNotebook terminal tab for that conversation.
+
+Deletion asks for confirmation and permanently removes the selected conversation
+and its subagent history from the agent's local storage. It keeps notebooks and
+project files. Close any GusNotebook terminal using that conversation before
+deleting it; also stop it in an external agent application if it is open there.
+Codex management requires a CLI version supporting `thread/name/set` and
+`thread/delete`; update the CLI if it reports an unsupported action. Claude titles
+use its native `custom-title` metadata records. These actions make no model requests.
+
 Claude and Codex are supported, including conversations started in their own
 CLIs outside GusNotebook. These are the histories of the user running
 GusNotebook, on that computer. In a remote workspace, the list comes from the

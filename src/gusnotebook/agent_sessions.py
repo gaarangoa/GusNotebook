@@ -1,7 +1,7 @@
-"""Read native agent histories without copying transcripts into app state.
+"""Browse and manage native histories without copying transcripts into app state.
 
 Adapters expose the same small catalog and text preview. Native CLIs remain
-responsible for restoring conversations; provider files are never modified here.
+responsible for restoring conversations. Mutations target the selected history.
 """
 
 from collections import deque
@@ -9,6 +9,7 @@ from contextlib import closing
 from datetime import datetime
 from functools import lru_cache
 import json
+import logging
 import os
 from pathlib import Path
 import shutil
@@ -17,6 +18,7 @@ import threading
 from uuid import UUID
 
 from .persistence import atomic_write
+from .agent_session_actions import codex_request
 
 WINDOW = 512 * 1024
 MAX_FILES = 10000
@@ -107,11 +109,16 @@ def file_metadata(provider, filename, modified, size):
         if not row['title'] and text and text['role'] == 'user':
             row['title'] = ' '.join(text['text'].split())[:180]
     if provider == 'claude':
+        custom_title = None
         for record in head + (list(records(path, tail=True)) if size > WINDOW else []):
             if record.get('type') in {'custom-title', 'summary'}:
                 title = record.get('customTitle') or record.get('summary')
                 if isinstance(title, str) and title.strip():
                     row['title'] = title[:180]
+                    if record.get('type') == 'custom-title':
+                        custom_title = title[:180]
+        if custom_title:
+            row['title'] = custom_title
     if not valid_id(row['id']) or not isinstance(row['cwd'], str) or not Path(row['cwd']).is_absolute():
         return None
     row['cwd'] = str(Path(row['cwd']).resolve())
@@ -125,6 +132,20 @@ class CodexHistory:
 
     def __init__(self, root):
         self.root = root
+
+    def rename(self, row, title):
+        self.checked_path(row)
+        codex_request(self.root, 'thread/name/set', {'threadId': row['id'], 'name': title})
+
+    def delete(self, row):
+        self.checked_path(row)
+        codex_request(self.root, 'thread/delete', {'threadId': row['id']})
+
+    def checked_path(self, row):
+        path = Path(row['_path'])
+        if not path.resolve().is_relative_to((self.root / 'sessions').resolve()) or not path.is_file():
+            raise ValueError('Saved session is outside the native Codex history directory.')
+        return path
 
     def rows(self):
         rows = {}
@@ -189,6 +210,37 @@ class ClaudeHistory:
     def __init__(self, root):
         self.root = root
 
+    def checked_path(self, row):
+        path = Path(row['_path'])
+        if (path.resolve().parent.parent != (self.root / 'projects').resolve() or
+                path.name != row['id'] + '.jsonl' or path.is_symlink() or not path.is_file()):
+            raise ValueError('Saved session is outside the native Claude history directory.')
+        return path
+
+    def rename(self, row, title):
+        path = self.checked_path(row)
+        # Same append-only custom-title record as Claude's native session API.
+        # Do not create a transcript if another process has already deleted it.
+        data = ('\n' + json.dumps({'type': 'custom-title', 'customTitle': title,
+                                   'sessionId': row['id']}) + '\n').encode()
+        fd = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_NOFOLLOW)
+        try:
+            if os.write(fd, data) != len(data):
+                raise OSError('Incomplete session title write; refresh and retry.')
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+
+    def delete(self, row):
+        path = self.checked_path(row)
+        children = path.parent / row['id']
+        # Refuse links rather than following them out of the session directory.
+        if children.is_symlink():
+            raise ValueError('Cannot delete a session whose subagent directory is a symbolic link.')
+        if children.exists():
+            shutil.rmtree(children)
+        path.unlink()
+
     def rows(self):
         rows = []
         count = 0
@@ -248,7 +300,8 @@ class AgentSessions:
                 if cwd != folder and not (children and cwd.is_relative_to(folder)):
                     continue
                 key = provider.name + ':' + row['id']
-                rows[key] = {**row, 'available': available, 'project': self.bindings.get(key)}
+                rows[key] = {**row, 'available': available, 'manageable': available or provider.name == 'claude',
+                             'project': self.bindings.get(key)}
         return dict(folder=str(folder), sessions=sorted(rows.values(), key=lambda r: r['updated'], reverse=True),
                     providers=providers, truncated=truncated)
 
@@ -280,6 +333,28 @@ class AgentSessions:
             kept.append(item)
             size += len(item['text'])
         return dict(messages=list(reversed(kept)), truncated=truncated or total > len(kept) or any(m['truncated'] for m in kept))
+
+    def rename(self, row, title):
+        if (not isinstance(title, str) or not title.strip() or len(title.strip()) > 180 or
+                any(ord(char) < 32 or ord(char) == 127 for char in title)):
+            raise ValueError('Enter a title of 1–180 characters without line breaks or control characters.')
+        title = title.strip()
+        provider = next(p for p in self.providers if p.name == row['provider'])
+        provider.rename(row, title)
+        file_metadata.cache_clear()
+        return self.find(row['cwd'], row['provider'], row['id'])
+
+    def delete(self, row):
+        provider = next(p for p in self.providers if p.name == row['provider'])
+        provider.delete(row)
+        file_metadata.cache_clear()
+        self.bindings.pop(row['provider'] + ':' + row['id'], None)
+        try:
+            atomic_write(self.state, json.dumps(self.bindings), mode=0o600)
+        except OSError:
+            # Native deletion already succeeded; a stale association alone must
+            # not report a failed delete that can no longer be retried.
+            logging.getLogger(__name__).warning('Deleted agent conversation; could not clear its saved project association')
 
 
 def public(row):

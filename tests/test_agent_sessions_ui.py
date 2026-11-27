@@ -1,7 +1,9 @@
 """Folder history browsing and native resume, using fake CLIs and real PTYs."""
 
 import os
+import json
 import shutil
+import sys
 from pathlib import Path
 import tempfile
 
@@ -21,6 +23,27 @@ def main():
                 path = binary / name
                 path.write_text('#!/bin/sh\nprintf "Saved session test terminal\\n"\nfor arg do\n case "$arg" in --resume|resume|????????-????-????-????-????????????) printf "%s\\n" "$arg";; esac\ndone\nexec /bin/cat\n')
                 path.chmod(0o755)
+            # Emulate only the native metadata protocol, never model calls.
+            (binary/'codex').write_text('#!'+sys.executable+'\n'+'''import json, os, sys
+from pathlib import Path
+if sys.argv[1:2] == ['app-server']:
+    root = Path(os.environ['CODEX_HOME'])
+    for line in sys.stdin:
+        request = json.loads(line)
+        if 'id' not in request: continue
+        params = request.get('params', {})
+        if request['method'] == 'thread/name/set':
+            with (root/'session_index.jsonl').open('a') as stream:
+                stream.write(json.dumps({'id':params['threadId'], 'thread_name':params['name']})+'\\n')
+        elif request['method'] == 'thread/delete':
+            for path in (root/'sessions').glob('*/*/*/*'+params['threadId']+'.jsonl'):
+                path.unlink()
+        print(json.dumps({'id':request['id'], 'result':{}}), flush=True)
+else:
+    print('Saved session test terminal', flush=True)
+    print(sys.argv[-1], flush=True)
+    os.execv('/bin/cat', ['/bin/cat'])
+''')
             os.environ.update(CODEX_HOME=str(root/'codex'), CLAUDE_CONFIG_DIR=str(root/'claude'),
                               GUSNOTEBOOK_UV=str(binary/'uv'),
                               PATH=str(binary) + os.pathsep + os.environ['PATH'])
@@ -31,8 +54,8 @@ def main():
     nested.mkdir()
     outside = work.parent / 'unrelated'
     outside.mkdir()
-    codex_id, _ = write_session(codex, 'codex', work, 'PCA comparison')
-    claude_id, _ = write_session(claude, 'claude', work, 'Deck discussion <img src=x onerror=window.__injected=1>')
+    codex_id, codex_path = write_session(codex, 'codex', work, 'PCA comparison')
+    claude_id, claude_path = write_session(claude, 'claude', work, 'Deck discussion <img src=x onerror=window.__injected=1>')
     write_session(codex, 'codex', nested, 'Nested analysis')
     write_session(claude, 'claude', outside, 'Unrelated session')
     url = os.environ['GUSNOTEBOOK_TEST_URL']
@@ -100,9 +123,63 @@ def main():
         button.click()
         expect(page.locator('.agent-history-row')).to_have_count(1)
         expect(page.locator('#agent-history-list')).to_contain_text('Unrelated session')
+        page.keyboard.press('Escape')
+        page.evaluate('path => browse(path)', str(work))
+        button.click()
+        claude_row = page.locator('.agent-history-row').filter(has_text='Deck discussion')
+        claude_row.get_by_role('button', name='Rename session', exact=True).click()
+        expect(page.locator('#ask-back')).to_be_visible()
+        page.locator('#ask-input').fill('Claude analysis notes')
+        page.locator('#ask-ok').click()
+        expect(page.locator('#agent-history-list')).to_contain_text('Claude analysis notes')
+        assert json.loads(claude_path.read_text().splitlines()[-1])['customTitle'] == 'Claude analysis notes'
+
+        codex_row = page.locator('.agent-history-row').filter(has_text='PCA comparison')
+        codex_row.locator('.agent-history-view').click()
+        page.get_by_role('button', name='Rename', exact=True).click()
+        page.locator('#ask-input').fill('PCA result notes')
+        page.locator('#ask-ok').click()
+        expect(page.locator('#agent-history-conversation-title')).to_have_text('PCA result notes')
+        expect(page.locator('#term-tabs .tn')).to_have_text('PCA result notes')
+        expect(page.locator('#agent-history-delete')).to_be_disabled()
+        page.get_by_role('button', name='← All sessions', exact=True).click()
+        expect(page.locator('#agent-history-list')).to_contain_text('PCA result notes')
+
+        claude_row = page.locator('.agent-history-row').filter(has_text='Claude analysis notes')
+        claude_row.get_by_role('button', name='Delete session', exact=True).click()
+        page.locator('#ask-back').get_by_role('button', name='Cancel', exact=True).click()
+        assert claude_path.exists()
+        claude_row.get_by_role('button', name='Delete session', exact=True).click()
+        page.locator('#ask-ok').click()
+        expect(page.locator('.agent-history-row')).to_have_count(1)
+        assert not claude_path.exists()
+        assert codex_path.exists()
+
+        # A rename survives reattachment and resumes the same native ID.
+        page.reload(wait_until='domcontentloaded')
+        page.wait_for_function('terms.length === 1 && terms[0].ws.readyState === 1')
+        assert page.evaluate('terms[0].label') == 'PCA result notes'
+        button.click()
+        page.locator('.agent-history-row').get_by_role('button', name='Resume', exact=True).click()
+        expect(dialog).to_be_hidden()
+        assert page.evaluate('terms.length') == 1
+        assert page.evaluate('terms[0].agent_session') == codex_id
+        page.evaluate('async () => { await api("/api/terminals/" + terms[0].id, {method:"DELETE"}); }')
+        button.click()
+        codex_row = page.locator('.agent-history-row').filter(has_text='PCA result notes')
+        expect(codex_row.get_by_role('button', name='Delete session', exact=True)).to_be_enabled()
+        codex_row.get_by_role('button', name='Delete session', exact=True).click()
+        page.locator('#ask-ok').click()
+        expect(page.locator('.agent-history-row')).to_have_count(0)
+        assert not codex_path.exists()
+        assert (work/'notebook.ipynb').exists()
+        page.reload(wait_until='domcontentloaded')
+        page.wait_for_selector('#tab-new')
+        button.click()
+        expect(page.locator('#agent-history-status')).to_have_text('0 saved sessions')
         assert not errors, errors
         browser.close()
-        print('PASS: folder catalog, provider filters, safe previews, themes, exact resume, reattachment, and return to list')
+        print('PASS: folder catalog, previews, native rename/delete, confirmation, live-session protection, resume, and persistence')
 
 
 if __name__ == '__main__':

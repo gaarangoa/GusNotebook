@@ -2185,6 +2185,9 @@ button:disabled { opacity: .55; cursor: default; }
 .agent-history-view:hover { background: var(--surface); }
 .agent-history-view span { color: var(--muted); }
 .agent-history-detail-tools { display: flex; justify-content: space-between; gap: 8px; }
+.agent-history-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; }
+.agent-history-actions .agent-history-action { padding: 4px; }
+.agent-history-action .icon { width: 13px; height: 13px; }
 .agent-history-message { padding: 12px 0; border-bottom: 1px solid var(--border); }
 .agent-history-message pre { white-space: pre-wrap; overflow-wrap: anywhere; margin: 6px 0 0; font: inherit; color: var(--text); }
 #agent-history-error { color: var(--red); }

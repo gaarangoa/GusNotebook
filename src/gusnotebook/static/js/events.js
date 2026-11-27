@@ -166,6 +166,10 @@ es.onmessage = (e) => {
     return;
   }
   if (msg.type === 'terminal_opened') return;   // we already have it locally
+  if (msg.type === 'agent_session_changed') {
+    AgentHistory.changed(msg);
+    return;
+  }
   // Another view (or nb.py) touched the session list — repaint the counts, but
   // don't switch this page's workspace out from under whoever is typing.
   if (msg.type === 'sessions_changed') {
