@@ -256,20 +256,24 @@ def restriction_note(restrictions):
     return "\n".join(lines)
 
 
-def command_for(kind, instructions=None, restrictions=None):
+def command_for(kind, instructions=None, restrictions=None, resume=None):
     """argv for a session kind: shell, Claude, or Codex.
 
     Both agents get the workspace's standing instructions and current-target
     context. Claude also gets the skills plugin and its native deny rules.
     Assembled here so every launch path behaves the same way.
     """
+    if resume:
+        from .agent_sessions import valid_id
+        if kind not in {"claude", "codex"} or not valid_id(resume):
+            raise ValueError("Invalid agent session to resume")
     if kind == "shell":
         return list(SHELL_COMMAND)
     if kind == "codex":
         if not shutil.which(CODEX_COMMAND[0]):
             raise ValueError("Codex CLI is not installed or is not on PATH")
-        return list(CODEX_COMMAND) + codex_args(instructions)
-    return list(CLAUDE_COMMAND) + claude_args(instructions, restrictions)
+        return list(CODEX_COMMAND) + codex_args(instructions) + (["resume", resume] if resume else [])
+    return list(CLAUDE_COMMAND) + claude_args(instructions, restrictions) + (["--resume", resume] if resume else [])
 
 
 def standing_instructions(extra=None, restrictions=None):
@@ -858,6 +862,7 @@ class Session:
             "kind": self.kind,
             "workspace": self.workspace,
             "project": self.project,
+            "agent_session": getattr(self, "agent_session", None),
             "alive": self.alive,
             "note": self.exit_note,
         }

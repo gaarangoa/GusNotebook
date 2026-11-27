@@ -84,6 +84,10 @@ def activate(project):
             if prompt:
                 manager().record_agent_event(project["id"], "user_message", prompt, **context)
         terminal.project = project["id"]
+        try:
+            runtime.agent_sessions.remember(terminal.kind, getattr(terminal, 'agent_session', None), project['id'])
+        except OSError:
+            current_app.logger.warning("Could not save agent session association")
     if Path(project["notebook"]).is_file():
         runtime.store.add_tab(project["notebook"], session.id)
     runtime.store.add_tab(project["report"], session.id)

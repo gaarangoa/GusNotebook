@@ -1562,6 +1562,15 @@ def api_set_prompt():
     session = request_session()
     terminal = request.headers.get("X-Terminal-Id", "cli")
     running = terms.get(terminal)
+    native_id = body.get("session_id") or body.get("thread_id")
+    from .agent_sessions import valid_id
+    if (running and running.kind in {"claude", "codex"} and valid_id(native_id) and
+            (not running.workspace or (session and running.workspace == session.id))):
+        try:
+            runtime().agent_sessions.remember(running.kind, native_id, running.project)
+            running.agent_session = native_id
+        except OSError:
+            current_app.logger.warning("Could not save agent session association")
     context = {"actor": running.kind.title() if running else "Agent", "terminal": terminal,
                "session": session.id if session else "default", "request_id": uuid.uuid4().hex,
                "preferences": getattr(running, "audit_preferences", agent_preferences(session)),
@@ -2198,19 +2207,41 @@ def api_new_terminal():
     `kind` picks what runs: "shell", "codex", or Claude Code (the default).
     """
     body = request.get_json(silent=True) or {}
+    with runtime().agent_sessions.lock:
+        return new_terminal(body)
+
+
+def new_terminal(body):
     # This session's own instructions and restrictions, on top of the app-wide
     # ones. Both agents receive the instructions at launch. Claude also receives
     # its native deny rules, which are fixed when the process starts.
     cur = request_session()
     cwd = body.get("cwd") or (cur.root if cur else None) or str(Path(doc_key()).parent)
     project_id = body.get("project")
+    resume = body.get("resume")
     instructions = cur.instructions if cur else None
     python = kernel_python(doc_key())
     try:
+        if resume:
+            saved = runtime().agent_sessions.find(cwd, body.get("kind"), resume)
+            if not saved['available']:
+                raise ValueError(saved['provider'].title() + " CLI is not installed or is not on PATH")
+            for live in terms.list():
+                if live['alive'] and live['kind'] == saved['provider'] and live.get('agent_session') == resume:
+                    if live['workspace'] != cur.id:
+                        raise ValueError("This conversation is already open in another workspace session. Switch to that session to continue.")
+                    return jsonify(live)
+            if saved['project']:
+                if project_id and project_id != saved['project']:
+                    raise ValueError("This conversation belongs to a different project. Start a fresh project agent instead.")
+                project_id = saved['project']
+            cwd = saved['cwd']
         if project_id:
             from .project_agent import instructions_for
             project = runtime().projects.view(project_id)
-            cwd = project["path"]
+            if resume and not Path(cwd).is_relative_to(Path(project["path"])):
+                raise ValueError("Saved conversation is outside its linked project.")
+            cwd = cwd if resume else project["path"]
             instructions = (instructions or "") + "\n" + instructions_for(project).replace("`gusnb", "`" + terminals.nb_command())
             environment = project.get("environment") or {}
             python = environment.get("python") if environment.get("runner") == "uv" else None
@@ -2218,13 +2249,19 @@ def api_new_terminal():
                          command=terminals.command_for(
                              body.get("kind"),
                              instructions,
-                             restrictions_for(cur)),
-                         label=body.get("label") or (project["name"] if project_id else None),
+                             restrictions_for(cur), **({"resume": resume} if resume else {})),
+                         label=body.get("label") or (saved['title'][:60] if resume else project["name"] if project_id else None),
                          python=python,
                          workspace=cur.id if cur else None, project=project_id)
     except (ValueError, OSError) as e:
         return jsonify({"error": str(e)}), 400
     store.add_terminal(s.id, cur.id if cur else None)
+    s.agent_session = resume or None
+    if resume:
+        try:
+            runtime().agent_sessions.remember(s.kind, resume, project_id)
+        except OSError:
+            current_app.logger.warning("Could not save agent session association")
     s.audit_preferences = agent_preferences(cur)
     if project_id:
         runtime().projects.record_agent_event(project_id, "agent_opened", "Opened " + s.kind + " terminal",
@@ -2476,6 +2513,8 @@ def create_app(config=None):
     application.register_blueprint(account_routes)
     from .project_routes import project_routes
     application.register_blueprint(project_routes)
+    from .agent_session_routes import agent_session_routes
+    application.register_blueprint(agent_session_routes)
 
     @application.errorhandler(notebook_mod.NotebookReadError)
     def notebook_error(exc):

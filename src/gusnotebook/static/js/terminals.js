@@ -63,20 +63,22 @@ function renderTermTabs() {
 
 /** Ordinary terminals never infer project membership from the active document.
  * The project's own launch action supplies an explicit project. */
-async function openTerminal(cwd, kind, project = null) {
+async function openTerminal(cwd, kind, project = null, resume = null) {
   const root = project?.path || cwd || fileState.path;
   let data;
   try {
     data = await api('/api/terminals' + (isNotebookTab() ? nbq() : ''), {
       method: 'POST',
-      body: JSON.stringify({...(root ? {cwd: root} : {}), kind, ...(project ? {project: project.id} : {})}),
+      body: JSON.stringify({...(root ? {cwd: root} : {}), kind, ...(project ? {project: project.id} : {}), ...(resume ? {resume} : {})}),
     });
   } catch (err) {
+    if (resume) throw err;
     flash('Cannot open a terminal: ' + errText(err));
     return;
   }
   ensurePanel('terminal');
-  const t = attachTerm(data);
+  const t = findTerm(data.id) || attachTerm(data);
+  focusTerm(t.id);
   loadSessions();          // it belongs to this session now; show the count
   return t;
 }

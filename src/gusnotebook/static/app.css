@@ -2167,3 +2167,24 @@ button:disabled { opacity: .55; cursor: default; }
 .git-commit textarea { display: block; width: 100%; resize: vertical; max-height: 140px; padding: 6px; margin-bottom: 6px; border: 1px solid var(--border); border-radius: 4px; background: var(--panel); color: var(--text); font: inherit; }
 .git-diff-modal { width: min(920px, calc(100vw - 32px)); }
 #git-diff-text { padding: 16px; overflow: auto; max-height: 65vh; white-space: pre; font-family: var(--mono); font-size: var(--ui-size); line-height: 1.6; tab-size: 4; }
+
+/* Saved agent conversations: compact controls, readable text previews. */
+.agent-history-modal { width: min(820px, 94vw); }
+#agent-history-folder { margin-top: 0; overflow-wrap: anywhere; color: var(--muted); }
+.agent-history-filters { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.agent-history-filters input[type="search"] { flex: 1; min-width: 150px; }
+.agent-history-filters input[type="search"], .agent-history-filters select {
+  color: var(--text); background: var(--surface); border: 1px solid var(--border);
+  border-radius: 4px; padding: 5px 7px; font: inherit;
+}
+.agent-history-filters label { display: inline-flex; align-items: center; gap: 4px; }
+.agent-history-help, #agent-history-status, #agent-history-conversation-meta { color: var(--muted); overflow-wrap: anywhere; }
+#agent-history-status { margin: 10px 0; }
+.agent-history-row { display: flex; align-items: center; gap: 12px; border-bottom: 1px solid var(--border); padding: 5px 0; }
+.agent-history-view { flex: 1; min-width: 0; display: grid; gap: 4px; padding: 7px; border: 0; border-radius: 4px; background: transparent; color: var(--text); font: inherit; text-align: left; cursor: pointer; overflow-wrap: anywhere; }
+.agent-history-view:hover { background: var(--surface); }
+.agent-history-view span { color: var(--muted); }
+.agent-history-detail-tools { display: flex; justify-content: space-between; gap: 8px; }
+.agent-history-message { padding: 12px 0; border-bottom: 1px solid var(--border); }
+.agent-history-message pre { white-space: pre-wrap; overflow-wrap: anywhere; margin: 6px 0 0; font: inherit; color: var(--text); }
+#agent-history-error { color: var(--red); }

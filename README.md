@@ -18,6 +18,9 @@ decisions, and communicate findings with a clear record of how they evolved.
 
 Runs on **macOS and Linux (including WSL)**, locally or on a remote computer.
 Agent CLIs are optional; install and sign in to them where the workspace runs.
+Use the **Agent sessions** history button beside **Agent** and **Terminal** to
+find, preview, and resume saved Claude/Codex conversations for the folder shown
+in Files. [Folder session history](docs/agent-sessions.md).
 
 ## Install with uv
 

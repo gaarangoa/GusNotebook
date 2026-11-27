@@ -12,6 +12,7 @@ from .git_manager import GitManager
 from .accounts import Accounts
 from .tool_installer import ToolInstaller
 from .projects import ProjectManager
+from .agent_sessions import AgentSessions
 
 
 class Runtime:
@@ -37,6 +38,7 @@ class Runtime:
         self.history = History(paths.state("history"))
         self.environments = EnvironmentManager(paths.state("environments.json"))
         self.projects = ProjectManager(paths.state("projects"), publish=self.bus.publish)
+        self.agent_sessions = AgentSessions(paths.state("agent-sessions.json"))
         self.tools = ToolInstaller(paths.state("tools"))
         self.git = GitManager(paths.work_dir(), tools_dir=self.tools.directory)
         self.tunnels = TunnelManager(paths.state("tunnels.json"), git_auth=self.git.auth)

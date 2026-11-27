@@ -372,6 +372,9 @@
               title="New agent session in the directory shown in Files"><span data-icon="agent"></span>Agent</button>
       <button class="term-btn" onclick="openTerminal(null,'shell')"
               title="New terminal in the directory shown in Files"><span data-icon="terminal"></span>Terminal</button>
+      <button class="term-btn" id="agent-history-button" onclick="AgentHistory.open()"
+              title="Agent sessions in the folder shown in Files" aria-label="Agent sessions in this folder"
+              aria-haspopup="dialog" aria-controls="agent-history-back"><span data-icon="history"></span></button>
     </div>
     <div class="term-tabs" id="term-tabs"></div>
     <div id="terminal-stack">
@@ -386,6 +389,37 @@
 </div>
 
 <button id="panel-backdrop" class="panel-backdrop" hidden aria-label="Close side panel" onclick="closePanelDrawer()"></button>
+
+<div class="modal-back" id="agent-history-back" onclick="if(event.target===this) AgentHistory.close()">
+  <div class="modal history-modal agent-history-modal" role="dialog" aria-modal="true" aria-labelledby="agent-history-title" aria-describedby="agent-history-folder">
+    <div class="mhead"><span class="grow" id="agent-history-title">Agent sessions</span>
+      <button class="tb" onclick="AgentHistory.close()" aria-label="Close agent sessions"><span data-icon="close"></span></button></div>
+    <div class="mbody">
+      <p id="agent-history-folder"></p>
+      <div id="agent-history-catalog">
+        <div class="agent-history-filters">
+          <input id="agent-history-query" type="search" placeholder="Search titles or IDs…" aria-label="Search agent sessions">
+          <select id="agent-history-provider" aria-label="Filter by agent"><option value="">All agents</option></select>
+          <label><input id="agent-history-children" type="checkbox"> Include subfolders</label>
+          <button class="tb" onclick="AgentHistory.refresh()">Refresh</button>
+        </div>
+        <p class="agent-history-help">Saved conversations on this workspace’s computer. Supports Claude and Codex, including sessions started outside GusNotebook.</p>
+        <div id="agent-history-status" role="status"></div>
+        <div id="agent-history-list"></div>
+        <button class="tb" id="agent-history-more" hidden onclick="AgentHistory.more()">More sessions</button>
+      </div>
+      <div id="agent-history-detail" hidden>
+        <div class="agent-history-detail-tools"><button class="tb" onclick="AgentHistory.back()">← All sessions</button>
+          <button class="tb" id="agent-history-resume">Resume in terminal</button></div>
+        <h3 id="agent-history-conversation-title"></h3>
+        <p id="agent-history-conversation-meta"></p>
+        <p class="agent-history-help" id="agent-history-preview-help"></p>
+        <div id="agent-history-messages"></div>
+      </div>
+      <p id="agent-history-error" role="alert" hidden></p>
+    </div>
+  </div>
+</div>
 
 <div class="modal-back" id="terminal-clipboard-back" onclick="if(event.target===this) closeTerminalClipboard(false)">
   <div class="modal">
@@ -803,6 +837,7 @@ results = pd.read_csv(<span class="sample-string">"data.csv"</span>)</pre><p>Rea
 <script src="{{ BASE_URL }}/static/js/panels.js"></script>
 <script src="{{ BASE_URL }}/static/js/terminal-clipboard.js"></script>
 <script src="{{ BASE_URL }}/static/js/terminals.js"></script>
+<script src="{{ BASE_URL }}/static/js/agent-sessions.js"></script>
 <script src="{{ BASE_URL }}/static/js/history.js"></script>
 <script src="{{ BASE_URL }}/static/js/environments.js"></script>
 <script src="{{ BASE_URL }}/static/js/tunnels.js"></script>
