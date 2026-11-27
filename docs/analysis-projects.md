@@ -15,7 +15,7 @@ For example:
 > on the right. Keep the data preparation and plotting code in the notebook.
 
 Click **Notebook code** below a figure to open its generating cell. The project
-bar has **Report**, **Notebook**, **Data**, **Inputs**, and **Git**. Keep using the ordinary HTML editor
+bar has **Report**, **Notebook**, **Data**, and **Inputs**. Keep using the ordinary HTML editor
 for layout, text, images, zoom and source edits. Explicit dummy-data requests
 use a recorded random seed and need no external data-file registration.
 
@@ -78,8 +78,8 @@ execution and files remain on the remote computer.
 
 ## Git and GitHub
 
-New projects initialize Git when needed. The **Git** button opens the existing
-Git panel to review diffs, stage files, commit and push. Commit history replaces
+New projects initialize Git when needed. Open **Git** in the left sidebar to
+review diffs, stage files, commit and push. Commit history replaces
 the separate run-ID/review workflow. Cell history stays inside the notebook and
 therefore travels with its Git versions.
 

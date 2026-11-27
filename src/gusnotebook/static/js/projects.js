@@ -93,9 +93,6 @@ window.ProjectWorkspace = (() => {
     const box = event.currentTarget.getBoundingClientRect();
     showFileCtx(box.left,box.bottom,ids.map(id => ({label:id,action:() => act(() => openNotebook(id))})), 'Linked notebooks');
   };
-  $('git').onclick = () => act(async () => {
-    await browse(project.path); showSidebarSection('git'); await refreshGit();
-  });
   $('cancel').onclick = () => act(async () => { await post(endpoint('/cancel')); await refresh(); });
   window.addEventListener('message', event => {
     const frame = document.getElementById('html-preview-frame');

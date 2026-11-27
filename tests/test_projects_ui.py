@@ -167,7 +167,7 @@ def main():
         assert notebook['cells'][1]['outputs'][0]['data']['text/html']
 
         # The existing Git panel versions source and notebooks, with no run-ID UI.
-        page.locator('#project-git').click()
+        page.locator('#sidebar-git').click()
         page.wait_for_function('p => gitState?.root === p', arg=str(root))
         assert (root / '.git').is_dir()
         for key, value in [('user.name', 'Notebook Test'), ('user.email', 'notebook-test@example.invalid')]:
