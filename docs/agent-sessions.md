@@ -3,9 +3,11 @@
 Use the small **Agent sessions** history button beside **Agent** and **Terminal**.
 It lists saved conversations for the directory currently shown in **Files**.
 Choose **Include subfolders** to search beneath it, filter by agent, or search
-titles and session IDs. Click a conversation for a text preview, then **Resume
-in terminal** to continue it. **All sessions** returns to the list; the history
-button stays available after resuming.
+titles and session IDs. Click a conversation to load it in the terminal, or
+focus its existing terminal if it is already open. Use the row's **History**
+button for a text preview. **All sessions** returns to the list; the history
+button stays available after resuming. The preview also offers **Resume in
+terminal**, and remains available when the agent CLI is not installed.
 
 Use the **pencil** button to rename a conversation and the **trash** button to
 delete it. Both actions are also available in the preview. Names are saved in

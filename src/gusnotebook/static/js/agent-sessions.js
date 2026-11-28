@@ -192,14 +192,14 @@ window.AgentHistory = (() => {
         const path = document.createElement('span');
         path.textContent = row.cwd;
         view.append(title, meta, path);
-        view.onclick = () => preview(row);
-        const launch = document.createElement('button');
-        launch.className = 'tb';
-        launch.textContent = 'Resume';
-        configure(launch, !row.available, row.available ? 'Continue in the terminal' : `${providerName(row)} CLI is not installed on this computer`, () => resume(row));
+        configure(view, !row.available, row.available ? 'Open this session in the terminal' : `${providerName(row)} CLI is not installed on this computer`, () => resume(row));
+        const history = document.createElement('button');
+        history.className = 'tb';
+        history.textContent = 'History';
+        configure(history, false, 'View conversation history', () => preview(row));
         const actions = document.createElement('div');
         actions.className = 'agent-history-actions';
-        actions.append(launch);
+        actions.append(history);
         for (const [label, glyph, disabled, hint, action] of [
           ['Rename session', 'edit', !row.manageable, 'Rename this saved conversation', () => rename(row)],
           ['Delete session', 'trash', !row.manageable || row.running, row.running ? 'Close the running agent terminal before deleting this conversation' : 'Delete this saved conversation', () => remove(row)],

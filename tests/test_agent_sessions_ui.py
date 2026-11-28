@@ -64,6 +64,9 @@ else:
         page = browser.new_page(viewport={'width':1440, 'height':960})
         errors = []
         page.on('pageerror', lambda error: errors.append(str(error)))
+        previews = []
+        page.on('request', lambda request: previews.append(request.url)
+                if '/api/agent-sessions/preview?' in request.url else None)
         authenticate_browser(page.context, url)
         page.goto(url, wait_until='domcontentloaded')
         page.wait_for_selector('#tab-new')
@@ -76,9 +79,11 @@ else:
         expect(page.locator('.agent-history-row')).to_have_count(2)
         expect(page.locator('#agent-history-list')).not_to_contain_text('Unrelated session')
         assert page.evaluate('window.__injected') is None
-        page.locator('.agent-history-view').filter(has_text='Deck discussion').click()
+        expect(page.locator('.agent-history-row').get_by_role('button', name='Resume', exact=True)).to_have_count(0)
+        page.locator('.agent-history-row').filter(has_text='Deck discussion').get_by_role('button', name='History', exact=True).click()
         expect(page.locator('#agent-history-messages')).to_contain_text('Here are the results.')
         expect(page.locator('#agent-history-conversation-meta')).to_contain_text(claude_id)
+        assert page.evaluate('terms.length') == 0
         page.get_by_role('button', name='← All sessions', exact=True).click()
         page.locator('#agent-history-children').check()
         expect(page.locator('.agent-history-row')).to_have_count(3)
@@ -90,23 +95,26 @@ else:
             page.evaluate('theme => AppAppearance.update({theme})', theme)
             expect(dialog).to_be_visible()
         page.screenshot(path=str(Path(tempfile.gettempdir())/'gusnb-agent-sessions.png'))
-        page.locator('.agent-history-view').click()
+        preview_count = len(previews)
         page.route('**/api/terminals*', lambda route: route.fulfill(status=400, json={'error':'Resume test failure'}))
-        page.get_by_role('button', name='Resume in terminal', exact=True).click()
+        page.locator('.agent-history-view').click()
         expect(page.locator('#agent-history-error')).to_contain_text('Resume test failure')
         expect(dialog).to_be_visible()
+        expect(page.locator('#agent-history-catalog')).to_be_visible()
+        expect(page.locator('#agent-history-detail')).to_be_hidden()
         page.unroute('**/api/terminals*')
-        page.get_by_role('button', name='Resume in terminal', exact=True).click()
+        page.locator('.agent-history-view').click()
         expect(dialog).to_be_hidden()
         page.wait_for_function('terms.length === 1 && terms[0].ws.readyState === 1')
         expect(page.locator('.term-host.on')).to_contain_text('Saved session test terminal')
         expect(page.locator('.term-host.on')).to_contain_text(codex_id)
         assert page.evaluate('terms[0].kind') == 'codex'
         assert page.evaluate('terms[0].project') is None
+        assert len(previews) == preview_count
         first = page.evaluate('terms[0].id')
         button.click()
         expect(page.locator('.agent-history-row')).to_have_count(1)
-        page.locator('.agent-history-row').get_by_role('button', name='Resume', exact=True).click()
+        page.locator('.agent-history-view').click()
         expect(dialog).to_be_hidden()
         assert page.evaluate('terms.length') == 1
         assert page.evaluate('activeTerm') == first
@@ -135,7 +143,8 @@ else:
         assert json.loads(claude_path.read_text().splitlines()[-1])['customTitle'] == 'Claude analysis notes'
 
         codex_row = page.locator('.agent-history-row').filter(has_text='PCA comparison')
-        codex_row.locator('.agent-history-view').click()
+        codex_row.get_by_role('button', name='History', exact=True).click()
+        assert page.evaluate('terms.length') == 1
         page.get_by_role('button', name='Rename', exact=True).click()
         page.locator('#ask-input').fill('PCA result notes')
         page.locator('#ask-ok').click()
@@ -160,7 +169,8 @@ else:
         page.wait_for_function('terms.length === 1 && terms[0].ws.readyState === 1')
         assert page.evaluate('terms[0].label') == 'PCA result notes'
         button.click()
-        page.locator('.agent-history-row').get_by_role('button', name='Resume', exact=True).click()
+        page.locator('.agent-history-view').focus()
+        page.keyboard.press('Enter')
         expect(dialog).to_be_hidden()
         assert page.evaluate('terms.length') == 1
         assert page.evaluate('terms[0].agent_session') == codex_id
