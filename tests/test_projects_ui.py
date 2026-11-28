@@ -208,7 +208,7 @@ def main():
         page.evaluate('closeTerminalClipboard(false)')
         # The optional + shortcut is a small setup dialog, not another workspace.
         page.locator('#tab-new').click()
-        page.get_by_role('menuitem', name='Analysis project').click()
+        page.get_by_role('menuitem', name='Project', exact=True).click()
         expect(page.locator('#project-create-back')).to_be_visible()
         page.locator('#project-existing').select_option(pid)
         page.get_by_role('button', name='Open project', exact=True).click()

@@ -955,7 +955,7 @@ def main():
         pg.wait_for_selector("#new-menu.on", timeout=10000)
         check("creation entries, each with an icon",
               [t.strip() for t in pg.locator("#new-menu .nl").all_inner_texts()],
-              ["Analysis project", "Notebook", "Text file", "Folder", "Environment"])
+              ["Project", "Notebook", "Text file", "Folder", "Environment"])
         check("icons present",
               pg.locator("#new-menu .ni svg.icon").count(),
               5)

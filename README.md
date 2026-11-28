@@ -55,7 +55,7 @@ full recorded history, including deleted steps and output versions, and export
 the audit log as `.jsonl`. Ordinary `.ipynb` notebooks remain available.
 [Get started with scientific notebooks](docs/gspy.md).
 
-Use **+ → Analysis project**, then the usual **Agent → Claude or Codex** control
+Use **+ → Project**, then the usual **Agent → Claude or Codex** control
 inside its folder, for reports backed by your approved data.
 It opens the HTML and linked Jupyter notebook in normal workspace tabs, manages
 Python with uv, and keeps the Python analysis and full D3 plotting code visible

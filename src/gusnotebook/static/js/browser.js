@@ -711,7 +711,7 @@ function renderTabs() {
     </div>`).join('') +
     // Always last, so "new" sits where the next tab would appear.
     `<button class="tab-new" id="tab-new" aria-label="Create new" aria-haspopup="menu" aria-expanded="false" aria-controls="new-menu" onclick="toggleNewMenu(event)"
-          title="New analysis project, notebook, text file, folder or environment">${icon('plus')}</button>`;
+          title="New project, notebook, text file, folder or environment">${icon('plus')}</button>`;
   strip.scrollLeft = scroll;
   if (previousActive !== active) revealActiveTab();
 }

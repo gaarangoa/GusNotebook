@@ -2,7 +2,7 @@
 
 Work in the normal GusNotebook workspace: HTML and notebook tabs in the center,
 Claude/Codex terminal chat on the right. Create or open a project with
-**+ → Analysis project**, then use the usual **Agent → Claude or Codex** control
+**+ → Project**, then use the usual **Agent → Claude or Codex** control
 while browsing its folder. Describe the report or slide you want. The agent receives the project's
 data, environment, folder, Git, and slide-deck instructions. It runs the analysis
 through notebooks, importing reusable Python modules when appropriate, then

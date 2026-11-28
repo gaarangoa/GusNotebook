@@ -1964,6 +1964,10 @@ button:disabled { opacity: .55; cursor: default; }
 .new-item { font-size: var(--ui-size); padding: 10px 12px; gap: 10px; }
 .new-item .ni { flex-basis: 18px; }
 .new-item .nh { font-size: var(--small-size); white-space: normal; }
+#new-menu { width: max-content; min-width: 160px; padding: 3px; border-radius: 6px; }
+#new-menu .new-item { align-items: center; padding: 4px 8px; gap: 6px; line-height: 1.4; }
+#new-menu .ni { display: inline-flex; flex-basis: 14px; }
+#new-menu .icon { width: 14px; height: 14px; }
 .new-item:focus-visible, .file-ctx-item:focus-visible, .venv-item:focus-visible { outline-offset: -3px; background: var(--hover); }
 .file-ctx-item { font-size: var(--ui-size); padding: 9px 12px; }
 .toolbar { flex-wrap: wrap; height: auto; min-height: 38px; padding: 4px 10px; gap: 4px; overflow: visible; flex-shrink: 0; }
