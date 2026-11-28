@@ -955,11 +955,10 @@ def main():
         pg.wait_for_selector("#new-menu.on", timeout=10000)
         check("creation entries, each with an icon",
               [t.strip() for t in pg.locator("#new-menu .nl").all_inner_texts()],
-              ["Notebook", "Text file", "Folder", "Environment", "Claude Code", "Codex",
-               "Terminal"])
+              ["Analysis project", "Notebook", "Text file", "Folder", "Environment"])
         check("icons present",
               pg.locator("#new-menu .ni svg.icon").count(),
-              7)
+              5)
         pg.keyboard.press("Escape")
         pg.click(".app-header", position={"x": 5, "y": 5})
         pg.wait_for_timeout(300)
@@ -998,10 +997,9 @@ def main():
 
         print("\n-- a terminal is a shell, Claude is Claude")
         go_to(pg, FIX)
-        for entry in ("Claude Code", "Terminal"):
-            pg.click("#tab-new")
-            pg.wait_for_selector("#new-menu.on", timeout=10000)
-            pg.locator("#new-menu .new-item", has_text=entry).first.click()
+        pg.select_option('#agent-kind', 'claude')
+        for entry in ("Agent", "Terminal"):
+            pg.locator('#agent-pane').get_by_role('button', name=entry, exact=True).click()
             pg.wait_for_timeout(1500)
         pg.wait_for_function("terms.length >= 2", timeout=20000)
         sessions = get("/api/terminals")["terminals"]

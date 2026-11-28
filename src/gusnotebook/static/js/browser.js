@@ -711,7 +711,7 @@ function renderTabs() {
     </div>`).join('') +
     // Always last, so "new" sits where the next tab would appear.
     `<button class="tab-new" id="tab-new" aria-label="Create new" aria-haspopup="menu" aria-expanded="false" aria-controls="new-menu" onclick="toggleNewMenu(event)"
-          title="New notebook, file, folder, environment, agent or terminal">${icon('plus')}</button>`;
+          title="New analysis project, notebook, text file, folder or environment">${icon('plus')}</button>`;
   strip.scrollLeft = scroll;
   if (previousActive !== active) revealActiveTab();
 }
@@ -814,13 +814,9 @@ function newFromMenu(what) {
   closeNewMenu();
   if (what === 'project') return ProjectWorkspace.open();
   if (what === 'notebook') return newNotebook();
-  if (what === 'gspy') return newNotebook('gspy');
   if (what === 'text') return newFile();
   if (what === 'folder') return newFolder();
   if (what === 'environment') return openEnvironments();
-  if (what === 'claude') return openTerminalHere('claude');
-  if (what === 'codex') return openTerminalHere('codex');
-  if (what === 'terminal') return openTerminalHere('shell');
 }
 
 document.addEventListener('click', (e) => {
